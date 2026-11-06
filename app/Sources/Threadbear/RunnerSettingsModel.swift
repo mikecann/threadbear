@@ -42,8 +42,7 @@ extension AppModel {
 
     /// Settings › Models, from somewhere else in the app.
     func openModelSettings() {
-        settingsTab = .models
-        settingsRequest += 1
+        openSettings(tab: .models)
     }
 
     /// Changes what's given. The window shows the change straight away;

@@ -59,6 +59,14 @@ struct ThreadbearApp: App {
                     }
                 }
             }
+            // ⌘, opens Settings where Settings > General says: over the
+            // main panel or in its window.
+            CommandGroup(replacing: .appSettings) {
+                IconMenuItems {
+                    Button("Settings…", systemImage: "gearshape") { app.openSettings() }
+                        .keyboardShortcut(",")
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 IconMenuItems {
                     Button("New Thread", systemImage: "square.and.pencil") { app.newThread() }
