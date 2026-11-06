@@ -15,6 +15,8 @@ extension AppModel {
             dock.show(WindowDock.threadPanel(threadId))
             return
         }
+        // Picking a thread shows it, closing Settings if it covered the panel.
+        showsSettingsPage = false
         selection = threadId
         openProjectId = nil
         showsProjectsHome = false

@@ -4,10 +4,13 @@ import ThreadbearCore
 
 /// The Settings window (⌘,): the runner's settings, in the grouped form
 /// every Mac app's settings use. All of it lives in the runner, and this
-/// only shows it and sends changes, apart from the activity log's switch,
-/// which is this Mac's own (ActivityRecorder).
+/// only shows it and sends changes, apart from the appearance and the
+/// activity log's switch, which are this Mac's own (AppAppearance,
+/// ActivityRecorder).
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
+    /// In the main panel (SettingsPage) rather than its window.
+    var inPanel = false
 
     var body: some View {
         @Bindable var app = app
@@ -32,7 +35,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.keyboard)
         }
         .frame(width: 540)
-        .background(SettingsWindowFinder())
+        .background { if !inPanel { SettingsWindowFinder() } }
     }
 }
 
@@ -80,10 +83,26 @@ private struct SettingsErrorRow: View {
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var app
     @AppStorage(ActivityRecorder.enabledKey) private var activityLog = false
+    @AppStorage(AppAppearance.key) private var appearance: AppAppearance = .system
+    @AppStorage(SettingsPlace.key) private var settingsPlace: SettingsPlace = .panel
 
     var body: some View {
         SettingsGate { settings in
             Form {
+                SettingsSection("Appearance",
+                                about: "Light or dark for Threadbear only (Same as the Mac follows System Settings > Appearance), and where Settings opens: over the main panel, where its X or Esc puts you back where you were, or in a window of its own.",
+                                ask: "change it for you.") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                    }
+                    .tip("Light or dark for Threadbear, whatever the Mac is set to")
+                    .onChange(of: appearance) { _, new in new.apply() }
+                    Picker("Open Settings in", selection: $settingsPlace) {
+                        ForEach(SettingsPlace.allCases) { Text($0.title).tag($0) }
+                    }
+                    .tip("Over the main panel, with an X to close it, or in a window of its own")
+                }
+
                 SettingsSection("New threads",
                                 about: "Where a new thread starts when you don't pick a folder.",
                                 ask: "change it, or anything else about how threads run. Most settings aren't shown here, and your agent edits them in runner.json.") {

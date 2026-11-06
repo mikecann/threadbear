@@ -366,6 +366,11 @@ Any other file you paste or drop in (a video, a PDF, a folder) goes in as
 its full path where you drop it, for the agent to open where it is.
 Nothing's copied, so a big one is fine.
 
+Your messages show basic Markdown as replies do: start lines with "- " or
+"1. " for a list, and use **bold**, *italics*, `code`, [links](https://example.com),
+"# " headings and "> " quotes. Your line breaks are kept as you typed them,
+and a message with none of that in it shows exactly as you wrote it.
+
 Paste a thread's id (Copy thread id in its ... menu or its right-click
 menu in the sidebar), or drag its row from the sidebar onto the open
 thread, and it goes in as a chip with that thread's title. Dragging a row
@@ -1287,6 +1292,22 @@ question, whether to land it. There's only ever one; if you leave it open,
 a newer release goes into the same thread. A release Mike marks important
 (a security or data fix) starts one straight away. Change how often, or
 turn it off, in Settings (⌘,) > General > Updates from Mike.
+
+### Where Settings opens
+
+Settings (⌘, or the gear at the bottom of the bar on the left) opens over
+the main panel, with its tabs along the top. The thread or page you had
+open stays as it was under it: the X at the top right, Esc, the gear again
+or picking a thread closes Settings and puts you back. To have Settings in
+a window of its own instead, set Open Settings in to Its own window in
+Settings > General.
+
+### Light and dark
+
+Threadbear follows your Mac's appearance (System Settings > Appearance)
+unless you pick one for it alone: Settings (⌘,) > General > Appearance has
+Same as the Mac, Light and Dark. It changes straight away and stays picked
+the next time the app opens.
 
 ### The activity log
 

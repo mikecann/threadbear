@@ -9,6 +9,7 @@ extension AppModel {
     // MARK: Thread actions
 
     func newThread() {
+        showsSettingsPage = false
         selection = nil
         openProjectId = nil
         showsProjectsHome = false

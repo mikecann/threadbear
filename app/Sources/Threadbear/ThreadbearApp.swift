@@ -59,6 +59,14 @@ struct ThreadbearApp: App {
                     }
                 }
             }
+            // ⌘, opens Settings where Settings > General says: over the
+            // main panel or in its window.
+            CommandGroup(replacing: .appSettings) {
+                IconMenuItems {
+                    Button("Settings…", systemImage: "gearshape") { app.openSettings() }
+                        .shortcut(.settings)
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 IconMenuItems {
                     Button("New Thread", systemImage: "square.and.pencil") { app.newThread() }
@@ -187,6 +195,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MainActor.assumeIsolated {
             let app = AppModel.shared
             let arguments = CommandLine.arguments
+            // Before any window draws. Automation's --appearance comes later and wins.
+            AppAppearance.saved().apply()
             if AppUpdater.isInstalledApp {
                 HangWatch.start(folder: HangWatch.defaultFolder, build: BuildInfo.read(bundle: Bundle.main.bundleURL)?.short, report: CrashReporting.reportHang)
             }

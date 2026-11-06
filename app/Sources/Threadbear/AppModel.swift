@@ -451,6 +451,9 @@ final class AppModel {
     /// Bumped to open the Settings window from the automation (RootView
     /// opens it, as ⌘, does).
     var settingsRequest = 0
+    /// Settings shown over the main panel (SettingsPage), covering what's
+    /// open without changing it.
+    var showsSettingsPage = false
     /// Settings › Phone & browser (DevicesModel.swift): the backend's list
     /// of paired phones and browsers as the runner last gave it, the
     /// website's root, or why nothing can pair. Never a token.
