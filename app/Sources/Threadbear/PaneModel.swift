@@ -178,7 +178,15 @@ extension AppModel {
         show(PanePreview(target: .page(url), title: title, from: paneSection(for: thread)), in: thread.id)
     }
 
+    /// Whether the file being edited in a thread's pane can be left: saved,
+    /// or asked about when autosave is off (EditedFiles).
+    func mayLeaveFile(in threadId: String?) -> Bool {
+        guard let threadId, let path = panePreview[threadId]?.fileURL?.path else { return true }
+        return EditedFiles.shared.mayLeave(path)
+    }
+
     func show(_ preview: PanePreview, in threadId: String) {
+        if panePreview[threadId]?.fileURL != preview.fileURL || preview.fileURL == nil, !mayLeaveFile(in: threadId) { return }
         var preview = preview
         preview.opened = (panePreview[threadId]?.opened ?? 0) + 1
         // Edit files like an editor: a text file opens ready to type in.
@@ -204,12 +212,14 @@ extension AppModel {
     /// Back, to the section the preview came from. An explanation is kept
     /// until the next one, though nothing shows it again yet.
     func closePreview(in threadId: String) {
+        guard mayLeaveFile(in: threadId) else { return }
         panePreview[threadId] = nil
     }
 
     /// The bar's Back: through the folders and files Mike came through in
     /// the browser, then out to the section.
     func previewBack(in threadId: String) {
+        guard mayLeaveFile(in: threadId) else { return }
         guard let current = panePreview[threadId] else { return }
         guard var previous = current.back.last else { return closePreview(in: threadId) }
         previous.back = Array(current.back.dropLast())

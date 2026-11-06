@@ -9,6 +9,8 @@ extension AppModel {
     // MARK: Thread actions
 
     func newThread() {
+        // Leaving the thread leaves the file being edited in its pane.
+        guard mayLeaveFile(in: selection) else { return }
         // A new thread is never the bear's chat unless the bear opened it
         // (BearChat.open aims it there after this).
         if newThreadCwd == BearChat.folder.path { newThreadCwd = nil }

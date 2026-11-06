@@ -162,7 +162,10 @@ extension AppModel {
     /// Shows a section's panel (the automation's `panel`), closing any
     /// preview over another one.
     func choosePanel(_ panelId: String, in threadId: String) {
-        if panePreview[threadId]?.from.id != panelId { panePreview[threadId] = nil }
+        if panePreview[threadId]?.from.id != panelId {
+            guard mayLeaveFile(in: threadId) else { return }
+            panePreview[threadId] = nil
+        }
         panelChoice[threadId] = panelId
         showPane(PaneSection(id: panelId))
     }
@@ -170,12 +173,17 @@ extension AppModel {
     /// A rail button, VS Code's way: closes the section's panel if it's
     /// showing, else brings it up (WindowDock).
     func clickRail(_ section: PaneSection, in thread: ThreadSummary) {
+        let leaving = (panePreview[thread.id].map { $0.from != section } ?? false) || dock.isShowing(section.id)
+        if leaving, !mayLeaveFile(in: thread.id) { return }
         if panePreview[thread.id].map({ $0.from != section }) ?? false { panePreview[thread.id] = nil }
         panelChoice[thread.id] = section.id
         if dock.isShowing(section.id) { dock.close(section.id) } else { showPane(section) }
     }
 
-    func togglePanels() { panelsShown.toggle() }
+    func togglePanels() {
+        if panelsShown, !mayLeaveFile(in: paneThread?.id) { return }
+        panelsShown.toggle()
+    }
 
     /// The sidebar's panel, from the View menu: closed, or opened down the
     /// left of the window.

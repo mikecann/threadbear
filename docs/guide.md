@@ -546,19 +546,24 @@ have files open in the app your Mac uses for them instead (Cursor, Xcode),
 set Open files in to Its own app in Settings (⌘,) > General. ⌘-click
 always opens a file in its app, and its right-click menu has both.
 
-To work on files here as you would in an editor, turn on Edit files like
-an editor in Settings (⌘,) > General > Files (it's off until you do). A
-text file then opens ready to type in, with line numbers down the side
-and a bar underneath showing the line and column, and whether what you
-typed is in the file yet: Edited with a blue dot, or Saved. Nothing is
-written while you type, so a dev server watching the file doesn't reload
-on every pause. ⌘S or Save writes it, and so does leaving the file
-(Back, another file, closing the panel or quitting), so nothing typed is
-lost. The eye at the top shows the file as it reads (Markdown drawn) and
-the pencil goes back to editing. If an agent changes the file while you
-have unsaved edits, a bar asks whether to take the file's version or keep
-yours. With the setting off, the pencil switches a file to editing and
-what you type is saved as you go.
+Text files open ready to type in, as in an editor: double-click one in
+Files (or click it in a reply or Highlights) and it's there with line
+numbers down the side and a bar underneath showing the line and column.
+What you type is saved by itself about a second after you stop, and when
+you leave the file, the panel or the app; while it's waiting, the file's
+tab has a dot and the bar says Edited, then a quiet Saved when it lands.
+⌘S saves at once. If an agent changes the file while you have changes
+that aren't saved, Threadbear never writes over it: a bar asks whether to
+take the file's version or keep yours. The eye at the top shows the file
+as it reads (Markdown drawn) and the pencil goes back to editing.
+
+Two switches in Settings (⌘,) > General > Files change this, both on
+until you turn them off. Turn off Save files automatically and nothing is
+written until you press ⌘S or Save (handy when a dev server reloads on
+every change); then going Back, opening another file or thread, or
+closing the panel with changes asks Save, Don't Save or Cancel. Turn off
+Edit files like an editor and files open to read, and the pencil switches
+one to editing, saved as you go.
 
 ## Highlights
 <!-- slug: highlights -->

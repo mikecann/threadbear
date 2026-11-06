@@ -111,6 +111,8 @@ enum WindowDock {
         // A file or page open over the section: its name, with Back to the
         // section in the bar.
         if let thread = app.paneThread, let preview = app.panePreview[thread.id], preview.from.id == panel {
+            // A dot while it has typing that isn't in the file yet.
+            if let path = preview.fileURL?.path, EditedFiles.shared.isUnsaved(path) { return "● " + preview.title }
             return preview.title
         }
         switch panel {

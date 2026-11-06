@@ -24,14 +24,15 @@ enum FileOpenPlace: String, CaseIterable, Identifiable {
     }
 }
 
-/// Settings > General > Files > Edit files like an editor (off until it's
-/// turned on): a text file opens in the panel ready to type in, with line
-/// numbers, and is written when you save (⌘S, the Save button, or leaving
-/// the file), not a moment after each pause. Off, the pencil switches a
-/// file to editing and what's typed is saved as you go.
+/// Settings > General > Files > Edit files like an editor (on until it's
+/// turned off): a text file opens in the panel ready to type in, with line
+/// numbers and a line and column bar. Typing is written a second after it
+/// stops while Save files automatically is on (FileAutosave), and only on
+/// ⌘S or Save while it's off. Off, the pencil switches a file to editing
+/// and what's typed is saved as you go.
 enum FileEditorMode {
     static let key = "filesEditLikeAnEditor"
-    static var isOn: Bool { UserDefaults.standard.bool(forKey: key) }
+    static var isOn: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 
 /// What a file link in the transcript can do, from its right-click menu.

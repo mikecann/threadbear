@@ -706,10 +706,23 @@ enum Automation {
             // types text at the end of the editor (and waits for the
             // save, unless "wait" is false), and "resolve" ("file" or
             // "mine") is the conflict bar's button. "editor" true or false
-            // turns Settings' Edit files like an editor on or off first, and
-            // "save" true is ⌘S.
+            // turns Settings' Edit files like an editor on or off first,
+            // "autosave" its Save files automatically, and "save" true is
+            // ⌘S. "answer" ("save", "discard" or "cancel") is what the
+            // Save the changes? alert gets from now on, instead of showing
+            // ("ask" puts the alert back); "state" true says what's unsaved.
             guard let thread = app.selectedThread else { return "error no thread selected" }
             if let on = c["editor"] as? Bool { UserDefaults.standard.set(on, forKey: FileEditorMode.key) }
+            if let on = c["autosave"] as? Bool { UserDefaults.standard.set(on, forKey: FileAutosave.key) }
+            if let answer = c["answer"] as? String {
+                EditedFiles.shared.scriptedAnswer = EditedFiles.Answer(rawValue: answer)
+                EditedFiles.shared.lastAsked = nil
+            }
+            if c["state"] as? Bool == true {
+                let files = EditedFiles.shared
+                let showing = app.panePreview[thread.id].map { "\($0.title)\($0.editing ? " (editing)" : "")" } ?? "nothing"
+                return "ok showing \(showing); unsaved [\(files.unsaved.sorted().joined(separator: ", "))]; asked \(files.lastAsked ?? "nothing"); conflict \(TextFileController.current?.conflict != nil)"
+            }
             if c["save"] as? Bool == true {
                 guard let controller = TextFileController.current, app.panePreview[thread.id]?.editing == true else {
                     return "error nothing is being edited"

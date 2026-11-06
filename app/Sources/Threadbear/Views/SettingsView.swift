@@ -91,7 +91,8 @@ private struct GeneralSettings: View {
     @AppStorage(BearChat.shownKey) private var bearShown = true
     @AppStorage(NotesStore.shownKey) private var notesShown = true
     @AppStorage(FileOpenPlace.key) private var fileOpenPlace: FileOpenPlace = .threadbear
-    @AppStorage(FileEditorMode.key) private var editLikeAnEditor = false
+    @AppStorage(FileEditorMode.key) private var editLikeAnEditor = true
+    @AppStorage(FileAutosave.key) private var saveFilesAutomatically = true
     @AppStorage(TurnModes.enabledKey) private var turnModesOn = true
 
     var body: some View {
@@ -144,7 +145,7 @@ private struct GeneralSettings: View {
                 }
 
                 SettingsSection("Files",
-                                about: "Where a file opens when you click it in a reply, Highlights or Files: here in Threadbear's panel (code with syntax colours, Markdown drawn, Edit for text) or in the app your Mac opens it with, such as Cursor or Xcode. ⌘-click always opens it in its app, and the right-click menu has both. Edit files like an editor opens text files ready to type in, with line numbers, and writes them when you save (⌘S) rather than as you type.",
+                                about: "Where a file opens when you click it in a reply, Highlights or Files: here in Threadbear's panel (code with syntax colours, Markdown drawn, Edit for text) or in the app your Mac opens it with, such as Cursor or Xcode. ⌘-click always opens it in its app, and the right-click menu has both. Edit files like an editor opens text files ready to type in, with line numbers. Save files automatically writes what you type a second after you stop, and ⌘S saves at once; with it off, leaving a file with changes asks whether to save them.",
                                 ask: "change which app opens a kind of file.") {
                     Picker("Open files in", selection: $fileOpenPlace) {
                         ForEach(FileOpenPlace.allCases) { Text($0.title).tag($0) }
@@ -152,7 +153,10 @@ private struct GeneralSettings: View {
                     .tip("Threadbear's panel, or the file's own app")
                     Toggle("Edit files like an editor", isOn: $editLikeAnEditor)
                         .disabled(fileOpenPlace == .app)
-                        .tip("Open text files ready to type in, with line numbers, and save with ⌘S")
+                        .tip("Open text files ready to type in, with line numbers and a line and column bar")
+                    Toggle("Save files automatically", isOn: $saveFilesAutomatically)
+                        .disabled(fileOpenPlace == .app || !editLikeAnEditor)
+                        .tip("Write what you type a second after you stop. Off, ⌘S saves and leaving a file with changes asks first")
                 }
 
                 SettingsSection("New threads",

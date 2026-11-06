@@ -120,7 +120,10 @@ private struct EditorStatusBar: View {
             Spacer(minLength: 0)
             if controller.dirty {
                 Circle().fill(Color.accentColor).frame(width: zoomed(6), height: zoomed(6))
-                Text("Edited").foregroundStyle(.secondary)
+                Text(controller.autosaves ? "Edited, saving…" : "Edited").foregroundStyle(.secondary)
+            } else if controller.justSaved {
+                Image(systemName: "checkmark").foregroundStyle(.secondary)
+                Text("Saved").foregroundStyle(.secondary)
             } else {
                 Text("Saved").foregroundStyle(.tertiary)
             }
@@ -179,9 +182,18 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     /// Edit files like an editor (FileEditorMode), as it was when the file
     /// opened: saves wait for ⌘S, Save or leaving the file.
     let editorMode: Bool
-    /// Typed and not in the file yet (editor mode; otherwise it's saved
-    /// a moment after the typing stops).
-    private(set) var dirty = false
+    /// Typed and not in the file yet.
+    private(set) var dirty = false {
+        didSet { if dirty != oldValue { EditedFiles.shared.setUnsaved(url.path, dirty) } }
+    }
+    /// A save just landed: the status bar's quiet "Saved" tick, for a moment.
+    private(set) var justSaved = false
+    @ObservationIgnored private var justSavedTimer: DispatchWorkItem?
+    /// Leave without saving (Don't Save): nothing more is written.
+    @ObservationIgnored private var discarded = false
+    /// Whether typing is written by itself a moment after it stops: always
+    /// outside editor mode, and in it while Save files automatically is on.
+    var autosaves: Bool { !editorMode || FileAutosave.isOn }
     /// Where the cursor is, 1-based, for the status bar.
     private(set) var cursor = (line: 1, column: 1)
     @ObservationIgnored private var dark = false
@@ -204,6 +216,8 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     /// How long after the last keystroke the file is written.
     static let saveDelay: DispatchTimeInterval = .milliseconds(800)
+    /// Editor mode's autosave: about a second after the typing stops.
+    static let editorSaveDelay: DispatchTimeInterval = .milliseconds(1000)
 
     var isMarkdown: Bool { PreviewRules.isMarkdown(url.path) }
     var language: String? { PreviewRules.codeLanguage(forPath: url.path) }
@@ -256,6 +270,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
             scroll.rulersVisible = false
         }
         textView.onSave = { [weak self] in self?.saveNow() }
+        EditedFiles.shared.register(self)
     }
 
     // MARK: Lifecycle
@@ -295,7 +310,11 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     }
 
     func stop() {
-        saveNow()
+        // Leaving was asked about already (EditedFiles.mayLeave), unless
+        // it went some way that can't ask: then keeping what's typed beats
+        // losing it.
+        if !discarded { saveNow() }
+        if dirty { dirty = false }
         document.stopWatching()
         if let terminating { NotificationCenter.default.removeObserver(terminating) }
         terminating = nil
@@ -427,7 +446,8 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         guard editing else { return }
         generation += 1
-        if editorMode { dirty = textView.string != document.saved } else { scheduleSave() }
+        dirty = textView.string != document.saved
+        if dirty, autosaves { scheduleSave() }
         (scroll.verticalRulerView as? LineNumberRuler)?.needsDisplay = true
         colourTimer?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.colour() }
@@ -450,17 +470,33 @@ final class TextFileController: NSObject, NSTextViewDelegate {
         saveTimer?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.saveNow() }
         saveTimer = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.saveDelay, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (editorMode ? Self.editorSaveDelay : Self.saveDelay), execute: item)
     }
 
-    /// Writes what's typed, unless a conflict is waiting on Mike.
+    /// Writes what's typed, unless a conflict is waiting on Mike. If the
+    /// file changed on disk since it was read (an agent's edit the watch
+    /// hasn't reported yet), it isn't written over: the conflict bar asks.
     func saveNow() {
         saveTimer?.cancel()
         saveTimer = nil
-        guard editing, conflict == nil, document.isEditable else { return }
-        do {
-            try document.save(textView.string)
+        guard editing, conflict == nil, document.isEditable, !discarded else { return }
+        let typed = textView.string
+        guard typed != document.saved else {
             dirty = false
+            return
+        }
+        if let onDisk = document.changedOnDisk(), onDisk != typed {
+            conflict = onDisk
+            return
+        }
+        do {
+            try document.save(typed)
+            dirty = false
+            justSaved = true
+            justSavedTimer?.cancel()
+            let item = DispatchWorkItem { [weak self] in self?.justSaved = false }
+            justSavedTimer = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: item)
         } catch {
             note = "Couldn't save: \(error.localizedDescription)"
         }
@@ -494,8 +530,19 @@ final class TextFileController: NSObject, NSTextViewDelegate {
 
     /// Its "Keep mine": what's typed is written over the file.
     func keepMine() {
+        if let onDisk = conflict { document.adopt(onDisk) }
         conflict = nil
+        dirty = textView.string != document.saved
         saveNow()
+    }
+
+    /// Don't Save: back to what's in the file, and nothing written on the
+    /// way out.
+    func discard() {
+        saveTimer?.cancel()
+        saveTimer = nil
+        discarded = true
+        dirty = false
     }
 
     /// For the automation: types `text` at the end, as a keystroke would.

@@ -15,6 +15,8 @@ extension AppModel {
             dock.show(WindowDock.threadPanel(threadId))
             return
         }
+        // Leaving the thread leaves the file being edited in its pane.
+        if selection != threadId, !mayLeaveFile(in: selection) { return }
         // Voice talks with the thread on screen: going to another ends it.
         if VoiceMode.shared.isOn, VoiceMode.shared.threadId != threadId { VoiceMode.shared.stop() }
         // Picking a thread shows it, closing Settings if it covered the panel.
