@@ -609,10 +609,11 @@ public struct TranscriptModel: Sendable {
         let seq = event.seq
         let turnId = event.turnId
         switch event.payload {
-        case .userMessage(let text, let images, let origin, let answers, let editOf, let review):
+        case .userMessage(let text, let images, let origin, let answers, let editOf, let review, let mode):
             // Mike's reply answers the open card, so it goes, picked or not.
             if origin != "runner" { closeOpenAsks() }
             var message = UserMessage(text: text, images: images, origin: origin, answers: answers, editOf: editOf, review: review)
+            message.mode = mode
             // Only one that started its own turn can be cut back to; one
             // sent into a running turn went into that turn.
             message.editable = message.isMike && turnId.map { !startedTurns.contains($0) } == true
@@ -1021,7 +1022,10 @@ public struct TranscriptModel: Sendable {
     static func isWork(_ row: TranscriptRow) -> Bool {
         switch row.content {
         case .tool(let tool): return !isTakenEndTurn(tool)
-        case .reasoning, .note: return true
+        case .reasoning: return true
+        // A note with a link (the saved plan's "Saved the plan to …") is
+        // something to click, so it stays out where it can be seen.
+        case .note(let text): return !text.contains("](")
         case .approval(let item): return item.isAllowed
         default: return false
         }
@@ -1230,6 +1234,8 @@ public struct TranscriptModel: Sendable {
         case .error, .footer, .asks, .review, .gap, .planCard: return true
         case .images(_, _, let generated): return generated
         case .tool(let tool): return Self.isTakenEndTurn(tool) || pressedRuns.contains(items[k].id)
+        // A note with a link (the saved plan's) is something to click.
+        case .note(let text): return text.contains("](")
         default: return false
         }
     }

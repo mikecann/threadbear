@@ -478,7 +478,7 @@ public enum EventPayload: Sendable, Hashable {
     /// `editOf` is the seq of the message this one replaced (Editing a
     /// message). `review` is Mike's answer to a review, when the runner
     /// sent it for one.
-    case userMessage(text: String, images: [ImageRef], origin: String? = nil, answers: [AskAnswer] = [], editOf: Int? = nil, review: ReviewAnswer? = nil)
+    case userMessage(text: String, images: [ImageRef], origin: String? = nil, answers: [AskAnswer] = [], editOf: Int? = nil, review: ReviewAnswer? = nil, mode: String? = nil)
     /// `summary`: the turn's summary, written by the runner from end_turn
     /// (docs/protocol.md, "The summary").
     /// `givesWay`: on a summary, with bullet replies off: any message of the
@@ -560,6 +560,7 @@ public struct Event: Sendable, Hashable, Decodable {
         var origin: String?
         var answers: [AskAnswer]
         var editOf: Int?
+        var mode: String?
         var reviewId: String?
         var reviewResponse: ReviewDraft?
         var summary = false
@@ -576,6 +577,7 @@ public struct Event: Sendable, Hashable, Decodable {
             origin = try? c.decodeIfPresent(String.self, forKey: .origin)
             answers = c.lossyArray(AskAnswer.self, forKey: .answers)
             editOf = c.lenientInt(forKey: .editOf)
+            mode = try? c.decodeIfPresent(String.self, forKey: .mode)
             reviewId = try? c.decodeIfPresent(String.self, forKey: .reviewId)
             reviewResponse = try? c.decodeIfPresent(ReviewDraft.self, forKey: .reviewResponse)
             summary = (try? c.decodeIfPresent(Bool.self, forKey: .summary)) == true
@@ -584,7 +586,7 @@ public struct Event: Sendable, Hashable, Decodable {
             final = (try? c.decodeIfPresent(Bool.self, forKey: .final)) == true
         }
 
-        enum CodingKeys: String, CodingKey { case itemId, text, images, message, origin, answers, editOf, reviewId, reviewResponse, summary, narration, givesWay, final }
+        enum CodingKeys: String, CodingKey { case itemId, text, images, message, origin, answers, editOf, mode, reviewId, reviewResponse, summary, narration, givesWay, final }
     }
 
     private struct PlanCardFields: Decodable {
@@ -632,7 +634,7 @@ public struct Event: Sendable, Hashable, Decodable {
             let fields = try text()
             let text = fields.text ?? ""
             return .userMessage(text: text, images: fields.images, origin: fields.origin, answers: fields.answers, editOf: fields.editOf,
-                                review: ReviewAnswer.parse(text, reviewId: fields.reviewId, response: fields.reviewResponse))
+                                review: ReviewAnswer.parse(text, reviewId: fields.reviewId, response: fields.reviewResponse), mode: fields.mode)
         case "assistant.text":
             let fields = try text()
             return .assistantText(itemId: fields.itemId ?? "", text: fields.text ?? "", summary: fields.summary, narration: fields.narration, givesWay: fields.givesWay, final: fields.final)

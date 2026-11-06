@@ -1,6 +1,11 @@
+import { createHash } from 'node:crypto';
 // The thread manager: owns threads, turns, the event log, approvals, idle
 // release and snoozes. Providers plug in through AgentAdapter; the WebSocket
 // server in rpc.ts is a thin layer over the public methods here.
+import { isPublishCommand, siteUrls, SITE_LINK_TITLE } from './site-links.ts';
+import { modeInstructions, planDocument, planPath } from './modes.ts';
+import { withSkillMentions } from './skill-mentions.ts';
+import type { TurnMode } from './store.ts';
 import { RELEASE } from './release.ts';
 import { reachable, type Reachable } from './net-probe.ts';
 import type { UpstreamStatus } from './upstream.ts';
@@ -156,6 +161,8 @@ export type Notification =
   | { method: 'remoteThreads.updated'; params: import('./thread-index.ts').RemoteThreads }
   | { method: 'clis.updated'; params: { clis: CliStatus[] } }
   | { method: 'settings.updated'; params: { settings: Settings } }
+  | { method: 'skills.updated'; params: { skills: import('./skills.ts').Skill[]; enabled: boolean } }
+  | { method: 'skills.instructions'; params: { instructions: string } }
   | { method: 'runner.updates'; params: { updates: RunnerUpdates } }
   | { method: 'projects.updated'; params: { projects: Project[] } }
   | { method: 'librarian.updated'; params: { librarian: LibrarianStatus } }
@@ -281,6 +288,8 @@ export type Turn = {
   // Folders its shell commands worked in (commandFolders), so the
   // librarian knows the repo a thread in a catch-all folder works on.
   workedIn?: Set<string>;
+  /** Tool calls this turn that published something (site-links.ts). */
+  publishCalls?: Set<string>;
   // The agent's own end_turn input and last text, for what the turn needs
   // from Mike (needs.ts). Never a sub-agent's.
   endTurn?: Record<string, unknown>;
@@ -496,6 +505,10 @@ export type RunnerDeps = {
   // Projects (projects.ts): their folders' patches, the brief a session
   // starts with, and the summary's `projects`. Started by start().
   projects?: Projects;
+  /** Mike's standing instructions for every session (Skills > Instructions, skills.ts); '' for none. */
+  standingInstructions?: () => string;
+  /** The skills threads get (skills.ts): none while the store is off. */
+  skillNames?: () => string[];
   // A completed turn asked Mike to Restart to Update, by end_turn or in its
   // closing "What I need from you" (app-restarts.ts signs the thread up).
   appRestartAsked?: (threadId: string) => void;
@@ -590,6 +603,8 @@ export class Runner {
   // Where answers to ask_secret go, and the key the phone seals them to.
   secrets: SecretStore;
   models?: Pick<Models, 'generate'>;
+  standingInstructions?: () => string;
+  skillNames?: () => string[];
   projects?: Projects;
   activity = new Set<(a: ThreadActivity) => void>();
   patchCache: PatchCache = new Map();
@@ -671,6 +686,8 @@ export class Runner {
     this.secrets = new SecretStore(paths.secrets(deps.config.home), () => this.clock.now());
     this.models = deps.models;
     this.projects = deps.projects;
+    this.standingInstructions = deps.standingInstructions;
+    this.skillNames = deps.skillNames;
     this.appRestartAsked = deps.appRestartAsked;
     this.atMac = deps.atMac;
     this.adapters = deps.adapters;
@@ -1360,6 +1377,7 @@ export class Runner {
     if (opts.scheduleId) msg.scheduleId = opts.scheduleId;
     if (opts.answers?.length) msg.answers = opts.answers;
     if (opts.editOf) msg.editOf = opts.editOf;
+    if (opts.mode) msg.mode = opts.mode;
     rec.lastActivityAt = this.isoNow();
     if (rt.turn && !opts.queue && fromMike(text, opts) && this.switchWaiting(st)) {
       // He picked another login (another provider, usually) during this
@@ -1466,7 +1484,7 @@ export class Runner {
     // more thing" shouldn't send the thread away. It can ask again.
     if (turn.endTurn?.archive) turn.endTurn = { ...turn.endTurn, archive: false };
     this.markDirty(st);
-    rt.session!.send({ id: msg.turnId, text: this.forAgent(msg), images: msg.images });
+    rt.session!.send({ id: msg.turnId, text: this.forAgent(msg, st.rec.provider), images: msg.images, ...(msg.mode ? { readOnly: true } : {}) });
   }
 
   // The text the agent gets for a message. One from the phone says so, and
@@ -1474,7 +1492,14 @@ export class Runner {
   // step while he's out and keeps the reply short. It goes on every phone
   // message rather than once, as he moves between the two. The transcript
   // keeps what he typed.
-  forAgent(msg: { text: string; origin?: MessageOrigin }): string {
+  // `mode` "plan" is a message logged before Plan first took over planning: read-only, as Ask.
+  forAgent(msg: { text: string; origin?: MessageOrigin; mode?: TurnMode | 'plan' }, provider?: Provider): string {
+    if (msg.mode) return `${modeInstructions('ask')}\n\n${this.forAgent({ ...msg, mode: undefined }, provider)}`;
+    // /name for a Threadbear skill, made to work in this thread's CLI (skill-mentions.ts).
+    if (provider && this.skillNames) {
+      const names = this.skillNames();
+      if (names.length) msg = { ...msg, text: withSkillMentions(msg.text, names, provider) };
+    }
     if (msg.origin !== 'phone') return msg.text;
     const atMac = this.atMac?.();
     const where = atMac === true ? ', at the Mac' : atMac === false ? ', away from the Mac' : '';
@@ -1527,6 +1552,50 @@ export class Runner {
     });
   }
 
+  // A Plan first plan (plan.proposed) as a Markdown file in the thread's
+  // folder, plans/<date>-<project or folder>.md, pinned in Highlights and
+  // opened beside the thread, with a note linking it. A revision before Go
+  // ahead overwrites the same file (rec.planFile), saying so only once.
+  savePlan(st: ThreadState, text: string): void {
+    const { rec } = st;
+    try {
+      const project = this.projects?.threadProjects(rec)?.[0]?.title;
+      const now = new Date(this.clock.now());
+      const again = Boolean(rec.planFile && fs.existsSync(rec.planFile));
+      const file = again ? rec.planFile! : planPath(rec.cwd, project ?? path.basename(rec.cwd), now);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, planDocument(text, { title: rec.title, project, date: now }));
+      rec.planFile = file;
+      const shown = path.relative(rec.cwd, file);
+      // A link, so a click opens it here in the app's panel.
+      this.emit(st, { type: 'system.note', text: `${again ? 'Updated' : 'Saved'} the plan in [${shown}](<${file}>).` });
+      // Pinned, and opened beside the thread now (the app shows it in the panel).
+      this.pin(rec.id, { path: file, title: `Plan: ${rec.title}`, note: 'The plan from Plan first', show: true });
+    } catch (err) {
+      this.log.warn('could not save a plan', { threadId: rec.id, err: String(err) });
+      this.emit(st, { type: 'system.note', text: `Couldn't save the plan: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  }
+
+  // A site a deploy put up (site-links.ts) as "Live site" on each project
+  // the thread is in, unless the project has it already (its title then
+  // stays as it is) or already has as many links as it can.
+  addSiteLinks(rec: ThreadRecord, sites: string[]): void {
+    const projects = this.projects;
+    if (!projects) return;
+    for (const p of projects.threadProjects(rec) ?? []) {
+      try {
+        const have = projects.get(p.id).project.links;
+        const fresh = sites.filter((url) => !have.some((l) => l.url.replace(/\/+$/, '') === url));
+        if (!fresh.length) continue;
+        projects.addLinks(p.id, fresh.map((url) => ({ title: SITE_LINK_TITLE, url })));
+        this.log.info('added a published site to a project', { threadId: rec.id, projectId: p.id, sites: fresh });
+      } catch (err) {
+        this.log.info('could not add a published site to a project', { projectId: p.id, err: String(err) });
+      }
+    }
+  }
+
   async deliver(st: ThreadState, msg: QueuedSend): Promise<void> {
     const { rec, rt } = st;
     // A folder, account or settings change asked for a fresh CLI, or a CLI
@@ -1548,7 +1617,7 @@ export class Runner {
       rt.turn.command = true;
       if (/^\/(compact|review|clear)\b/i.test(msg.text.trim())) rt.turn.noSteer = true;
     }
-    let text = command ? msg.text : this.forAgent(msg);
+    let text = command ? msg.text : this.forAgent(msg, rec.provider);
     // Claude's CLI starts a new session for /clear, which the runner follows
     // (its next init), but says nothing.
     if (command && rec.provider === 'claude' && /^\/clear\b/i.test(msg.text.trim())) {
@@ -1599,13 +1668,16 @@ export class Runner {
     // Kept for the next message when this one is a command.
     const news = command ? undefined : this.projectNews(rec);
     if (news) text = `${news}\n\n${text}`;
+    // Kept for the next message when this one is a command, as the news is.
+    const standing = command ? undefined : this.instructionsNews(rec);
+    if (standing) text = `${standing}\n\n${text}`;
     if (rec.moved) {
       // A CLI that moves folders itself: the live session got setCwd, or a
       // released one resumes in the new folder (startSession passes it).
       this.emit(st, { type: 'system.note', text: `Moved to ${rec.cwd}. The session carries on there.` }, msg.turnId);
       delete rec.moved;
     }
-    rt.session!.send({ id: msg.turnId, text, images: msg.images });
+    rt.session!.send({ id: msg.turnId, text, images: msg.images, ...(msg.mode ? { readOnly: true } : {}) });
     if (msg.reviewId && !rec.reviewDeliveries?.includes(msg.reviewId)) {
       (rec.reviewDeliveries ??= []).push(msg.reviewId);
       // A persisted transcript row is not proof of dispatch: both initial
@@ -1823,7 +1895,14 @@ export class Runner {
             if (typeof cmd === 'string') {
               rt.turn.workedIn ??= new Set();
               for (const dir of commandFolders(cmd, rec.cwd, this.panelsRoot ?? os.homedir())) rt.turn.workedIn.add(dir);
+              if (isPublishCommand(cmd)) (rt.turn.publishCalls ??= new Set()).add(ev.itemId);
             }
+          }
+          // A deploy that put a site up: its address on the thread's projects.
+          if (ev.type === 'tool.result' && ev.ok && rt.turn.publishCalls?.has(ev.itemId)) {
+            rt.turn.publishCalls.delete(ev.itemId);
+            const sites = siteUrls(ev.text);
+            if (sites.length) this.addSiteLinks(rec, sites);
           }
         }
         this.emit(st, ev, rt.turn?.turnId);
@@ -1968,6 +2047,8 @@ export class Runner {
         if (rec.openPlan && rec.openPlan !== o.itemId) this.emit(st, { type: 'plan.resolved', itemId: rec.openPlan, decision: 'revise' }, rt.turn?.turnId);
         rec.openPlan = o.itemId;
         this.emit(st, { type: 'plan.proposed', itemId: o.itemId, text: o.text }, rt.turn?.turnId);
+        // Kept as a file too, opened beside the thread (a revision overwrites it).
+        this.savePlan(st, o.text);
         this.markDirty(st);
         break;
       case 'allowRules': {
@@ -2352,7 +2433,7 @@ export class Runner {
             // transcript carried to a new folder that wouldn't resume gets
             // the move's note, any other thread with earlier turns the
             // not-found one.
-            let text = this.forAgent(first);
+            let text = this.forAgent(first, rec.provider);
             const earlier = rec.lastTurnCompletedSeq > 0;
             if (!inUse && (rt.carried || earlier)) {
               rec.handoff = rt.carried ?? { fromCwd: rec.cwd, fromAccountId: rec.accountId, lost: true };
@@ -2366,7 +2447,7 @@ export class Runner {
             // order, matched to their ids when the counts agree.
             if (msgs.length === turn.messages.length) {
               msgs.slice(1).forEach((m, i) => {
-                if (m.type === 'user.message') rt.session!.send({ id: turn.messages[i + 1], text: this.forAgent(m), images: m.images });
+                if (m.type === 'user.message') rt.session!.send({ id: turn.messages[i + 1], text: this.forAgent(m, rec.provider), images: m.images });
               });
             }
             return;
@@ -3077,6 +3158,10 @@ export class Runner {
   briefFor(rec: ThreadRecord, resume: boolean): { instructions?: string } {
     if (resume) return {};
     const parts: string[] = [];
+    // Mike's own standing instructions first: they're for everything.
+    const standing = this.standingInstructions?.().trim() ?? '';
+    rec.instructionsTold = instructionsHash(standing);
+    if (standing) parts.push(standingText(standing));
     if (this.projects) {
       rec.projectsTold = this.projects.briefIds(rec);
       const brief = this.projects.brief(rec);
@@ -3090,6 +3175,20 @@ export class Runner {
   // The thread's projects its session hasn't been told about, as lines to
   // put before its next message, or undefined. A thread whose session
   // predates projects (never told anything) gets the whole brief.
+  // Mike's standing instructions, when they've changed since the session
+  // last heard them (or it never has): a resumed Claude session keeps its
+  // first system prompt, so the change comes before his next message.
+  instructionsNews(rec: ThreadRecord): string | undefined {
+    if (!this.standingInstructions) return undefined;
+    const standing = this.standingInstructions().trim();
+    const hash = instructionsHash(standing);
+    if (rec.instructionsTold === hash) return undefined;
+    const before = rec.instructionsTold;
+    rec.instructionsTold = hash;
+    if (!standing) return before === undefined || before === instructionsHash('') ? undefined : 'Note from Threadbear: the user cleared their standing instructions; earlier ones no longer apply.';
+    return `Note from Threadbear: the user's standing instructions${before === undefined || before === instructionsHash('') ? '' : ' have changed, and replace any earlier ones'}.\n\n${standingText(standing)}`;
+  }
+
   projectNews(rec: ThreadRecord): string | undefined {
     if (!this.projects) return undefined;
     const ids = this.projects.briefIds(rec);
@@ -3196,7 +3295,7 @@ export function stoppedWorkMessage(what: string[], last: boolean): string {
   ].join('\n');
 }
 
-export type SendOptions = { origin?: MessageOrigin; scheduleId?: string; queue?: boolean; answers?: AskAnswer[]; editOf?: number };
+export type SendOptions = { origin?: MessageOrigin; scheduleId?: string; queue?: boolean; answers?: AskAnswer[]; editOf?: number; mode?: TurnMode };
 
 // Typed by Mike, at the Mac or on his phone: not the runner's, a
 // schedule's or an agent's (another thread's, or this one's own `then`
@@ -3246,6 +3345,7 @@ export function userMessage(msg: QueuedSend): EventBody {
     ...(msg.reviewId ? { reviewId: msg.reviewId, reviewResponse: msg.reviewResponse } : {}),
     ...(msg.answers?.length ? { answers: msg.answers } : {}),
     ...(msg.editOf ? { editOf: msg.editOf } : {}),
+    ...(msg.mode ? { mode: msg.mode } : {}),
   };
 }
 
@@ -3416,6 +3516,15 @@ function openInBrowser(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile('/usr/bin/open', [page], (err) => (err ? reject(new RpcError(ErrorCode.other, `Couldn't open ${page}: ${err.message}`)) : resolve()));
   });
+}
+
+// Mike's standing instructions as an agent is given them.
+function standingText(text: string): string {
+  return `The user's standing instructions (set in Threadbear, Skills > Instructions). Keep them in mind in everything you do for them:\n\n${text}`;
+}
+
+function instructionsHash(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
 
 const ACCESS_ORDER: PermissionMode[] = ['ask', 'auto', 'full'];

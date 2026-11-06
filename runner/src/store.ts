@@ -7,7 +7,9 @@ import { paths } from './config.ts';
 import type { WorktreeRecord } from './worktrees.ts';
 import type { WakeWhen } from './wake-when.ts';
 
-export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number };
+export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number; mode?: TurnMode };
+// Plan or Ask mode, from the composer (modes.ts): a read-only turn.
+export type TurnMode = 'ask';
 
 // What thread.json holds: the public summary fields plus a few internal ones.
 export type ThreadRecord = {
@@ -54,6 +56,9 @@ export type ThreadRecord = {
   // waiting for Mike (its plan.proposed itemId).
   modeBeforePlan?: PermissionMode;
   openPlan?: string;
+  // The file the current Plan first plan is saved in (Runner.savePlan): a
+  // revision overwrites it; Go ahead starts the next plan in a new one.
+  planFile?: string;
   status: ThreadStatus;
   createdAt: string;
   updatedAt: string;
@@ -140,6 +145,9 @@ export type ThreadRecord = {
   // The projects the native session has been told about (the brief, or a
   // line when it joined one), so it hears about each once.
   projectsTold?: string[];
+  // The hash of Mike's standing instructions (Skills > Instructions) the
+  // native session was last told, so it hears each change once.
+  instructionsTold?: string;
   // Highlights (highlights.ts): what's been found and pinned, and the
   // event it had read up to. Brought up to date when a client asks.
   highlights?: HighlightState;

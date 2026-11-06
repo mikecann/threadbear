@@ -38,6 +38,17 @@ struct DockPane: View {
                     case .panel(AgentBrowser.panelId):
                         // One per thread, with its own tabs and picture.
                         AgentBrowserPanel(thread: thread).id(thread.id)
+                    case .panel(BuiltinPanels.files):
+                        // The thread's folder, browsed as a folder link is:
+                        // a file opens over it, Back comes back.
+                        PreviewBody(thread: thread, preview: PanePreview(target: .folder(thread.cwd), title: "Files", from: section))
+                            .id(thread.id)
+                    case .panel(BuiltinPanels.terminal):
+                        if thread.isRemote {
+                            PaneNote(text: "The terminal is for threads on this Mac. This one runs on another.")
+                        } else {
+                            TerminalPanel(thread: thread).id(thread.id)
+                        }
                     case .panel(let id):
                         if let panel = thread.panels.first(where: { $0.id == id }) {
                             panelView(panel, in: thread)
@@ -235,6 +246,17 @@ struct PanelRail: View {
                 }
                 .onAppear {
                     if tabs.contains(where: { $0.state == "yours" }) { app.showPane(.panel(AgentBrowser.panelId)) }
+                }
+            }
+            // Files and a terminal, for the thread's folder (TerminalPanel.swift).
+            if project == nil {
+                ActivityButton(symbol: "folder", title: "Files", tip: "The files in this thread's folder", active: app.dock.isShowing(BuiltinPanels.files)) {
+                    app.clickRail(.panel(BuiltinPanels.files), in: thread)
+                }
+                if !thread.isRemote {
+                    ActivityButton(symbol: "terminal", title: "Terminal", tip: "A terminal in this thread's folder", active: app.dock.isShowing(BuiltinPanels.terminal)) {
+                        app.clickRail(.panel(BuiltinPanels.terminal), in: thread)
+                    }
                 }
             }
             Spacer(minLength: zoomed(8))

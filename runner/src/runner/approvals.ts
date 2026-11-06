@@ -111,6 +111,8 @@ export const approvalsPart = {
     const mode = rec.modeBeforePlan && rec.modeBeforePlan !== 'plan' ? rec.modeBeforePlan : 'full';
     if (rec.openPlan) this.emit(st, { type: 'plan.resolved', itemId: rec.openPlan, decision: 'go' }, rt.turn?.turnId);
     delete rec.openPlan;
+    // Approved: the next plan is a new file.
+    delete rec.planFile;
     delete rec.modeBeforePlan;
     if (rec.permissionMode === 'plan') rec.permissionMode = mode;
     this.markDirty(st);

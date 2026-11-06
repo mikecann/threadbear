@@ -649,6 +649,9 @@ async function dispatch(client, method, p) {
       const turnId = 'turn_' + crypto.randomBytes(4).toString('hex');
       // Answers from the card go on the user.message, as the runner keeps them.
       const extra = Array.isArray(p.answers) && p.answers.length ? { answers: p.answers } : {};
+      // Plan or Ask mode (docs/protocol.md, "Plan and Ask modes").
+      if (p.mode !== undefined && p.mode !== 'plan' && p.mode !== 'ask') throw rpcError(-32602, 'mode must be "plan" or "ask"');
+      if (p.mode) extra.mode = p.mode;
       // As the runner has it once the CLI starts a session (the app's
       // Finish setting up counts that as a login that works).
       t.summary.nativeSessionId ??= 'mock-session-' + t.summary.id;
@@ -1196,6 +1199,73 @@ async function dispatch(client, method, p) {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (p.refresh) connectors = { ...connectors, checkedAt: iso() };
       return { connectors };
+    // Skills (docs/protocol.md, "Skills"): a made-up store with Pele in it
+    // and Anatomy suggested. Imports pretend to fetch: a link naming a repo
+    // adds a skill named after it.
+    case 'skills.list':
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      return { skills: mockSkills, suggested: mockSuggested(), enabled: mockSkillsOn };
+    case 'skills.enable':
+      if (typeof p.enabled !== 'boolean') throw rpcError(-32602, 'enabled must be a boolean');
+      mockSkillsOn = p.enabled;
+      broadcast('skills.updated', { skills: mockSkills, enabled: mockSkillsOn });
+      return { skills: mockSkills, suggested: mockSuggested(), enabled: mockSkillsOn };
+    case 'skills.add': {
+      let added;
+      if (p.suggested) {
+        const s = MOCK_SUGGESTED.find((x) => x.id === p.suggested);
+        if (!s) throw rpcError(-32602, `no suggested skill ${p.suggested}`);
+        added = mockSkill(s.name, s.description, s.url ? { kind: 'github', repo: s.url.replace('https://github.com/', ''), url: s.url } : { kind: 'builtin' });
+      } else {
+        const m = /github\.com\/([\w.-]+)\/([\w.-]+)|^([\w.-]+)\/([\w.-]+)$/.exec(String(p.url ?? '').trim());
+        if (!m) throw rpcError(-32602, "that page doesn't name a skill on GitHub: paste the skill's GitHub link instead");
+        const repo = `${m[1] ?? m[3]}/${m[2] ?? m[4]}`;
+        added = mockSkill((m[2] ?? m[4]).toLowerCase(), `Imported from ${repo}.`, { kind: 'github', repo, url: String(p.url) });
+      }
+      if (mockSkills.some((k) => k.name === added.name)) throw rpcError(-32602, `there's already a skill called ${added.name}: remove it first`);
+      mockSkills.push(added);
+      broadcast('skills.updated', { skills: mockSkills });
+      return { skills: mockSkills, added: [added.name], suggested: mockSuggested() };
+    }
+    case 'skills.save': {
+      const name = String(p.name ?? '').trim().replace(/^\//, '').toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw rpcError(-32602, 'a skill name is lower-case letters, digits and dashes, like brand-voice');
+      if (!String(p.text ?? '').trim()) throw rpcError(-32602, 'the skill needs some text: what the agent should do');
+      const old = p.replacing ? mockSkills.find((k) => k.name === p.replacing) : undefined;
+      if (mockSkills.some((k) => k.name === name && k !== old)) throw rpcError(-32602, `there's already a skill called ${name}`);
+      const k = mockSkill(name, p.description || String(p.text).split('\n').find((l) => l.trim()) || name, { kind: 'custom' });
+      k.commit = 'local-abc1234';
+      k.text = String(p.text);
+      if (old) { k.always = old.always; mockSkills[mockSkills.indexOf(old)] = k; } else mockSkills.push(k);
+      broadcast('skills.updated', { skills: mockSkills, enabled: mockSkillsOn });
+      return { skills: mockSkills, saved: name };
+    }
+    case 'skills.instructions':
+      if (typeof p.text === 'string') {
+        mockInstructions = p.text.trim() ? p.text.trim() + '\n' : '';
+        broadcast('skills.instructions', { instructions: mockInstructions });
+      }
+      return { instructions: mockInstructions };
+    case 'skills.read': {
+      const k = mockSkills.find((x) => x.name === p.name);
+      if (!k) throw rpcError(-32602, `no skill ${p.name}`);
+      return { text: k.text ?? `---\nname: ${k.name}\ndescription: ${JSON.stringify(k.description)}\n---\n\nMock skill.\n` };
+    }
+    case 'skills.update': {
+      const k = mockSkills.find((x) => x.name === p.name);
+      if (!k) throw rpcError(-32602, `no skill ${p.name}`);
+      if (typeof p.always === 'boolean') k.always = p.always;
+      if (p.latest && k.source.kind === 'github') k.commit = 'b'.repeat(40);
+      broadcast('skills.updated', { skills: mockSkills });
+      return { skills: mockSkills };
+    }
+    case 'skills.remove': {
+      const before = mockSkills.length;
+      mockSkills = mockSkills.filter((x) => x.name !== p.name);
+      if (mockSkills.length === before) throw rpcError(-32602, `no skill ${p.name}`);
+      broadcast('skills.updated', { skills: mockSkills });
+      return { skills: mockSkills, suggested: mockSuggested() };
+    }
     case 'settings.get':
       return { settings };
     case 'settings.update': {
@@ -1362,6 +1432,15 @@ async function fakeTurn(threadId, text, images, turnId = 'turn_' + crypto.random
   const started = Date.now();
   persist(threadId, { type: 'user.message', text, images, ...(origin ? { origin } : {}), ...extra }, turnId);
   persist(threadId, { type: 'turn.started', turnId }, turnId);
+  // A Plan mode turn's reply is saved as the plan, as the runner does.
+  if (extra.mode === 'plan') {
+    // A real file, so the link opens: in the mock's temp folder.
+    const dir = path.join(os.tmpdir(), 'threadbear-mock-plans');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${new Date().toISOString().slice(0, 10)}-mock.md`);
+    fs.writeFileSync(file, `# Plan: ${t.summary.title}\n\n## Goal\n\n${text}\n\n## Steps\n\n1. Look\n2. Plan\n3. Do\n`);
+    setTimeout(() => persist(threadId, { type: "system.note", text: `Saved the plan to [plans/${path.basename(file)}](<${file}>).` }), 7000);
+  }
   setStatus(threadId, 'running');
 
   // A provider refusal for checking the recovery offer, without sending
@@ -1715,6 +1794,21 @@ function notice(client, level, message) {
 
 function broadcastNotice(level, message) {
   for (const client of clients) notice(client, level, message);
+}
+
+const MOCK_SUGGESTED = [
+  { id: 'pele', name: 'pele', description: 'Draw Mermaid diagrams with Pele, which renders Mermaid text to a clean SVG and an HTML page.' },
+  { id: 'anatomy', name: 'anatomy', description: 'Interactive isometric figures of how a machine or mechanism works, by Ryan (MIT).', url: 'https://github.com/wheresryan22/anatomy' },
+];
+function mockSkill(name, description, source) {
+  const commit = source.kind === 'builtin' ? 'builtin-0.0.0-mock' : 'a'.repeat(40);
+  return { name, description, always: true, source, commit, dir: `/tmp/threadbear-mock/skills/${name}@${commit.slice(0, 7)}`, addedAt: iso() };
+}
+let mockSkills = [mockSkill('pele', MOCK_SUGGESTED[0].description, { kind: 'builtin' })];
+let mockSkillsOn = true;
+let mockInstructions = '';
+function mockSuggested() {
+  return MOCK_SUGGESTED.filter((s) => !mockSkills.some((k) => k.name === s.name));
 }
 
 function broadcast(method, params) {

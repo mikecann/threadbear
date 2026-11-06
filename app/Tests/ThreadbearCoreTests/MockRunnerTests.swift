@@ -542,7 +542,7 @@ final class MockRunnerTests: XCTestCase {
         XCTAssertEqual(Set(theirs.map(\.id)), ["bruce_backup", "bruce_media", "bruce_render"])
         let page = try await away.events(threadId: "bruce_backup")
         let images = page.events.flatMap { event -> [ImageRef] in
-            if case .userMessage(_, let images, _, _, _, _) = event.payload { return images }
+            if case .userMessage(_, let images, _, _, _, _, _) = event.payload { return images }
             return []
         }
         XCTAssertEqual(images.count, 1)
@@ -596,7 +596,7 @@ final class MockRunnerTests: XCTestCase {
         // The demo picture is a real PNG; asked again with what came, it's unchanged.
         let page = try await away.events(threadId: "bruce_backup")
         let picture = try XCTUnwrap(page.events.lazy.compactMap { event -> String? in
-            if case .userMessage(_, let images, _, _, _, _) = event.payload { return images.first?.path }
+            if case .userMessage(_, let images, _, _, _, _, _) = event.payload { return images.first?.path }
             return nil
         }.first)
         let read = try await away.readFile(path: picture)

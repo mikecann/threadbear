@@ -835,7 +835,8 @@ export class CodexSession implements AgentSession {
     const params: TurnStartParams = {
       threadId: this.threadId!,
       input: inputItems(input),
-      ...turnPolicy(this.mode),
+      // A Plan or Ask mode turn runs read-only, whatever the thread's mode.
+      ...(input.readOnly ? { approvalPolicy: 'never' as const, sandboxPolicy: { type: 'readOnly' as const, networkAccess: true }, approvalsReviewer: 'user' as const } : turnPolicy(this.mode)),
       summary: 'detailed',
     };
     if (input.id) params.clientUserMessageId = input.id;

@@ -9,6 +9,12 @@ extension AppModel {
     // MARK: Thread actions
 
     func newThread() {
+        // A new thread is never the bear's chat unless the bear opened it
+        // (BearChat.open aims it there after this).
+        if newThreadCwd == BearChat.folder.path { newThreadCwd = nil }
+        showsSettingsPage = false
+        showsSkillsPage = false
+        showsNotesPage = false
         selection = nil
         openProjectId = nil
         showsProjectsHome = false
@@ -258,7 +264,8 @@ extension AppModel {
             }
         } else {
             let account = newThreadAccountId
-            let request = newThreadRequest(text: trimmed, images: draft.images)
+            var request = newThreadRequest(text: trimmed, images: draft.images)
+            request.turnMode = turnMode(for: "new")
             creatingThread = true
             Task {
                 defer { creatingThread = false }
@@ -275,6 +282,8 @@ extension AppModel {
                     // has the most room. The model and effort stick.
                     newThreadCwd = nil
                     newThreadPermission = .full
+                    // Plan or Ask mode carries on in the thread it started.
+                    if let mode = turnModes.removeValue(forKey: "new") { turnModes[thread.id] = mode }
                     newThreadAccount = nil
                     newThreadPool = nil
                     newThreadProvider = nil
@@ -292,10 +301,25 @@ extension AppModel {
         }
     }
 
+    /// What Mike said in Voice mode, sent as his message without touching
+    /// whatever is typed in the composer (VoiceMode).
+    func sendSpoken(threadId: String, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard let client = client(for: threadId), isRemote(threadId) || connection == .connected else {
+            showConnectionError(notConnectedText(threadId, "that wasn't sent"))
+            return
+        }
+        ActivityRecorder.shared.sent(threadId: threadId, images: 0, answers: 0)
+        post(threadId: threadId, text: text, images: [], answers: [], client: client)
+    }
+
     /// Sends a message to a thread, shown dimmed at the end of the
     /// transcript until the runner shows it. `failed` puts back whatever
     /// the send took from the composer, if the runner doesn't take it.
     private func post(threadId: String, text: String, images: [ImageRef], answers: [AskAnswer], client: RPCClient, failed: @escaping () -> Void = {}) {
+        // The composer's Plan or Ask mode goes with every message from it.
+        let mode = turnMode(for: threadId)
         let pendingId = UUID().uuidString
         // The thread's own session, open already as its composer is
         // showing; kept by the Task, so a failure finds it.
@@ -304,7 +328,7 @@ extension AppModel {
         Task {
             do {
                 do {
-                    try await client.send(threadId: threadId, text: text, images: images, answers: answers)
+                    try await client.send(threadId: threadId, text: text, images: images, answers: answers, mode: mode)
                 } catch {
                     // Sent in the moment a restarting runner lets go of its
                     // idle threads, before the new one is up: the old one

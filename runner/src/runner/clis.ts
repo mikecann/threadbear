@@ -105,6 +105,21 @@ export const clisPart = {
     }
   },
 
+  // Threadbear's skills changed (skills.ts): every live CLI gets a fresh one
+  // before its next message, which resumes the same conversation with the
+  // new skills; idle ones go now, softly, as for a CLI update.
+  refreshForSkills(this: Runner): void {
+    for (const st of this.threads.values()) {
+      const { rec, rt } = st;
+      if (!rt.session || rt.closing) continue;
+      rt.releaseWhenIdle = true;
+      if (this.idleForUpdate(st)) {
+        this.log.info('releasing an idle CLI for a skills change', { threadId: rec.id });
+        this.releaseSession(st);
+      }
+    }
+  },
+
   // Nothing would be cut short by releasing it: no turn (starting, running
   // or interrupting), approval or question, queued message, background
   // work or wake grace, and not already due to go.

@@ -2,7 +2,7 @@ import AppKit
 import ThreadbearCore
 
 enum SettingsTab: String, Hashable, CaseIterable {
-    case general, models, pools, runners, devices, keyboard
+    case general, voice, models, pools, runners, devices, keyboard
 }
 
 /// The Settings window's side of AppModel. Everything in it is the
@@ -42,8 +42,7 @@ extension AppModel {
 
     /// Settings › Models, from somewhere else in the app.
     func openModelSettings() {
-        settingsTab = .models
-        settingsRequest += 1
+        openSettings(tab: .models)
     }
 
     /// Changes what's given. The window shows the change straight away;

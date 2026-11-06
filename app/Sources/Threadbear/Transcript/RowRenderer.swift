@@ -467,7 +467,11 @@ enum RowRenderer {
                 let header = headerText(title: firstLine(note), subtitle: "")
                 return RowRender(height: RowMetrics.workHeight, text: header, textSize: header.size())
             }
-            let text = NSAttributedString(string: note, attributes: Theme.text(Theme.smallFont, color: Theme.quietText, line: TypeScale.scaled(17), alignment: .center))
+            let attributes = Theme.text(Theme.smallFont, color: Theme.quietText, line: TypeScale.scaled(17), alignment: .center)
+            // A note with a link in it (the saved plan's) keeps the link, so a click opens it.
+            let text: NSAttributedString = note.contains("](") && !note.contains("\n")
+                ? noteText(note, font: Theme.smallFont, color: Theme.quietText, style: attributes[.paragraphStyle] as? NSParagraphStyle ?? .default, offset: 0)
+                : NSAttributedString(string: note, attributes: attributes)
             let size = measurer.measure(text, width: width)
             return RowRender(height: vertical + size.height, text: text, textSize: size)
 
@@ -1218,7 +1222,34 @@ enum RowRenderer {
     /// the review's title small, then what he picked and his notes, not
     /// the review's id and the wording the agent gets (Mike, 29 Oct).
     static func userText(_ message: UserMessage) -> NSAttributedString {
-        cardChips(pictureChips(userWords(message), images: message.images))
+        let words = skillMentions(cardChips(pictureChips(userWords(message), images: message.images)))
+        guard let mode = message.mode.flatMap(TurnMode.init(rawValue:)) else { return words }
+        // Sent in Plan or Ask mode: said small over his words.
+        let small = Theme.text(Theme.smallFont, color: .controlAccentColor, line: TypeScale.scaled(18))
+        let out = NSMutableAttributedString()
+        out.append(symbol(mode.symbol, label: mode.title, font: Theme.smallFont, attributes: small, color: .controlAccentColor))
+        out.append(NSAttributedString(string: " \(mode.title) mode\n", attributes: small))
+        out.append(words)
+        return out
+    }
+
+    /// His /pele and the like, for skills Threadbear has, drawn as links:
+    /// that's the skill the message ran. A click opens the Skills page.
+    static func skillMentions(_ text: NSAttributedString) -> NSAttributedString {
+        let found = SkillMentions.ranges(in: text.string)
+        guard !found.isEmpty else { return text }
+        let out = NSMutableAttributedString(attributedString: text)
+        for range in found {
+            let name = String((text.string as NSString).substring(with: range).dropFirst()).lowercased()
+            let font = out.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? Theme.bodyFont
+            out.addAttributes([
+                .foregroundColor: NSColor.controlAccentColor,
+                .font: NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask),
+                .toolTip: "Runs the \(name) skill",
+            ], range: range)
+            if let url = SkillMentions.url(for: name) { out.addAttribute(.link, value: url, range: range) }
+        }
+        return out
     }
 
     /// Notion cards and threads mentioned in his words drawn as chips,
@@ -1271,6 +1302,9 @@ enum RowRenderer {
         } else if let rest = Decisions.extra(in: message.text, answers: message.answers) {
             (lines, extra) = (message.answers.map { ($0.action, $0.answer) }, rest)
         } else {
+            // Basic Markdown in his words (a "- " list, **bold**, `code`),
+            // drawn as a reply's is; anything else stays plain (UserMarkdown).
+            if let markdown = UserMarkdown.prepare(message.text) { return MarkdownRenderer.render(markdown).string }
             return NSAttributedString(string: message.text.isEmpty ? " " : message.text, attributes: plain)
         }
         let output = NSMutableAttributedString()
@@ -1291,7 +1325,12 @@ enum RowRenderer {
             output.append(NSAttributedString(string: item.text.replacingOccurrences(of: "\n", with: "\u{2028}"), attributes: answer))
         }
         if !extra.isEmpty {
-            output.append(NSAttributedString(string: "\n" + extra, attributes: plain))
+            output.append(NSAttributedString(string: "\n", attributes: plain))
+            if let markdown = UserMarkdown.prepare(extra) {
+                output.append(MarkdownRenderer.render(markdown).string)
+            } else {
+                output.append(NSAttributedString(string: extra, attributes: plain))
+            }
         }
         return output
     }

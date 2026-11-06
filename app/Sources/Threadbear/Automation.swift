@@ -462,6 +462,11 @@ enum Automation {
             // `"focused": true` presses it where the cursor is, as `type` does.
             if c["focused"] as? Bool == true { return pressAtCursor(window, characters: "\r", keyCode: 36) }
             return pressReturn(window, shift: c["shift"] as? Bool == true)
+        case "shift-tab":
+            // Shift-Tab in the text box with the cursor, as the key does (insertBacktab).
+            guard let field = window?.firstResponder as? NSTextView else { return "error the cursor isn't in a text box" }
+            field.insertBacktab(nil)
+            return "ok"
         case "escape":
             // The Escape key, where the cursor is.
             return pressAtCursor(window, characters: "\u{1b}", keyCode: 53)
@@ -648,7 +653,7 @@ enum Automation {
             // {"cmd":"panel"} toggles. On a project's page, the project's.
             guard let thread = app.paneThread else { return "error no thread selected" }
             if let id = c["id"] as? String {
-                let ids = (app.openProject == nil ? [PaneSection.highlightsId, AgentBrowser.panelId] : []) + thread.panels.map(\.id) + (thread.patches.isEmpty ? [] : [PaneSection.patchesId])
+                let ids = (app.openProject == nil ? [PaneSection.highlightsId, AgentBrowser.panelId, BuiltinPanels.files, BuiltinPanels.terminal] : []) + thread.panels.map(\.id) + (thread.patches.isEmpty ? [] : [PaneSection.patchesId])
                 guard ids.contains(id) else { return "error no panel \(id); this thread has \(ids.joined(separator: ", "))" }
                 app.choosePanel(id, in: thread.id)
             } else if let show = c["show"] as? Bool {
@@ -1028,6 +1033,23 @@ enum Automation {
             // give AppKit a moment to redraw in the new one.
             try? await Task.sleep(for: .milliseconds(200))
             return "ok \(mode)"
+        case "voice-stage":
+            // Shows Voice mode's bear in a phase, with no microphone or
+            // engine (screenshots of the avatar); "off" puts it away.
+            guard let id = app.selection else { return "error no thread is open" }
+            let words = c["text"] as? String ?? ""
+            let level = Float(number(c["level"]) ?? 0)
+            switch c["phase"] as? String {
+            case "listening": VoiceMode.shared.stage(.listening, threadId: id, level: level)
+            case "hearing": VoiceMode.shared.stage(.hearing(words), threadId: id, level: level)
+            case "thinking": VoiceMode.shared.stage(.thinking, threadId: id, level: level)
+            case "speaking": VoiceMode.shared.stage(.speaking, threadId: id, level: level)
+            case "starting": VoiceMode.shared.stage(.starting(words.isEmpty ? "Getting ready…" : words), threadId: id, level: level)
+            case "off": VoiceMode.shared.stage(.off, threadId: nil, level: 0)
+            default: return "error phase is listening, hearing, thinking, speaking, starting or off"
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            return "ok"
         case "zoom":
             // What ⌘=, ⌘- and ⌘0 do, or a percent from TextZoom.steps.
             let zoom = TextZoom.shared

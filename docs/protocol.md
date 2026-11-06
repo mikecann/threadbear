@@ -791,7 +791,7 @@ Persisted event types (stored in `events.ndjson`, returned by `threads.events`):
 
 | type | fields |
 |---|---|
-| `user.message` | `text`, `images: ImageRef[]`, `answers?: AskAnswer[]` (the open card's asks it answers, as `threads.send` gave them: for showing, the agent only gets `text`), `origin?: "runner" \| "schedule" \| "phone"` (`runner` when the runner sent the message by itself, such as the resume after a restart; `schedule` when a schedule sent it, with `scheduleId`; `phone` when it came from the phone through the Convex mirror (Sync), and the agent then gets it after a line saying so and whether the user is at the Mac, though `text` keeps what was typed; absent for anything a person or client sent), `scheduleId?`, `editOf?: number` (the seq of the message this one replaced, see Editing a message) |
+| `user.message` | `text`, `images: ImageRef[]`, `answers?: AskAnswer[]` (the open card's asks it answers, as `threads.send` gave them: for showing, the agent only gets `text`), `origin?: "runner" \| "schedule" \| "phone"` (`runner` when the runner sent the message by itself, such as the resume after a restart; `schedule` when a schedule sent it, with `scheduleId`; `phone` when it came from the phone through the Convex mirror (Sync), and the agent then gets it after a line saying so and whether the user is at the Mac, though `text` keeps what was typed; absent for anything a person or client sent), `scheduleId?`, `editOf?: number` (the seq of the message this one replaced, see Editing a message), `mode?: "ask"` (sent in Ask mode, see Ask mode; `"plan"` on older ones) |
 | `assistant.text` | `itemId`, `text` (complete markdown for that block), `summary?: true` (the turn's summary, written by the runner from `end_turn`; see "Needs you"), `givesWay?: true` (on a summary, with bullet replies off: see "The summary"), `narration?: true` (Claude sent this as a narration block, whose text reaches the runner only as a short summary of what the agent wrote, not its words: see Transient events), `final?: true` (with one reply, the agent's message after `end_turn`, the turn's reply: see "Needs you", One reply). A later `assistant.text` with the same `itemId` replaces the earlier one where it stands |
 | `reasoning` | `itemId`, `text` (summary) |
 | `tool.call` | `itemId`, `name` (raw tool name), `kind` (`command` \| `read` \| `edit` \| `write` \| `search` \| `web` \| `mcp` \| `task` \| `todo` \| `image` \| `other`; `image` is image generation), `title` (one line, e.g. "npm test" or "Edit src/a.ts"), `input` (object, large strings truncated to 16 KB) |
@@ -852,9 +852,9 @@ the summary and then the reply.
 | `hello` | `{ client: string, version: string, build?: { commit, short, tree } }` (`build`: the Mac app's own build, see App restarts) | `{ runnerVersion, protocol: 1, accounts: Account[], pools?: Pool[], defaults: { cwd, accountId, poolId?, model?, models?: { claude?, codex? }, efforts?: { claude?: EffortLevel, codex?: EffortLevel } }, clis?: CliStatus[], updates?: RunnerUpdates }`. `updates` is under Runner updates; `pools` and `defaults.poolId` under Pools. `defaults.accountId` is the account a `threads.create` with no `accountId` uses: the one with the most room among the last-used account's provider (skipping blocked ones, ones under 10% and ones with a note), worked out again as usage changes; a client keeps its own copy of the rule rather than asking again. `defaults.models[provider]` is the model a new thread on that provider gets when it names none (`runner.json`'s `defaults.models`; a dev runner sets the cheapest); `defaults.model` is the same for Claude, kept for older apps. Absent means the account's own default (`accounts[].defaultModel` names it, when known). `defaults.efforts[provider]` likewise for effort; absent means the model's own level. `runnerVersion` is `<package version>+<release id>` when the runner runs from a release, else `<package version>+source` |
 | `threads.list` | `{ include?: ("inbox" \| "snoozed" \| "archived")[] }` (default `["inbox"]`) | `{ threads: ThreadSummary[] }` newest activity first |
 | `threads.search` | `{ query: string, limit?: number }` | `{ threads: ThreadSummary[] }` matches title and preview across all threads, archived included |
-| `threads.create` | `{ text: string, images?: ImageRef[], cwd?: string, accountId?: string, poolId?: string, model?: string, effort?: EffortLevel, permissionMode?: "full" \| "ask", title?: string, worktree?: boolean, startedBy?: { kind, label, icon?, threadId?, why? } }` | `{ thread: ThreadSummary }` (the first turn starts straight away). In a repo that asks for worktrees (see Worktrees) the thread gets one of its own before its first turn; `worktree: false` starts it in the folder as it is. The thread's `provider` is its account's. With no `model`, the thread gets `defaults.models[provider]` from `hello`, or `defaults.model` for Claude, or else the account's own default. With no `effort`, `defaults.efforts[provider]`, or else the model's own level. See "Models and effort across providers" |
+| `threads.create` | `{ text: string, images?: ImageRef[], cwd?: string, accountId?: string, poolId?: string, model?: string, effort?: EffortLevel, permissionMode?: "full" \| "ask", title?: string, worktree?: boolean, startedBy?: { kind, label, icon?, threadId?, why? }, mode?: "ask" }` | `{ thread: ThreadSummary }` (the first turn starts straight away, in Ask mode with `mode`). In a repo that asks for worktrees (see Worktrees) the thread gets one of its own before its first turn; `worktree: false` starts it in the folder as it is. The thread's `provider` is its account's. With no `model`, the thread gets `defaults.models[provider]` from `hello`, or `defaults.model` for Claude, or else the account's own default. With no `effort`, `defaults.efforts[provider]`, or else the model's own level. See "Models and effort across providers" |
 | `threads.samples` | `{ cwd: string, remove?: boolean }` | `{ threads: ThreadSummary[] }`. The app's first-run tour's sample threads (`runner/src/samples.ts`): made up exchanges written as finished turns with no CLI, in `cwd` (the app's `~/ThreadbearThreads/Welcome`, where it writes an example patch), with `sample: true`; the first needs you, with a card of asks, and one is left unread. Asking again deletes any there are and makes them afresh (writing the patch again if it's gone, and trusting it as written). `remove: true` deletes them all, archived and hibernating ones too, and returns none. `threads.send` to a sample is `-32602` |
-| `threads.send` | `{ threadId, text, images?: ImageRef[], answers?: AskAnswer[], origin?: "phone" }` | `{ turnId }`. `text` can place the `images` among its words with `[Picture N]` markers (Pictures in a message). `origin: "phone"` is only for a phone command the primary passes on to a draining runner (Sync, "Commands"), so the message keeps its origin there; any other `origin` is `-32602`. If a turn is running and its CLI is live, the message goes into that turn straight away (a `user.message` under the running `turnId`, which is returned): the agent takes it at its next step, or right after its reply if that was already finishing, and the turn doesn't complete until it has been answered. If the thread was moved to another login (usually another provider) during the running turn, a message from Mike (or the phone) doesn't steer into the old CLI: the turn is stopped (`system.note` "Stopped here so <model> can take over.") and the message starts the next turn on the new login, with the handoff, as T3 Code does. If the agent is waiting on a card for its own tool call (an approval or a question, with an `itemId`), a message from Mike declines that card first (`approval.resolved` with `deny` and a `message` telling the agent he wrote instead), as the CLI reads nothing else until the card is answered; a background subagent's card is left open. Otherwise (the CLI is still starting or leaving, messages are already waiting, a move or fresh CLI is due on the next turn, Stop has been pressed, or the turn is only an approval for a background subagent) the message is queued and starts its own turn when the running one ends |
+| `threads.send` | `{ threadId, text, images?: ImageRef[], answers?: AskAnswer[], origin?: "phone", mode?: "ask" }` | `{ turnId }`. `mode` sends it in Ask mode (see Ask mode; `"plan"` is taken as Ask; any other is `-32602`). `text` can place the `images` among its words with `[Picture N]` markers (Pictures in a message). `origin: "phone"` is only for a phone command the primary passes on to a draining runner (Sync, "Commands"), so the message keeps its origin there; any other `origin` is `-32602`. If a turn is running and its CLI is live, the message goes into that turn straight away (a `user.message` under the running `turnId`, which is returned): the agent takes it at its next step, or right after its reply if that was already finishing, and the turn doesn't complete until it has been answered. If the thread was moved to another login (usually another provider) during the running turn, a message from Mike (or the phone) doesn't steer into the old CLI: the turn is stopped (`system.note` "Stopped here so <model> can take over.") and the message starts the next turn on the new login, with the handoff, as T3 Code does. If the agent is waiting on a card for its own tool call (an approval or a question, with an `itemId`), a message from Mike declines that card first (`approval.resolved` with `deny` and a `message` telling the agent he wrote instead), as the CLI reads nothing else until the card is answered; a background subagent's card is left open. Otherwise (the CLI is still starting or leaving, messages are already waiting, a move or fresh CLI is due on the next turn, Stop has been pressed, or the turn is only an approval for a background subagent) the message is queued and starts its own turn when the running one ends |
 | `threads.interrupt` | `{ threadId }` | `{}` |
 | `threads.edit` | `{ threadId, seq, text, images?: ImageRef[], stopBackground?: boolean }` | `{ turnId, rewound: { seq, fromSeq, toSeq, files } }`. Replaces the message at `seq` and carries on from there (see Editing a message): stops any turn, cuts the conversation back to just before it, undoes the agent's file changes since, and sends `text` as a new turn. Answers once the new turn has started, which can take a few seconds. `-32602` with the reason when the message can't be edited; `-32020` while another edit of the thread is under way or the runner is handing over; `-32050` while the thread has background work running and `stopBackground` isn't `true` (see Editing a message) |
 | `threads.update` | `{ threadId, title?, titleBy?: "mike" \| "agent", cwd?, accountId?, poolId?: string \| null, model?: string \| null, effort?: EffortLevel \| null, permissionMode?, snoozedUntil?: string \| null, archived?: boolean, archivedBy?: "mike" \| "agent" \| "threadbear", verdict?: "worked" \| "didntWork" \| "notNeeded", starred?: boolean }` | `{ thread: ThreadSummary }`. `archivedBy` and `verdict` go with `archived: true`; see "Who archived a thread". `starred` sets or clears `starredAt`; starring a thread that's already starred keeps its place, and neither stops a turn. A `title` is Mike's unless `titleBy` is `"agent"` (the `update_thread` tool, unless the agent says Mike asked for it). Once Mike has named a thread, an agent's different title is `-32602` and nothing in the call changes, and no model title replaces it. `snoozedUntil` is an ISO time, or `"restart"` for until the runner next starts (any start: a planned restart, a crash, a reboot), when the thread wakes before the restart's resume is sent, so a thread put away while its own restart waited is still carried on. `"release"` is the same but only a start (or taking it over from a draining runner) on another release than this runner's wakes it, so a crash or a restart on the same build leaves it asleep (`snoozedUntilRelease`); a runner from a source checkout has no release to tell apart, so there it is `"restart"`. `update_thread`, `end_turn`'s `snooze` and `tb snooze` take it too. Snoozing or archiving releases the CLI (and archives a Codex thread in Codex too). Changing account or cwd takes effect on the next turn; an account change during a turn says so in a `system.note` ("<model> takes over from your next message, which stops this turn."), see `threads.send`. A model or effort change reaches a live Claude CLI straight away (`null` goes back to the default); on Codex it applies from the next turn, with a `system.note` if a turn is running. A folder change on the same Claude account copies the native session's transcript to the new folder and resumes it; on the same Codex account the session carries on in the new folder from the next turn. Otherwise (or if that fails) it starts a new native session with a handoff note: the thread so far under a 16,000-character budget (runner/src/handoff-history.ts, after T3 Code's): messages, tool calls with a little of their output, edited files and errors; the last user message, the last reply and the first message first, then newest to oldest, with gaps marked and a pointer to `read_thread` for the rest. An account of the other provider switches `provider`, resets `model` and `effort` to that provider's defaults unless the same call sets them, and clears the thread's "Always allow" rules. `model` and `effort` are checked as in "Models and effort across providers". `accountId` pins the thread to that login (clearing `poolId`). `poolId: null` pins it to its current login; a pool id puts it in that pool, and moves it onto one of the pool's logins at once (from the next turn) if its current one isn't in it; an unknown one is `-32602`. A move from one Claude login to another copies the session's transcript into the new login's config folder and resumes it there, as a folder move does |
@@ -872,6 +872,14 @@ the summary and then the reply.
 | `plans.approve` | `{ threadId, itemId }` | `{}`. Go ahead on a waiting plan (see "Plan first"); `-32602` if that plan isn't waiting |
 | `secrets.answer` | `{ threadId, approvalId, secret?: string, decline?: true }` | `{}`. Answers a `secret.requested` card (Secrets). The runner never logs, emits or mirrors `secret` |
 | `media.import` | `{ path: string }` | `{ image: ImageRef }` copies a file into `inbox/` and reads its size; HEIC becomes JPEG and TIFF or BMP becomes PNG |
+| `skills.list` | `{}` | `{ skills: Skill[], suggested: SuggestedSkill[], enabled: boolean }`. The skills in Threadbear's store and the suggested ones not added yet (see Skills) |
+| `skills.add` | `{ url: string }` or `{ suggested: string }` | `{ skills: Skill[], added: string[] }`. Imports the skill or skills a GitHub link names (a repo, a folder, a `SKILL.md`, a raw file, `owner/repo`), or a page that names one (its `npx skills add owner/repo` line or GitHub link), pinned to the commit it resolves to, or a suggested skill by `id`. Added with `always: true`. `-32602` with the reason for a link it can't use, no `SKILL.md`, or a name that's taken |
+| `skills.update` | `{ name, always?: boolean, latest?: true }` | `{ skills: Skill[] }`. `always` turns the skill's automatic use on or off (off: only its slash command runs it); `latest: true` fetches its source again and moves it to the newest commit. `-32602` for a name it doesn't have |
+| `skills.remove` | `{ name }` | `{ skills: Skill[] }`. Takes it out of the store, the Claude plugin and every Codex login |
+| `skills.save` | `{ name, text, description?, replacing?: string }` | `{ skills: Skill[], saved: string }`. A skill written in the app (`source.kind: "custom"`): `text` is its instructions, or a whole SKILL.md whose frontmatter is kept with `name` set to the one given (a leading `/` is dropped, it's lower-cased); plain text gets a frontmatter, described by `description` or its first line. `replacing` names one of his own skills it changes (renamed if `name` differs); a new one is Always on, an edited one keeps its switch. `-32602` for a bad or taken name, no text, or `replacing` a skill that isn't custom |
+| `skills.read` | `{ name }` | `{ text }`, the skill's SKILL.md, for Edit |
+| `skills.instructions` | `{ text?: string }` | `{ instructions: string }`. Mike's standing instructions (the Skills page's Instructions), in `<data dir>/skills/instructions.md`: read with no `text`, set with it (an empty one clears them; at most 20,000 characters). Every fresh session gets them first in its instructions (Claude's appended system prompt, Codex's developer instructions), and a live or resumed one is told a change once, before Mike's next message (a resumed Claude session keeps its first system prompt); `instructionsTold` on the thread record is the hash it last heard. Whether or not the skills store is on |
+| `skills.enable` | `{ enabled: boolean }` | as `skills.list`. Turns the whole store off (no thread gets any skill, the Codex links go) or back on; the skills are kept either way |
 | `patches.trust` | `{ threadId, files: { file, hash }[] }` | `{ trusted: string[] }`. Trusts those versions of the thread's waiting patch files (each a `file` its `patches` lists with `untrusted`, and the `hash` given there), then every thread's patches are read again, so the answer comes once they have been. The `claude` entry's file trusts the folder's Claude Code settings the same way. `-32602` for a file the thread isn't waiting on, or one whose hash has moved on since (look again). See "Trusting a folder's patches" |
 | `actions.run` | `{ threadId, actionId }` | For a prompt action, `{ turnId }`: its prompt was sent as a message (as `threads.send`). For a url action (only an older client calls it for one), `{ ok: true, durationMs }` once the page is opened on the runner's Mac, with nothing in the transcript. For a command action, `{ ok, exitCode?, durationMs, seq }` once the command has finished, with its output in the transcript as the `action.run` event at `seq`. The command runs in the thread's folder through a login shell with the thread's variables (`THREADBEAR_THREAD_ID` and the rest) and is stopped after 10 minutes. `-32602` for an action the thread doesn't have, `-32020` while the same action is still running |
 | `panels.render` | `{ threadId, panelId }` | `{ image?: ImageRef, items?: PanelItem[], note?: string }` draws an `image` panel or fills a `list` panel now. For `xcode.simulator`, a screenshot of the booted simulator (`xcrun simctl io booted screenshot`), written to the same file each time under the thread's `panels/`; with no device booted (or another failure) there's only `note`. For a `list` panel, the rows its patch's `items` function returned (at most 200), or `note` with the error when it threw or took over 20 seconds. Slow: it waits for the screenshot or the function. `-32602` for a panel the thread doesn't have |
@@ -976,6 +984,8 @@ still `-32602`.)
 | `librarian.updated` | `{ librarian: LibrarianStatus }` sent to every connected client when the librarian's status changes |
 | `connectors.updated` | `{ connectors: ConnectorsStatus }` sent to every connected client when what the Connectors panel would show changes (a service signs out or back in, the gateway stops or starts answering); not when only `checkedAt` moves |
 | `settings.updated` | `{ settings: Settings }` sent to every connected client when a setting or the key changes, and at most once a minute while model calls are adding to the spend |
+| `skills.instructions` | `{ instructions: string }` sent to every connected client when the standing instructions are set |
+| `skills.updated` | `{ skills: Skill[], enabled: boolean }` sent to every connected client after any `skills.*` change. The whole list |
 | `runner.notice` | `{ level: "info" \| "warning" \| "error", message }`. Also sent straight after the `hello` result for things the client missed (startup problems, a missing `claude` binary) |
 | `runner.updates` | `{ updates: RunnerUpdates }` sent to every connected client when the runner's own update state changes (below). Replaces the one from `hello` |
 
@@ -3216,6 +3226,107 @@ with, shows the `code`, and polls with `check` until it's done, then loads
 the dashboard. `-32041` (the login can't reach the deployment) gets Sign in
 as someone else, the same with `force`. No terminal either way.
 
+## Ask mode
+
+A message can be sent in Ask mode (`mode: "ask"` on `threads.send` and
+`threads.create`; the composer's Shift-Tab). The turn it starts, or the
+rest of the running turn it goes into, changes nothing (`src/modes.ts`):
+
+- The agent gets the message after a line saying what the mode means:
+  read what it needs but change nothing, and just answer.
+- Claude: a `PreToolUse` hook (the second, after the edit-mode one)
+  refuses `Edit`, `MultiEdit`, `Write` and `NotebookEdit`, whatever the
+  permission mode (full access included). Shell commands are left to the
+  instructions. Codex: the turn runs with `approvalPolicy: "never"` and a
+  read-only sandbox (network allowed).
+- The next message without a `mode` is an ordinary turn again. The mode is
+  the app's to remember; the runner only sees it on each message.
+
+`mode: "plan"` was a per-message Plan mode before Plan first took over
+planning: it's still taken, as Ask, and a logged `user.message` may carry
+it. Planning is Plan first (`permissionMode: "plan"`, see Plan first).
+Shift-Tab steps a composer through Plan first (setting the thread's
+permission mode, and putting the earlier one back when it steps on), Ask,
+then off.
+
+**Plans as files.** Each `plan.proposed` is also saved as
+`plans/<YYYY-MM-DD>-<project or folder>.md` in the thread's folder (`-2`,
+`-3` for more the same day), under a short header, pinned in Highlights
+with `show` (so the app opens it in the side pane), with a `system.note`
+"Saved the plan in [plans/…](<path>)." whose link opens it there. A
+revision before Go ahead overwrites the same file ("Updated the plan in
+…"; `planFile` on the thread record); after Go ahead the next plan is a
+new file. A note with a Markdown link stays out of its turn's folded work.
+
+## Skills
+
+Agent skills (a folder with a `SKILL.md`, as Claude Code and Codex read
+them) that Threadbear keeps for every thread, on every login, whatever the
+folder. The runner owns them (`src/skills.ts`); the app's Skills page lists,
+imports and changes them through `skills.*`.
+
+```ts
+type Skill = {
+  name: string          // the SKILL.md's `name` (lower case, digits, -): its slash command, /name
+  description: string   // the SKILL.md's description
+  always: boolean       // true: agents use it whenever it fits; false: only /name runs it
+  source: { kind: "github", repo: string /* owner/name */, ref?: string, path?: string, url: string }
+        | { kind: "builtin" }  // shipped in the runner (runner/skills/)
+        | { kind: "custom" }   // written in the app (skills.save); commit "local-<hash 7>"
+  commit: string        // what it's pinned to: a git sha, or "builtin-<runner version>"
+  dir: string           // its folder in the store, absolute
+  addedAt: string
+}
+type SuggestedSkill = { id: string, name: string, description: string, url?: string }
+```
+
+**The store** is `<data dir>/skills/`: `skills.json` (the list), each
+skill's files in `<name>@<commit 7>/` exactly as fetched, and `plugin/`,
+made from them. A new version of a skill is a new folder; the old one goes
+once nothing points at it.
+
+**Claude.** `plugin/` is a Claude Code plugin (`.claude-plugin/plugin.json`,
+name `threadbear`) with one folder per skill under `skills/`: its
+`SKILL.md` copied with `disable-model-invocation: true` added when `always`
+is false, and every other file a link into the store. Every Claude session
+gets it (the SDK's `plugins`, i.e. `--plugin-dir`), whichever login and
+`CLAUDE_CONFIG_DIR` it runs on, so a skill reaches every login. `/name`
+and `/threadbear:name` both run it.
+
+**Codex.** Codex reads `$CODEX_HOME/skills/<name>`, one home per login,
+so the runner links each skill's plugin folder there for every Codex login
+(that folder also has an `agents/openai.yaml` with
+`policy.allow_implicit_invocation: false` when `always` is false). It only
+ever adds, changes or removes links that point into its own store; a real
+folder or someone else's link of the same name is left alone and the
+skill is skipped for that login (said in the log).
+
+**Importing** resolves the link to a repo, a ref and a path: the ref to a
+commit through `api.github.com/repos/<repo>/commits/<ref>`, then
+`codeload.github.com/<repo>/tar.gz/<commit>`, unpacked to a temp folder.
+A path with a `SKILL.md` is one skill; otherwise every `SKILL.md` under it
+(at most three folders deep, `.git` and `node_modules` skipped) is one each.
+Nothing it fetches is run. A page that isn't GitHub is read for an
+`npx skills add owner/repo` line or a `github.com/owner/repo` link.
+
+**Built-in skills** live in `runner/skills/<name>/`. Adding one copies it
+into the store and, if it has a `package-lock.json`, runs `npm ci
+--omit=dev --ignore-scripts` there. **Suggested** are the built-in ones plus
+a short list in `src/skills.ts` (Anatomy), each until it's added.
+
+**Mentions.** Mike's `/name` for one of them anywhere in a message is
+made to work in the thread's CLI before the agent gets it
+(`src/skill-mentions.ts`; the transcript keeps what he typed): Claude Code
+runs a slash command only as a message's first word, so one later on gets
+a line after the message asking the agent to use that skill; Codex names
+skills as `$name`, so `/name` becomes `$name`. Nothing while the store is
+off.
+
+A change reaches running threads too: every live CLI is given a fresh one
+before its next message (the same conversation, resumed, with the new
+skills), and an idle one with nothing running in the background is let
+go straight away, as for a CLI update.
+
 ## Highlights
 
 The Mac app's right-hand rail (like VS Code's secondary side bar) has a
@@ -3693,7 +3804,13 @@ them with `create_project` and `update_project` (`links` replaces them,
 Mike with `projects.update`. The librarian's look can add ones the
 thread's messages give for a project the thread is in (`links` in its
 answer): only a url that's in what it was sent, never more than 8, and it
-never takes one away. Merging two projects keeps both lots.
+never takes one away. Merging two projects keeps both lots. A site a
+deploy puts up is added by the runner itself (`src/site-links.ts`): when
+a command of the thread's that deploys, publishes or releases succeeds and
+its output gives a Convex-hosted site (`https://<deployment>.convex.app`;
+a `.convex.site` address is the deployment's HTTP actions, not a site),
+it goes on each of the thread's projects as "Live site", unless the
+project has that url already (whatever its title) or has 8 links.
 
 **Agents** have tools for projects (see Tools for agents):
 `list_projects`, `read_project`, `create_project`, `update_project`,

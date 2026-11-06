@@ -38,7 +38,7 @@ public struct PendingMessage: Sendable, Hashable, Identifiable {
     /// an edit are never ours.
     public func isLanded(by event: Event) -> Bool {
         guard event.seq > afterSeq,
-              case .userMessage(let text, let images, let origin, _, let editOf, _) = event.payload,
+              case .userMessage(let text, let images, let origin, _, let editOf, _, _) = event.payload,
               origin == nil, editOf == nil else { return false }
         return text == self.text && images.count == self.images.count
     }

@@ -34,6 +34,7 @@ public extension RPCClient {
         if let model = request.model { params["model"] = .string(model) }
         if let effort = request.effort { params["effort"] = .string(effort) }
         if let mode = request.permissionMode { params["permissionMode"] = .string(mode.rawValue) }
+        if let turnMode = request.turnMode { params["mode"] = .string(turnMode.rawValue) }
         if let title = request.title { params["title"] = .string(title) }
         if let runnerId = request.runnerId { params["runnerId"] = .string(runnerId) }
         return try await call("threads.create", .object(params), as: ThreadResult.self, timeout: RPCClient.sendTimeout).thread
@@ -49,8 +50,10 @@ public extension RPCClient {
     }
 
     @discardableResult
-    func send(threadId: String, text: String, images: [ImageRef] = [], answers: [AskAnswer] = []) async throws -> String? {
+    func send(threadId: String, text: String, images: [ImageRef] = [], answers: [AskAnswer] = [], mode: TurnMode? = nil) async throws -> String? {
         var params: [String: JSONValue] = ["threadId": .string(threadId), "text": .string(text)]
+        // Plan or Ask mode (docs/protocol.md, "Plan and Ask modes").
+        if let mode { params["mode"] = .string(mode.rawValue) }
         if !images.isEmpty { params["images"] = .array(images.map(\.jsonValue)) }
         // The card's answers it carries, for the bubble (docs/protocol.md, "Needs you").
         if !answers.isEmpty {
@@ -323,6 +326,13 @@ public enum ThreadListScope: String, Sendable, CaseIterable {
     case inbox, snoozed, archived
 }
 
+/// Ask mode for a message (docs/protocol.md, "Ask mode"): a read-only
+/// turn that just answers. `plan` is only read, from messages sent before
+/// Plan first (permissionMode "plan") took over planning; it's never sent.
+public enum TurnMode: String, Sendable, Hashable, CaseIterable {
+    case plan, ask
+}
+
 public struct NewThreadRequest: Sendable, Hashable {
     public var text: String
     public var images: [ImageRef]
@@ -334,6 +344,8 @@ public struct NewThreadRequest: Sendable, Hashable {
     public var model: String?
     public var effort: String?
     public var permissionMode: PermissionMode?
+    /// Its first message in Plan or Ask mode.
+    public var turnMode: TurnMode?
     public var title: String?
     /// Another runner, when this Mac's runner makes it there through
     /// Convex (docs/protocol.md, "Other runners' threads through the backend").
