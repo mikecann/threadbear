@@ -64,7 +64,7 @@ struct ThreadbearApp: App {
             CommandGroup(replacing: .appSettings) {
                 IconMenuItems {
                     Button("Settings…", systemImage: "gearshape") { app.openSettings() }
-                        .keyboardShortcut(",")
+                        .shortcut(.settings)
                 }
             }
             CommandGroup(replacing: .newItem) {

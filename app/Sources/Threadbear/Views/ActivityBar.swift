@@ -75,7 +75,7 @@ struct ActivityBar: View {
             UpdatesActivityButton()
             UsageActivityButton()
             // The same window as ⌘, without a trip to the menu bar.
-            ActivityButton(symbol: "gearshape", title: "Settings", shortcut: "⌘,", active: app.showsSettingsPage) {
+            ActivityButton(symbol: "gearshape", title: "Settings", shortcut: AppShortcuts.shared.display(.settings), active: app.showsSettingsPage) {
                 // A second press closes the page, as the bar's other buttons toggle theirs.
                 if app.showsSettingsPage { app.showsSettingsPage = false } else { app.openSettings() }
             }
