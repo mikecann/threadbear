@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 // release and snoozes. Providers plug in through AgentAdapter; the WebSocket
 // server in rpc.ts is a thin layer over the public methods here.
 import { RELEASE } from './release.ts';
+import { isPublishCommand, siteUrls, SITE_LINK_TITLE } from './site-links.ts';
 import { withSkillMentions } from './skill-mentions.ts';
 import { reachable, type Reachable } from './net-probe.ts';
 import type { UpstreamStatus } from './upstream.ts';
@@ -285,6 +286,8 @@ export type Turn = {
   // Folders its shell commands worked in (commandFolders), so the
   // librarian knows the repo a thread in a catch-all folder works on.
   workedIn?: Set<string>;
+  /** Tool calls this turn that published something (site-links.ts). */
+  publishCalls?: Set<string>;
   // The agent's own end_turn input and last text, for what the turn needs
   // from Mike (needs.ts). Never a sub-agent's.
   endTurn?: Record<string, unknown>;
@@ -1544,6 +1547,25 @@ export class Runner {
     });
   }
 
+  // A site a deploy put up (site-links.ts) as "Live site" on each project
+  // the thread is in, unless the project has it already (its title then
+  // stays as it is) or already has as many links as it can.
+  addSiteLinks(rec: ThreadRecord, sites: string[]): void {
+    const projects = this.projects;
+    if (!projects) return;
+    for (const p of projects.threadProjects(rec) ?? []) {
+      try {
+        const have = projects.get(p.id).project.links;
+        const fresh = sites.filter((url) => !have.some((l) => l.url.replace(/\/+$/, '') === url));
+        if (!fresh.length) continue;
+        projects.addLinks(p.id, fresh.map((url) => ({ title: SITE_LINK_TITLE, url })));
+        this.log.info('added a published site to a project', { threadId: rec.id, projectId: p.id, sites: fresh });
+      } catch (err) {
+        this.log.info('could not add a published site to a project', { projectId: p.id, err: String(err) });
+      }
+    }
+  }
+
   async deliver(st: ThreadState, msg: QueuedSend): Promise<void> {
     const { rec, rt } = st;
     // A folder, account or settings change asked for a fresh CLI, or a CLI
@@ -1842,7 +1864,14 @@ export class Runner {
             if (typeof cmd === 'string') {
               rt.turn.workedIn ??= new Set();
               for (const dir of commandFolders(cmd, rec.cwd, this.panelsRoot ?? os.homedir())) rt.turn.workedIn.add(dir);
+              if (isPublishCommand(cmd)) (rt.turn.publishCalls ??= new Set()).add(ev.itemId);
             }
+          }
+          // A deploy that put a site up: its address on the thread's projects.
+          if (ev.type === 'tool.result' && ev.ok && rt.turn.publishCalls?.has(ev.itemId)) {
+            rt.turn.publishCalls.delete(ev.itemId);
+            const sites = siteUrls(ev.text);
+            if (sites.length) this.addSiteLinks(rec, sites);
           }
         }
         this.emit(st, ev, rt.turn?.turnId);

@@ -3751,7 +3751,13 @@ them with `create_project` and `update_project` (`links` replaces them,
 Mike with `projects.update`. The librarian's look can add ones the
 thread's messages give for a project the thread is in (`links` in its
 answer): only a url that's in what it was sent, never more than 8, and it
-never takes one away. Merging two projects keeps both lots.
+never takes one away. Merging two projects keeps both lots. A site a
+deploy puts up is added by the runner itself (`src/site-links.ts`): when
+a command of the thread's that deploys, publishes or releases succeeds and
+its output gives a Convex-hosted site (`https://<deployment>.convex.app`;
+a `.convex.site` address is the deployment's HTTP actions, not a site),
+it goes on each of the thread's projects as "Live site", unless the
+project has that url already (whatever its title) or has 8 links.
 
 **Agents** have tools for projects (see Tools for agents):
 `list_projects`, `read_project`, `create_project`, `update_project`,

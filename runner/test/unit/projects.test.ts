@@ -1266,3 +1266,24 @@ test('a look from the first message alone leaves the Pocket to its agent, and a 
   assert.match(s.asked.at(-1)!.prompt, /The Pocket is not available/);
   assert.equal(fake.saved.length, 0);
 });
+
+test('a deploy that puts a Convex site up adds it to the thread\'s projects as Live site, once', async () => {
+  const { h, create, projects } = setup();
+  const app = projects.create({ title: 'Hello app', by: 'mike' });
+  const { thread } = create('Ship it');
+  projects.changeMembership(thread.id, { add: [app.id], by: 'mike' });
+  const s = h.adapter.sessions.filter((x) => x.opts.threadId === thread.id).at(-1)!;
+  s.init();
+  const run = (id: string, command: string, text: string) => {
+    s.out({ kind: 'event', event: { type: 'tool.call', itemId: id, name: 'Bash', kind: 'command', title: 'Bash', input: { command } } as never });
+    s.out({ kind: 'event', event: { type: 'tool.result', itemId: id, ok: true, text, truncated: false, images: [] } as never });
+  };
+  // Not a deploy: an address in a build's output doesn't count.
+  run('b1', 'npm run build', 'see https://other-app-1.convex.app');
+  run('b2', 'npx convex deploy --yes', 'Deployed\nSite live at https://hello-app-123.convex.app\nHTTP actions at https://hello-app-123.convex.site');
+  run('b3', 'npx convex deploy --yes', 'Again at https://hello-app-123.convex.app/');
+  s.out({ kind: 'event', event: { type: 'assistant.text', itemId: 'a1', text: 'Also https://mentioned-1.convex.app' } as never });
+  s.result('completed');
+  await tick();
+  assert.deepEqual(projects.get(app.id).project.links.map((l) => [l.title, l.url]), [['Live site', 'https://hello-app-123.convex.app/']]);
+});

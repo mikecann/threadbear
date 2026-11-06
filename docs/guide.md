@@ -529,7 +529,10 @@ From the top, and only when there's something to show:
 - **Needs you**: what the agent's last reply asked you to do, each with a
   box to tick off as you go. Ticking one here ticks it in the thread too.
 - The thread's projects, each under its icon and name with its links,
-  such as a live site or an admin page, and its task board if it has one
+  such as a live site or an admin page, and its task board if it has one.
+  When an agent deploys a Convex-hosted site (`https://<name>.convex.app`)
+  for a thread in a project, Threadbear adds it to the project as Live site
+  by itself
   (see [Projects](#projects)). The ⓘ beside a project's name
   says who put the thread there and why ("Shortlists photos for the
   calendar entry"). If the librarian guessed wrong, press Take out there
