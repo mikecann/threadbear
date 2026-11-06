@@ -91,6 +91,11 @@ link to each skill in that login's `CODEX_HOME/skills/` folder, and only
 ever touches links of its own there. Adding the built-in Pele runs
 `npm ci --omit=dev --ignore-scripts` in its folder, which fetches the
 `pele` package from npm.
+Notes (the bar's Notes) are files in `~/Library/Application Support/Threadbear/notes/`
+(the folder only you can open, each file only you can read), each a note
+encrypted with AES-GCM under a key the app makes the first time and keeps
+in your login Keychain as "Threadbear notes" (`app/Sources/Threadbear/Notes/NotesStore.swift`).
+They're never sent anywhere, and the runner never reads them.
 The bear at the top right of the sidebar, the first time it's clicked,
 makes `~/ThreadbearThreads/Bear` with a `CLAUDE.md` of instructions for
 its chats (never rewritten once it's there); Claude Code keeps the bear's

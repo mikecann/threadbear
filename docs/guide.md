@@ -1113,8 +1113,30 @@ drawings of how a machine works), with an Add button each.
 Every skill works in every thread, on every login, Claude and Codex alike.
 With Always on, agents use it whenever it fits what you ask. Turn it off
 and it's there only when you ask by name: type its slash command, like
-/pele, in a message. A change reaches each thread the next time its agent
-starts. Remove takes a skill away everywhere.
+/pele, in a message. An installed skill's command turns blue as you type
+it, and shows as a link in your message once sent (click it for the
+Skills page), so you can see a skill will run. A change reaches threads
+that are already running too: each gets a fresh start before its next
+message, carrying on the same conversation with the new skills. Remove
+takes a skill away everywhere. To stop giving threads any skills at all,
+turn off Use the skills store in Settings (⌘,) > General; Skills goes
+from the bar and your skills are kept for when you turn it back on.
+
+## Notes
+
+Notes, under Skills in the bar on the left, is a place for your own
+notes. New Note starts one called "Untitled note" (then "Untitled note
+2" and so on); click its title above the text to rename it, and delete it
+with the bin or its right-click menu. The text box is a code editor's:
+line numbers down the side, a fixed-width font, and basic Markdown
+coloured as you type (headings, **bold**, *italics*, `code`, lists,
+links and quotes). Notes save as you type.
+
+Your notes stay on this Mac and are yours alone: each is encrypted with a
+key Threadbear keeps in your Keychain, so the files on disk can't be read
+without your Mac login, and they're never sent to the runner, an agent,
+your phone or the website. To hide Notes, turn off Show Notes in Settings >
+General; the notes are kept.
 
 ## Patches: your own buttons and panels
 <!-- slug: patches -->
@@ -1268,6 +1290,8 @@ turn it off, in Settings (⌘,) > General > Updates from Mike.
 ### Talking with a thread
 
 Press the waveform button beside Send to talk with the thread out loud.
+It's on a new thread's composer too: there, what you say first starts the
+thread, and you carry on talking in it.
 It turns red while Voice is on. Say what you want as you would to a
 person; when you pause for about a second it goes to the thread as your
 message, and the agent's reply is read out. You can keep talking while it
@@ -1284,7 +1308,8 @@ voice. Code and tables aren't read out; it
 tells you they're on screen. Press the button again, or go to another
 thread, to end Voice.
 
-Settings (⌘,) > Voice picks who it sounds like (Emily, Mike and about
+Use Voice in Settings (⌘,) > Voice turns it off, which takes the
+waveform button away everywhere. The same tab picks who it sounds like (Emily, Mike and about
 twenty more), how fast it talks, the language, and the microphone. Play
 a Sample tries a voice. The first time you use Voice, Threadbear
 downloads its voice engine (Kyutai's pocket-tts) and a voice model of

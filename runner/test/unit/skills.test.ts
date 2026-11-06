@@ -66,11 +66,11 @@ function fakeGitHub(files: Record<string, string>) {
   return { fetcher, sha, calls };
 }
 
-function store(fetcher: typeof fetch, accounts: Account[] = []) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-skills-'));
+function store(fetcher: typeof fetch, accounts: Account[] = [], dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-skills-'))) {
   const published: unknown[] = [];
-  const s = new SkillStore({ dataDir, accounts: () => accounts, publish: (n) => published.push(n), log: nullLogger, fetch: fetcher, version: '9.9.9' });
-  return { s, dataDir, published };
+  let refreshed = 0;
+  const s = new SkillStore({ dataDir, accounts: () => accounts, publish: (n) => published.push(n), log: nullLogger, fetch: fetcher, version: '9.9.9', onChange: () => refreshed++ });
+  return { s, dataDir, published, refreshed: () => refreshed };
 }
 
 test('importing a repo of skills pins each one and builds the plugin', async () => {
@@ -148,4 +148,25 @@ test('the built-in Pele is suggested until added', () => {
   const suggested = s.list().suggested.map((x) => x.id);
   assert.ok(suggested.includes('pele'));
   assert.ok(suggested.includes('anatomy'));
+});
+
+test('turning the store off takes every skill away, keeps them, and brings them back', async () => {
+  const gh = fakeGitHub({ 'SKILL.md': '---\nname: solo\ndescription: S\n---\n' });
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-codex-'));
+  const accounts = [{ id: 'codex-main', provider: 'codex', title: 'c', configDir: codexHome } as Account];
+  const { s, dataDir, refreshed } = store(gh.fetcher, accounts);
+  await s.add({ url: 'o/r' });
+  assert.equal(refreshed(), 1);
+  const off = await s.setEnabled(false);
+  assert.equal(off.enabled, false);
+  assert.deepEqual(off.skills.map((k) => k.name), ['solo']);
+  assert.deepEqual(s.plugins(), []);
+  assert.equal(fs.existsSync(path.join(codexHome, 'skills', 'solo')), false);
+  assert.equal(refreshed(), 2);
+  // Kept across a restart.
+  const again = store(gh.fetcher, accounts, dataDir).s;
+  assert.equal(again.list().enabled, false);
+  await again.setEnabled(true);
+  assert.equal(again.plugins().length, 1);
+  assert.ok(fs.lstatSync(path.join(codexHome, 'skills', 'solo')).isSymbolicLink());
 });

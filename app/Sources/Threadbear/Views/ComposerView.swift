@@ -55,8 +55,8 @@ struct ComposerView: View {
             RefusalOffer(thread: thread)
         }
         // Voice mode's bear, over the box while it's on for this thread.
-        if let thread, VoiceMode.shared.isOn(for: thread.id) {
-            VoiceStage(threadId: thread.id)
+        if VoiceMode.shared.isOn(for: thread?.id ?? VoiceMode.newThread) {
+            VoiceStage(threadId: thread?.id ?? VoiceMode.newThread)
         }
         // The folder's actions (patches), on shelves sitting on the box's
         // top edge, in from its rounded corner (ActionChips).
@@ -786,6 +786,18 @@ final class ComposerTextView: NSTextView {
         restyle()
     }
 
+    /// /pele and the like, for skills Threadbear has, coloured as you type:
+    /// that's a skill the message will run. Layout-only colour, so the
+    /// draft's text and its pictures are never touched (SkillMentions).
+    func markSkills() {
+        guard let layoutManager, let storage = textStorage else { return }
+        let whole = NSRange(location: 0, length: storage.length)
+        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: whole)
+        for range in SkillMentions.ranges(in: storage.string) {
+            layoutManager.addTemporaryAttribute(.foregroundColor, value: NSColor.controlAccentColor, forCharacterRange: range)
+        }
+    }
+
     /// The composer's font and line spacing on the whole text, keeping the
     /// pictures' chips (setAttributes alone would drop them).
     private func restyle() {
@@ -799,6 +811,7 @@ final class ComposerTextView: NSTextView {
         storage.setAttributes(ComposerTextField.attributes, range: whole)
         for (range, chip) in chips { storage.addAttribute(.attachment, value: chip, range: range) }
         storage.endEditing()
+        markSkills()
     }
 
     // MARK: A chip's hover card
@@ -1142,6 +1155,7 @@ final class ComposerTextView: NSTextView {
     override func didChangeText() {
         renumberPictures()
         super.didChangeText()
+        markSkills()
         if string.isEmpty != wasEmpty {
             wasEmpty = string.isEmpty
             needsDisplay = true

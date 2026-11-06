@@ -68,7 +68,7 @@ public enum RPCNotification: Sendable {
     /// The runner's settings after any change (a setting, the key, or the
     /// spend going up).
     case settingsUpdated(RunnerSettings)
-    case skillsUpdated([Skill])
+    case skillsUpdated([Skill], enabled: Bool?)
     case runnerNotice(level: String, message: String)
     /// The runner's own update, whole each time.
     case runnerUpdates(RunnerUpdates)
@@ -287,7 +287,7 @@ public final class RPCClient: Sendable {
         case "skills.updated":
             guard let params = try? decoder.decode(RPCNotificationEnvelope<SkillsResult>.self, from: data).params
             else { return nil }
-            return .skillsUpdated(params.skills)
+            return .skillsUpdated(params.skills, enabled: params.enabled)
         case "settings.updated":
             guard let params = try? decoder.decode(RPCNotificationEnvelope<SettingsResult>.self, from: data).params
             else { return nil }

@@ -158,16 +158,21 @@ type Deps = {
   fetch?: typeof fetch;
   npm?: string;
   version?: string;
+  /** After any change threads would see: the runner gives live CLIs a fresh start before their next message. */
+  onChange?: () => void;
 };
 
 export class SkillStore {
   private deps: Deps;
   private skills: Skill[] = [];
+  /** Off: no thread gets any of them, and no Codex login has the links (Settings > General). */
+  private enabled = true;
   private busy: Promise<unknown> = Promise.resolve();
 
   constructor(deps: Deps) {
     this.deps = deps;
     this.skills = this.readList();
+    this.enabled = this.readEnabled();
   }
 
   get root(): string {
@@ -180,11 +185,22 @@ export class SkillStore {
 
   /** The plugins every Claude session gets: the store's, once it has a skill. */
   plugins(): { type: 'local'; path: string }[] {
-    return this.skills.length && fs.existsSync(path.join(this.pluginDir, '.claude-plugin', 'plugin.json')) ? [{ type: 'local', path: this.pluginDir }] : [];
+    return this.enabled && this.skills.length && fs.existsSync(path.join(this.pluginDir, '.claude-plugin', 'plugin.json')) ? [{ type: 'local', path: this.pluginDir }] : [];
   }
 
-  list(): { skills: Skill[]; suggested: SuggestedSkill[] } {
-    return { skills: this.skills.map((s) => ({ ...s })), suggested: this.suggested() };
+  list(): { skills: Skill[]; suggested: SuggestedSkill[]; enabled: boolean } {
+    return { skills: this.skills.map((s) => ({ ...s })), suggested: this.suggested(), enabled: this.enabled };
+  }
+
+  /** Turns the whole store on or off for every thread. */
+  setEnabled(on: boolean): Promise<{ skills: Skill[]; suggested: SuggestedSkill[]; enabled: boolean }> {
+    return this.serial(async () => {
+      if (this.enabled !== on) {
+        this.enabled = on;
+        this.changed();
+      }
+      return this.list();
+    });
   }
 
   suggested(): SuggestedSkill[] {
@@ -358,7 +374,8 @@ export class SkillStore {
     this.writePlugin();
     this.linkCodex();
     this.pruneOld();
-    this.deps.publish({ method: 'skills.updated', params: { skills: this.list().skills } } as Notification);
+    this.deps.publish({ method: 'skills.updated', params: { skills: this.list().skills, enabled: this.enabled } } as Notification);
+    this.deps.onChange?.();
   }
 
   private readList(): Skill[] {
@@ -370,10 +387,18 @@ export class SkillStore {
     }
   }
 
+  private readEnabled(): boolean {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(this.root, 'skills.json'), 'utf8')).enabled !== false;
+    } catch {
+      return true;
+    }
+  }
+
   private writeList(): void {
     fs.mkdirSync(this.root, { recursive: true });
     const file = path.join(this.root, 'skills.json');
-    fs.writeFileSync(`${file}.tmp`, JSON.stringify({ skills: this.skills }, null, 2) + '\n');
+    fs.writeFileSync(`${file}.tmp`, JSON.stringify({ enabled: this.enabled, skills: this.skills }, null, 2) + '\n');
     fs.renameSync(`${file}.tmp`, file);
   }
 
@@ -410,7 +435,7 @@ export class SkillStore {
 
   /** Each Codex login's $CODEX_HOME/skills/<name>, a link to the plugin's folder; only links of ours are touched. */
   private linkCodex(): void {
-    const want = new Set(this.skills.map((s) => s.name));
+    const want = new Set(this.enabled ? this.skills.map((s) => s.name) : []);
     const mine = (target: string) => path.resolve(target).startsWith(path.resolve(this.pluginDir) + path.sep);
     for (const account of this.deps.accounts().filter((a) => a.provider === 'codex')) {
       const dir = path.join(account.configDir, 'skills');
@@ -521,5 +546,9 @@ export function skillMethods(s: SkillStore): Record<string, (p: Record<string, u
       return s.update({ name: name(p), always: p.always as boolean | undefined, latest: p.latest === true });
     },
     'skills.remove': (p) => s.remove({ name: name(p) }),
+    'skills.enable': (p) => {
+      if (typeof p.enabled !== 'boolean') throw bad('enabled must be a boolean');
+      return s.setEnabled(p.enabled);
+    },
   };
 }

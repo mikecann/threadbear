@@ -10,9 +10,8 @@ extension AppModel {
         Task {
             do {
                 let result = try await client.skills()
-                skills = result.skills
                 suggestedSkills = result.suggested ?? []
-                skillsSupported = true
+                receive(skills: result.skills, enabled: result.enabled)
             } catch RPCError.server(let code, _) where code == RPCError.methodNotFound {
                 // A runner from before Skills: no button.
                 skillsSupported = false
@@ -22,17 +21,35 @@ extension AppModel {
         }
     }
 
-    func receive(skills list: [Skill]) {
+    func receive(skills list: [Skill], enabled: Bool? = nil) {
         skills = list
         skillsSupported = true
+        if let enabled { skillsEnabled = enabled }
+        // Their slash commands show as links where they'd run (SkillMentions).
+        SkillMentions.names = skillsEnabled ? Set(list.map(\.name)) : []
         // What's suggested goes as it's added.
         let names = Set(list.map(\.name))
         suggestedSkills.removeAll { names.contains($0.name) }
     }
 
+    /// Settings, Skills and Notes, the pages over the main panel, put away.
+    func closeOverlayPages() {
+        showsSettingsPage = false
+        showsSkillsPage = false
+        showsNotesPage = false
+    }
+
+    /// The Notes page over the main panel.
+    func showNotes() {
+        showsSettingsPage = false
+        showsSkillsPage = false
+        showsNotesPage = true
+    }
+
     /// The Skills page over the main panel, as Settings is: what's open stays under it.
     func showSkills() {
         showsSettingsPage = false
+        showsNotesPage = false
         showsSkillsPage = true
         loadSkills()
     }
@@ -57,6 +74,13 @@ extension AppModel {
         Task { if let error = await skillChange("Updating \(name)…", { try await $0.updateSkill(name: name, latest: true) }) { errorMessage = error } }
     }
 
+    /// Settings > General's switch for the whole store.
+    func setSkillsEnabled(_ on: Bool) {
+        skillsEnabled = on
+        if !on { showsSkillsPage = false }
+        Task { if let error = await skillChange(nil, { try await $0.enableSkills(on) }) { errorMessage = error } }
+    }
+
     func removeSkill(_ name: String) {
         Task { if let error = await skillChange(nil, { try await $0.removeSkill(name: name) }) { errorMessage = error } }
     }
@@ -67,7 +91,7 @@ extension AppModel {
         defer { skillsBusy = nil }
         do {
             let result = try await call(client)
-            receive(skills: result.skills)
+            receive(skills: result.skills, enabled: result.enabled)
             if let suggested = result.suggested { suggestedSkills = suggested }
             return nil
         } catch RPCError.server(_, let message) {

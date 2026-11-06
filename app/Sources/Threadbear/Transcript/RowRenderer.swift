@@ -1218,7 +1218,26 @@ enum RowRenderer {
     /// the review's title small, then what he picked and his notes, not
     /// the review's id and the wording the agent gets (Mike, 29 Oct).
     static func userText(_ message: UserMessage) -> NSAttributedString {
-        cardChips(pictureChips(userWords(message), images: message.images))
+        skillMentions(cardChips(pictureChips(userWords(message), images: message.images)))
+    }
+
+    /// His /pele and the like, for skills Threadbear has, drawn as links:
+    /// that's the skill the message ran. A click opens the Skills page.
+    static func skillMentions(_ text: NSAttributedString) -> NSAttributedString {
+        let found = SkillMentions.ranges(in: text.string)
+        guard !found.isEmpty else { return text }
+        let out = NSMutableAttributedString(attributedString: text)
+        for range in found {
+            let name = String((text.string as NSString).substring(with: range).dropFirst()).lowercased()
+            let font = out.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? Theme.bodyFont
+            out.addAttributes([
+                .foregroundColor: NSColor.controlAccentColor,
+                .font: NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask),
+                .toolTip: "Runs the \(name) skill",
+            ], range: range)
+            if let url = SkillMentions.url(for: name) { out.addAttribute(.link, value: url, range: range) }
+        }
+        return out
     }
 
     /// Notion cards and threads mentioned in his words drawn as chips,

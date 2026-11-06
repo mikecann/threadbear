@@ -72,19 +72,19 @@ enum BearChat {
         }
         app.newThread()
         app.newThreadCwd = folder.path
-        guard talk else { return }
-        app.startBearChat { threadId in
-            VoiceMode.shared.start(threadId: threadId)
-        }
+        // Listening on the empty chat: what he says first starts it.
+        if talk, VoiceMode.enabled { VoiceMode.shared.start(threadId: VoiceMode.newThread) }
     }
 }
 
 extension AppModel {
-    /// A new chat with the bear, started with a hello (Voice needs a thread).
-    func startBearChat(then: @escaping (String) -> Void) {
-        guard let client, connection == .connected, !creatingThread else { return }
-        newThreadCwd = BearChat.folder.path
-        let request = newThreadRequest(text: "Hi bear, I'd like to talk out loud.", images: [])
+    /// A new thread from what he said in Voice on the new-thread composer,
+    /// with its folder, login and model as the composer has them (the
+    /// bear's folder for the bear's chat). `then` gets its id before it's
+    /// selected (so Voice carries on in it), or nil if it couldn't be made.
+    func startThreadSpoken(_ text: String, then: @escaping (String?) -> Void) {
+        guard let client, connection == .connected, !creatingThread else { then(nil); return }
+        let request = newThreadRequest(text: text, images: [])
         creatingThread = true
         Task {
             defer { creatingThread = false }
@@ -92,9 +92,10 @@ extension AppModel {
                 let thread = try await client.createThread(request)
                 newThreadCwd = nil
                 threads[thread.id] = thread
-                select(thread.id)
                 then(thread.id)
+                select(thread.id)
             } catch {
+                then(nil)
                 show(error)
             }
         }

@@ -14,6 +14,7 @@ extension AppModel {
         if newThreadCwd == BearChat.folder.path { newThreadCwd = nil }
         showsSettingsPage = false
         showsSkillsPage = false
+        showsNotesPage = false
         selection = nil
         openProjectId = nil
         showsProjectsHome = false

@@ -89,6 +89,7 @@ private struct GeneralSettings: View {
     @AppStorage(AppAppearance.key) private var appearance: AppAppearance = .system
     @AppStorage(SettingsPlace.key) private var settingsPlace: SettingsPlace = .panel
     @AppStorage(BearChat.shownKey) private var bearShown = true
+    @AppStorage(NotesStore.shownKey) private var notesShown = true
 
     var body: some View {
         SettingsGate { settings in
@@ -112,6 +113,23 @@ private struct GeneralSettings: View {
                                 ask: "change what the bear knows or how it talks. Its instructions are CLAUDE.md in ~/ThreadbearThreads/Bear.") {
                     Toggle("Show the bear in the sidebar", isOn: $bearShown)
                         .tip("Show or hide the bear at the top right of the sidebar")
+                }
+
+                if app.skillsSupported {
+                    SettingsSection("Skills",
+                                    about: "The skills store (Skills in the bar on the left) gives every thread's agent the skills you've added, on every login, Claude and Codex. Turning it off takes them away from every thread and hides Skills; your skills are kept for when it's back on.",
+                                    ask: "add, explain or check on a skill.") {
+                        Toggle("Use the skills store", isOn: Binding(get: { app.skillsEnabled }, set: { app.setSkillsEnabled($0) }))
+                            .tip("Give every thread the skills on the Skills page")
+                    }
+                }
+
+                SettingsSection("Notes",
+                                about: "Notes (in the bar on the left) are yours alone: kept on this Mac, encrypted with a key in your Keychain, never sent anywhere, and not readable by agents. Hiding Notes keeps them; turn it back on to see them again.",
+                                ask: "explain where your notes are kept.") {
+                    Toggle("Show Notes", isOn: $notesShown)
+                        .tip("Show Notes in the bar on the left")
+                        .onChange(of: notesShown) { _, on in if !on { app.showsNotesPage = false } }
                 }
 
                 SettingsSection("New threads",

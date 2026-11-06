@@ -872,10 +872,11 @@ the summary and then the reply.
 | `plans.approve` | `{ threadId, itemId }` | `{}`. Go ahead on a waiting plan (see "Plan first"); `-32602` if that plan isn't waiting |
 | `secrets.answer` | `{ threadId, approvalId, secret?: string, decline?: true }` | `{}`. Answers a `secret.requested` card (Secrets). The runner never logs, emits or mirrors `secret` |
 | `media.import` | `{ path: string }` | `{ image: ImageRef }` copies a file into `inbox/` and reads its size; HEIC becomes JPEG and TIFF or BMP becomes PNG |
-| `skills.list` | `{}` | `{ skills: Skill[], suggested: SuggestedSkill[] }`. The skills in Threadbear's store and the suggested ones not added yet (see Skills) |
+| `skills.list` | `{}` | `{ skills: Skill[], suggested: SuggestedSkill[], enabled: boolean }`. The skills in Threadbear's store and the suggested ones not added yet (see Skills) |
 | `skills.add` | `{ url: string }` or `{ suggested: string }` | `{ skills: Skill[], added: string[] }`. Imports the skill or skills a GitHub link names (a repo, a folder, a `SKILL.md`, a raw file, `owner/repo`), or a page that names one (its `npx skills add owner/repo` line or GitHub link), pinned to the commit it resolves to, or a suggested skill by `id`. Added with `always: true`. `-32602` with the reason for a link it can't use, no `SKILL.md`, or a name that's taken |
 | `skills.update` | `{ name, always?: boolean, latest?: true }` | `{ skills: Skill[] }`. `always` turns the skill's automatic use on or off (off: only its slash command runs it); `latest: true` fetches its source again and moves it to the newest commit. `-32602` for a name it doesn't have |
 | `skills.remove` | `{ name }` | `{ skills: Skill[] }`. Takes it out of the store, the Claude plugin and every Codex login |
+| `skills.enable` | `{ enabled: boolean }` | as `skills.list`. Turns the whole store off (no thread gets any skill, the Codex links go) or back on; the skills are kept either way |
 | `patches.trust` | `{ threadId, files: { file, hash }[] }` | `{ trusted: string[] }`. Trusts those versions of the thread's waiting patch files (each a `file` its `patches` lists with `untrusted`, and the `hash` given there), then every thread's patches are read again, so the answer comes once they have been. The `claude` entry's file trusts the folder's Claude Code settings the same way. `-32602` for a file the thread isn't waiting on, or one whose hash has moved on since (look again). See "Trusting a folder's patches" |
 | `actions.run` | `{ threadId, actionId }` | For a prompt action, `{ turnId }`: its prompt was sent as a message (as `threads.send`). For a url action (only an older client calls it for one), `{ ok: true, durationMs }` once the page is opened on the runner's Mac, with nothing in the transcript. For a command action, `{ ok, exitCode?, durationMs, seq }` once the command has finished, with its output in the transcript as the `action.run` event at `seq`. The command runs in the thread's folder through a login shell with the thread's variables (`THREADBEAR_THREAD_ID` and the rest) and is stopped after 10 minutes. `-32602` for an action the thread doesn't have, `-32020` while the same action is still running |
 | `panels.render` | `{ threadId, panelId }` | `{ image?: ImageRef, items?: PanelItem[], note?: string }` draws an `image` panel or fills a `list` panel now. For `xcode.simulator`, a screenshot of the booted simulator (`xcrun simctl io booted screenshot`), written to the same file each time under the thread's `panels/`; with no device booted (or another failure) there's only `note`. For a `list` panel, the rows its patch's `items` function returned (at most 200), or `note` with the error when it threw or took over 20 seconds. Slow: it waits for the screenshot or the function. `-32602` for a panel the thread doesn't have |
@@ -980,7 +981,7 @@ still `-32602`.)
 | `librarian.updated` | `{ librarian: LibrarianStatus }` sent to every connected client when the librarian's status changes |
 | `connectors.updated` | `{ connectors: ConnectorsStatus }` sent to every connected client when what the Connectors panel would show changes (a service signs out or back in, the gateway stops or starts answering); not when only `checkedAt` moves |
 | `settings.updated` | `{ settings: Settings }` sent to every connected client when a setting or the key changes, and at most once a minute while model calls are adding to the spend |
-| `skills.updated` | `{ skills: Skill[] }` sent to every connected client after any `skills.*` change. The whole list |
+| `skills.updated` | `{ skills: Skill[], enabled: boolean }` sent to every connected client after any `skills.*` change. The whole list |
 | `runner.notice` | `{ level: "info" \| "warning" \| "error", message }`. Also sent straight after the `hello` result for things the client missed (startup problems, a missing `claude` binary) |
 | `runner.updates` | `{ updates: RunnerUpdates }` sent to every connected client when the runner's own update state changes (below). Replaces the one from `hello` |
 
@@ -3271,9 +3272,10 @@ into the store and, if it has a `package-lock.json`, runs `npm ci
 --omit=dev --ignore-scripts` there. **Suggested** are the built-in ones plus
 a short list in `src/skills.ts` (Anatomy), each until it's added.
 
-A change takes effect for each thread's next CLI: a live one keeps the
-skills it started with until it's restarted (idle, a model change, a
-runner restart).
+A change reaches running threads too: every live CLI is given a fresh one
+before its next message (the same conversation, resumed, with the new
+skills), and an idle one with nothing running in the background is let
+go straight away, as for a CLI update.
 
 ## Highlights
 

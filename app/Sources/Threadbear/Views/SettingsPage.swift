@@ -30,6 +30,7 @@ extension AppModel {
         // A Settings window that's open already is brought forward instead.
         if SettingsPlace.current == .panel, SettingsWindow.current?.isVisible != true {
             showsSkillsPage = false
+            showsNotesPage = false
             showsSettingsPage = true
         } else {
             settingsRequest += 1

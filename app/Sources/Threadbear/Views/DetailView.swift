@@ -30,6 +30,8 @@ struct DetailView: View {
             SettingsPage()
         } else if app.showsSkillsPage {
             SkillsPage()
+        } else if app.showsNotesPage {
+            NotesPage()
         } else if let project {
             VStack(spacing: 0) {
                 ConnectionBanner()
@@ -149,9 +151,9 @@ private struct ArchivedToast: View {
         }
         .animation(Juice.reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.3), value: app.archivedNote?.id)
         // Going anywhere else from the bar or the sidebar closes Settings.
-        .onChange(of: app.showsHomePage) { _, shown in if shown { app.showsSettingsPage = false; app.showsSkillsPage = false } }
-        .onChange(of: app.openProjectId) { _, id in if id != nil { app.showsSettingsPage = false; app.showsSkillsPage = false } }
-        .onChange(of: app.sidebarMode) { app.showsSettingsPage = false; app.showsSkillsPage = false }
+        .onChange(of: app.showsHomePage) { _, shown in if shown { app.closeOverlayPages() } }
+        .onChange(of: app.openProjectId) { _, id in if id != nil { app.closeOverlayPages() } }
+        .onChange(of: app.sidebarMode) { app.closeOverlayPages() }
     }
 
     private func toast(_ note: ArchivedNote) -> some View {

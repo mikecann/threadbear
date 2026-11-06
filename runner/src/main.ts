@@ -196,7 +196,8 @@ async function main(): Promise<void> {
   // Threadbear's skills (skills.ts): a plugin for every Claude session and
   // links into every Codex login. publish goes through the runner once it's made.
   let publishSkills: (n: import('./runner.ts').Notification) => void = () => {};
-  const skills = new SkillStore({ dataDir: cfg.home, accounts: () => accounts.list(), publish: (n) => publishSkills(n), log, version: RUNNER_VERSION });
+  let refreshSkills = () => {};
+  const skills = new SkillStore({ dataDir: cfg.home, accounts: () => accounts.list(), publish: (n) => publishSkills(n), log, version: RUNNER_VERSION, onChange: () => refreshSkills() });
   skills.sync();
   const claude = new ClaudeAdapter({
     plugins: () => skills.plugins(),
@@ -257,6 +258,8 @@ async function main(): Promise<void> {
     },
   });
   publishSkills = (n) => runner.publish(n);
+  // Live CLIs pick a skills change up before their next message.
+  refreshSkills = () => runner.refreshForSkills();
   // A login added or gone gets (or loses) the Codex links.
   accounts.onChange(() => skills.sync());
   // Until it is listening (below): see Runner.holdWaits.

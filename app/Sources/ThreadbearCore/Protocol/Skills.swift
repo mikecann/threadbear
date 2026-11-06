@@ -73,6 +73,8 @@ public struct SkillsResult: Sendable, Decodable {
     public var skills: [Skill]
     public var suggested: [SuggestedSkill]?
     public var added: [String]?
+    /// False while the whole store is off (Settings > General); nil from a runner before the switch.
+    public var enabled: Bool?
 }
 
 /// A runner from before Skills answers `-32601`, which the app reads as
@@ -95,6 +97,11 @@ public extension RPCClient {
         if let always { params["always"] = .bool(always) }
         if latest { params["latest"] = .bool(true) }
         return try await call("skills.update", .object(params), as: SkillsResult.self)
+    }
+
+    /// Turns the whole store on or off for every thread.
+    func enableSkills(_ on: Bool) async throws -> SkillsResult {
+        try await call("skills.enable", .object(["enabled": .bool(on)]), as: SkillsResult.self)
     }
 
     func removeSkill(name: String) async throws -> SkillsResult {

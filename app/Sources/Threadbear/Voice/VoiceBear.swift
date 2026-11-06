@@ -225,8 +225,10 @@ struct BearButton: View {
         .onHover { hovering = $0 }
         .animation(Juice.hover, value: hovering)
         .iconContextMenu {
-            Button(talking ? "Stop Talking" : "Talk Out Loud", systemImage: "waveform") {
-                if talking { VoiceMode.shared.stop() } else { BearChat.open(app: app, talk: true) }
+            if VoiceMode.enabled {
+                Button(talking ? "Stop Talking" : "Talk Out Loud", systemImage: "waveform") {
+                    if talking { VoiceMode.shared.stop() } else { BearChat.open(app: app, talk: true) }
+                }
             }
             Button("Open Chat", systemImage: "bubble.left") { BearChat.open(app: app, talk: false) }
             Button("Show the Bear's Folder", systemImage: "folder") {

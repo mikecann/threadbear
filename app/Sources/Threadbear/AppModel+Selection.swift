@@ -20,6 +20,7 @@ extension AppModel {
         // Picking a thread shows it, closing Settings if it covered the panel.
         showsSettingsPage = false
         showsSkillsPage = false
+        showsNotesPage = false
         selection = threadId
         openProjectId = nil
         showsProjectsHome = false

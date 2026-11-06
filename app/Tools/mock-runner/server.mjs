@@ -1201,7 +1201,12 @@ async function dispatch(client, method, p) {
     // adds a skill named after it.
     case 'skills.list':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
-      return { skills: mockSkills, suggested: mockSuggested() };
+      return { skills: mockSkills, suggested: mockSuggested(), enabled: mockSkillsOn };
+    case 'skills.enable':
+      if (typeof p.enabled !== 'boolean') throw rpcError(-32602, 'enabled must be a boolean');
+      mockSkillsOn = p.enabled;
+      broadcast('skills.updated', { skills: mockSkills, enabled: mockSkillsOn });
+      return { skills: mockSkills, suggested: mockSuggested(), enabled: mockSkillsOn };
     case 'skills.add': {
       let added;
       if (p.suggested) {
@@ -1764,6 +1769,7 @@ function mockSkill(name, description, source) {
   return { name, description, always: true, source, commit, dir: `/tmp/threadbear-mock/skills/${name}@${commit.slice(0, 7)}`, addedAt: iso() };
 }
 let mockSkills = [mockSkill('pele', MOCK_SUGGESTED[0].description, { kind: 'builtin' })];
+let mockSkillsOn = true;
 function mockSuggested() {
   return MOCK_SUGGESTED.filter((s) => !mockSkills.some((k) => k.name === s.name));
 }

@@ -456,11 +456,15 @@ final class AppModel {
     var showsSettingsPage = false
     /// The Skills page over the main panel (SkillsPage), as Settings is.
     var showsSkillsPage = false
+    /// The Notes page over the main panel (NotesPage).
+    var showsNotesPage = false
     /// Threadbear's skills (SkillsModel.swift), from skills.list and skills.updated.
     var skills: [Skill] = []
     var suggestedSkills: [SuggestedSkill] = []
     /// False for a runner from before Skills, which has no page.
     var skillsSupported = false
+    /// The whole store on (Settings > General); off hides the Skills button too.
+    var skillsEnabled = true
     /// What an import or update is doing, while it runs.
     var skillsBusy: String?
     /// Settings › Phone & browser (DevicesModel.swift): the backend's list
