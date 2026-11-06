@@ -15,6 +15,7 @@ import ThreadbearCore
 /// leaves it the full height of the window, as VS Code's is (Mike, 28 Oct).
 struct ActivityBar: View {
     @Environment(AppModel.self) private var app
+    @AppStorage(NotesStore.shownKey) private var notesShown = true
     @Environment(\.openSettings) private var openSettings
     /// The highlight behind the view on show slides between icons in this.
     @Namespace private var activeSpace
@@ -55,6 +56,20 @@ struct ActivityBar: View {
                     app.showLibrarian()
                 }
             }
+            // Only once the runner has said it keeps skills (skills.list).
+            if app.skillsSupported, app.skillsEnabled {
+                ActivityButton(symbol: "sparkles.rectangle.stack", title: "Skills", shortcut: nil,
+                               badge: nil, active: app.showsSkillsPage, slides: false) {
+                    if app.showsSkillsPage { app.showsSkillsPage = false } else { app.showSkills() }
+                }
+            }
+            // Mike's own notes, this Mac's alone (NotesStore); Settings > General can hide it.
+            if notesShown {
+                ActivityButton(symbol: "note.text", title: "Notes", shortcut: nil,
+                               badge: nil, active: app.showsNotesPage, slides: false) {
+                    if app.showsNotesPage { app.showsNotesPage = false } else { app.showNotes() }
+                }
+            }
             }
             .tourTarget(.activityBar)
             Spacer(minLength: zoomed(8))
@@ -75,8 +90,9 @@ struct ActivityBar: View {
             UpdatesActivityButton()
             UsageActivityButton()
             // The same window as ⌘, without a trip to the menu bar.
-            ActivityButton(symbol: "gearshape", title: "Settings", shortcut: "⌘,", active: false) {
-                openSettings()
+            ActivityButton(symbol: "gearshape", title: "Settings", shortcut: AppShortcuts.shared.display(.settings), active: app.showsSettingsPage) {
+                // A second press closes the page, as the bar's other buttons toggle theirs.
+                if app.showsSettingsPage { app.showsSettingsPage = false } else { app.openSettings() }
             }
         }
         .environment(\.sidebarRowSpace, activeSpace)

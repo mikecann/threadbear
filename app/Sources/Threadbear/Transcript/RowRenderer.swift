@@ -1218,7 +1218,26 @@ enum RowRenderer {
     /// the review's title small, then what he picked and his notes, not
     /// the review's id and the wording the agent gets (Mike, 29 Oct).
     static func userText(_ message: UserMessage) -> NSAttributedString {
-        cardChips(pictureChips(userWords(message), images: message.images))
+        skillMentions(cardChips(pictureChips(userWords(message), images: message.images)))
+    }
+
+    /// His /pele and the like, for skills Threadbear has, drawn as links:
+    /// that's the skill the message ran. A click opens the Skills page.
+    static func skillMentions(_ text: NSAttributedString) -> NSAttributedString {
+        let found = SkillMentions.ranges(in: text.string)
+        guard !found.isEmpty else { return text }
+        let out = NSMutableAttributedString(attributedString: text)
+        for range in found {
+            let name = String((text.string as NSString).substring(with: range).dropFirst()).lowercased()
+            let font = out.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? Theme.bodyFont
+            out.addAttributes([
+                .foregroundColor: NSColor.controlAccentColor,
+                .font: NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask),
+                .toolTip: "Runs the \(name) skill",
+            ], range: range)
+            if let url = SkillMentions.url(for: name) { out.addAttribute(.link, value: url, range: range) }
+        }
+        return out
     }
 
     /// Notion cards and threads mentioned in his words drawn as chips,
@@ -1271,6 +1290,9 @@ enum RowRenderer {
         } else if let rest = Decisions.extra(in: message.text, answers: message.answers) {
             (lines, extra) = (message.answers.map { ($0.action, $0.answer) }, rest)
         } else {
+            // Basic Markdown in his words (a "- " list, **bold**, `code`),
+            // drawn as a reply's is; anything else stays plain (UserMarkdown).
+            if let markdown = UserMarkdown.prepare(message.text) { return MarkdownRenderer.render(markdown).string }
             return NSAttributedString(string: message.text.isEmpty ? " " : message.text, attributes: plain)
         }
         let output = NSMutableAttributedString()
@@ -1291,7 +1313,12 @@ enum RowRenderer {
             output.append(NSAttributedString(string: item.text.replacingOccurrences(of: "\n", with: "\u{2028}"), attributes: answer))
         }
         if !extra.isEmpty {
-            output.append(NSAttributedString(string: "\n" + extra, attributes: plain))
+            output.append(NSAttributedString(string: "\n", attributes: plain))
+            if let markdown = UserMarkdown.prepare(extra) {
+                output.append(MarkdownRenderer.render(markdown).string)
+            } else {
+                output.append(NSAttributedString(string: extra, attributes: plain))
+            }
         }
         return output
     }

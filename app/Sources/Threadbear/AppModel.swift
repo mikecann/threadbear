@@ -451,6 +451,24 @@ final class AppModel {
     /// Bumped to open the Settings window from the automation (RootView
     /// opens it, as ⌘, does).
     var settingsRequest = 0
+    /// Settings shown over the main panel (SettingsPage), covering what's
+    /// open without changing it.
+    var showsSettingsPage = false
+    /// The Skills page over the main panel (SkillsPage), as Settings is.
+    var showsSkillsPage = false
+    /// The Notes page over the main panel (NotesPage).
+    var showsNotesPage = false
+    /// Threadbear's skills (SkillsModel.swift), from skills.list and skills.updated.
+    var skills: [Skill] = []
+    var suggestedSkills: [SuggestedSkill] = []
+    /// False for a runner from before Skills, which has no page.
+    var skillsSupported = false
+    /// The whole store on (Settings > General); off hides the Skills button too.
+    var skillsEnabled = true
+    /// His standing instructions for every session (the Skills page's Instructions).
+    var standingInstructions = ""
+    /// What an import or update is doing, while it runs.
+    var skillsBusy: String?
     /// Settings › Phone & browser (DevicesModel.swift): the backend's list
     /// of paired phones and browsers as the runner last gave it, the
     /// website's root, or why nothing can pair. Never a token.

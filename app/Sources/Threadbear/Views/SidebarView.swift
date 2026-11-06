@@ -52,6 +52,7 @@ private struct InboxList: View {
 
     /// How many archived threads the Archived section shows (`ArchiveRows`).
     @State private var archiveLimit = ArchiveRows.first
+    @AppStorage(BearChat.shownKey) private var bearShown = true
 
     var body: some View {
         // The search at the top cuts every section down to its matches.
@@ -82,6 +83,9 @@ private struct InboxList: View {
             HStack(spacing: zoomed(6)) {
                 ThreadSearch()
                 NewThreadButton()
+                // The bear, always there at the top right (BearChat),
+                // unless it's hidden in Settings > General.
+                if bearShown { BearButton() }
             }
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, SidebarMetrics.outerInset)

@@ -1,0 +1,6 @@
+{
+  "name": "threadbear-skill-pele",
+  "private": true,
+  "type": "module",
+  "dependencies": { "pele": "1.13.0" }
+}

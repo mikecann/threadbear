@@ -74,6 +74,42 @@ File references are where to look.
   `mac-screen.json` in the data folder
   remembers what it's said about dialogs on the screen (below).
 
+Voice mode, the first time you use it (Settings > Voice, or the
+waveform button beside Send), downloads Kyutai's pocket-tts (v4.0.1, its
+Apple silicon build, checked against its SHA-256 before it's used) from
+its GitHub release into `~/Library/Application Support/Threadbear/voice/`,
+with its log `serve.log` beside it. pocket-tts then downloads its English
+model and voices from Hugging Face into `~/.cache/huggingface` (about
+240 MB; another language is another model). macOS asks once for the
+microphone, and may download its own speech recognition files for the
+language (`app/Sources/Threadbear/Voice/`). Skills (the bar's Skills page) live in `~/Library/Application Support/Threadbear/skills/`:
+`instructions.md` (the page's Instructions, given to every session),
+`skills.json`, each skill's files in `<name>@<commit>/` as fetched from
+GitHub (`api.github.com` to find the commit, `codeload.github.com` for the
+files; nothing fetched is run), and `plugin/`, which every Claude session
+is given (`runner/src/skills.ts`). For each Codex login the runner puts a
+link to each skill in that login's `CODEX_HOME/skills/` folder, and only
+ever touches links of its own there. Adding the built-in Pele runs
+`npm ci --omit=dev --ignore-scripts` in its folder, which fetches the
+`pele` package from npm.
+The Terminal panel runs your login shell (`$SHELL -l`, else zsh) in the
+thread's folder, one per thread for as long as the app runs, without the
+thread's own THREADBEAR_ and CLAUDE variables; they all end when the
+app quits (`app/Sources/Threadbear/Views/TerminalPanel.swift`, drawn by
+the SwiftTerm package).
+Notes (the bar's Notes) are files in `~/Library/Application Support/Threadbear/notes/`
+(the folder only you can open, each file only you can read), each a note
+encrypted with AES-GCM under a key the app makes the first time and keeps
+in your login Keychain as "Threadbear notes" (`app/Sources/Threadbear/Notes/NotesStore.swift`).
+They're never sent anywhere, and the runner never reads them.
+The bear at the top right of the sidebar, the first time it's clicked,
+makes `~/ThreadbearThreads/Bear` with a `CLAUDE.md` of instructions for
+its chats (never rewritten once it's there); Claude Code keeps the bear's
+memory for that folder in `~/.claude/projects/`, as it does for any folder.
+`~/Library/Logs/Threadbear/voice.log`
+notes what Voice did (which microphone, whether echo cancellation
+started, errors), never what was said, and is started afresh past 256 KB.
+
 ## What runs in the background
 
 - **Landing work** (`runner/src/worktrees.ts`): `tb land` keeps an empty
@@ -156,6 +192,14 @@ File references are where to look.
   same way (`runner/src/claude-trust.ts`):
   the runner reads those files and the scripts they name to hash them,
   and keeps what you trusted in the same `patch-trust.json`.
+- **Voice** (`app/Sources/Threadbear/Voice/VoiceServer.swift`): only
+  while Voice is in use and for 5 minutes after, the app runs
+  `pocket-tts serve` on a free port on 127.0.0.1 (not reachable from other
+  machines), sends it each reply's sentences and plays what comes back.
+  It stops when the app quits. While Voice is on, the microphone is on,
+  and what you say is turned into text on this Mac by macOS's own speech
+  recognition (SpeechAnalyzer); the audio isn't saved or sent anywhere.
+  The text goes to the thread as your message.
 - **Menus on macOS 27.2** (`app/Sources/Threadbear/DragSpace.swift`): every
   5 seconds, and before a button opens a menu, the app asks the window
   server which Spaces its own windows are on, and takes them off the drag
@@ -203,6 +247,8 @@ File references are where to look.
 | Anthropic, OpenAI | yours | Your threads, through the official CLIs on your own logins. With the `labReview` experiment on (off by default), a thread's code change, with your message and the agent's reply, goes to your other provider's CLI as a review thread, as if you'd started one. After a turn fails because the API couldn't be reached, the runner itself opens (and straight away closes) a connection to api.anthropic.com or chatgpt.com on port 443, at most once a minute, until one opens and the thread carries on. Nothing is sent over it (`runner/src/net-probe.ts`). |
 | Mike's push relay | Mike's | Only when a paired iPhone gets a notification. It's sent from your Convex deployment, not the Mac. The text is encrypted for the phone; the relay sees the device token and thread id (`convex/push.ts`, `docs/push-relay.md`). The first time, your deployment registers with it, giving its own address; the relay keeps that address and checks it by posting a one-time code back to your deployment's `/relay/verify` (`convex/http.ts`). |
 | A Connectors gateway | whoever runs it | Only if one is set in `runner.json` or `~/.claude.json`. Its `/health` every few minutes (and once more at the end of a turn where a call to one of its services failed, to see if it needs signing in), and for a project with a Notion page, a Notion read or two every 5 minutes for its task board (`runner/src/notion-tasks.ts`), signed with the header the `headersHelper` command in that `connectors` entry prints, which it runs for each read |
+| GitHub | the skill's author | Only when you import or update a skill: the repo's commit and files, read without signing in. Nothing of yours is sent. |
+| GitHub, Hugging Face | Kyutai's | Only the first time Voice is used: the pocket-tts download, then its model and voices. Nothing of yours is sent. |
 | Sentry | Mike's | Nothing from your copy. Only a copy whose `origin` is Mike's own repo reports errors or uploads the app's debug symbols (`runner/src/sentry.ts`, `app/Sources/Threadbear/CrashReporting.swift`, `app/build-app.sh`). The App Store iPhone app sends anonymous crash reports. |
 
 An HTML file opened in the side pane (a mockup or report an agent made,
