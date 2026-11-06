@@ -55,6 +55,13 @@ struct ActivityBar: View {
                     app.showLibrarian()
                 }
             }
+            // Only once the runner has said it keeps skills (skills.list).
+            if app.skillsSupported {
+                ActivityButton(symbol: "sparkles.rectangle.stack", title: "Skills", shortcut: nil,
+                               badge: nil, active: app.showsSkillsPage, slides: false) {
+                    if app.showsSkillsPage { app.showsSkillsPage = false } else { app.showSkills() }
+                }
+            }
             }
             .tourTarget(.activityBar)
             Spacer(minLength: zoomed(8))

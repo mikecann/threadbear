@@ -156,6 +156,7 @@ export type Notification =
   | { method: 'remoteThreads.updated'; params: import('./thread-index.ts').RemoteThreads }
   | { method: 'clis.updated'; params: { clis: CliStatus[] } }
   | { method: 'settings.updated'; params: { settings: Settings } }
+  | { method: 'skills.updated'; params: { skills: import('./skills.ts').Skill[] } }
   | { method: 'runner.updates'; params: { updates: RunnerUpdates } }
   | { method: 'projects.updated'; params: { projects: Project[] } }
   | { method: 'librarian.updated'; params: { librarian: LibrarianStatus } }

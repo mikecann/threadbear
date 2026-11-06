@@ -48,6 +48,7 @@ import { acquireLock } from './lock.ts';
 import { removeTempFiles } from './fsutil.ts';
 import { Models } from './models/index.ts';
 import { SettingsService, modelMethods, settingsMethods } from './settings.ts';
+import { SkillStore, skillMethods } from './skills.ts';
 import { ConvexSync, defaultRunnerName, ensureRunnerId, readSyncKey } from './sync.ts';
 import { pushFailingText } from './push-failing.ts';
 import { Scrubber } from './scrub.ts';
@@ -192,7 +193,13 @@ async function main(): Promise<void> {
     const s = await connectors.refresh(true);
     return s.state === 'ok' ? s.services : undefined;
   };
+  // Threadbear's skills (skills.ts): a plugin for every Claude session and
+  // links into every Codex login. publish goes through the runner once it's made.
+  let publishSkills: (n: import('./runner.ts').Notification) => void = () => {};
+  const skills = new SkillStore({ dataDir: cfg.home, accounts: () => accounts.list(), publish: (n) => publishSkills(n), log, version: RUNNER_VERSION });
+  skills.sync();
   const claude = new ClaudeAdapter({
+    plugins: () => skills.plugins(),
     claudePath: cfg.claudePath,
     registry,
     log,
@@ -249,6 +256,9 @@ async function main(): Promise<void> {
       if (!appRestarts.isWatching(threadId)) appRestarts.watch(threadId);
     },
   });
+  publishSkills = (n) => runner.publish(n);
+  // A login added or gone gets (or loses) the Codex links.
+  accounts.onChange(() => skills.sync());
   // Until it is listening (below): see Runner.holdWaits.
   runner.holdWaits = true;
   const settings = new SettingsService({ config: cfg, publish: (n) => runner.publish(n), poolIds: () => runner.listPools().pools.map((p) => p.id) });
@@ -568,7 +578,7 @@ async function main(): Promise<void> {
   updaterReady = true;
 
   runner.attachClis(updates);
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...skillMethods(skills), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {

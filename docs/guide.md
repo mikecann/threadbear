@@ -1094,6 +1094,28 @@ page and on the shared page while you're signed in.
 The Mac app also draws a picture an agent writes into its reply with a path
 on your Mac (`![a chart](/path/to/chart.png)`), rather than showing a link.
 
+## Skills
+
+Skills give your agents extra know-how: how to draw a Mermaid diagram,
+build an isometric explainer, write in a house style. Click Skills in the
+bar on the left (under the Librarian) to see yours. The page opens over the
+main panel; its X or Esc puts you back where you were.
+
+To add one, paste its GitHub link in Import a skill and press Import: a
+repo (github.com/owner/repo), a folder in one, a SKILL.md, or even a
+skill's own web page if it names its GitHub repo or `npx skills add` line.
+A repo with several skills adds them all. Each is pinned to the commit it
+was imported at, so it never changes under you; Update to the Latest in
+its ... menu moves it on. Suggested lists ones worth having, such as Pele
+(Mermaid diagrams, which comes with Threadbear) and Anatomy (interactive
+drawings of how a machine works), with an Add button each.
+
+Every skill works in every thread, on every login, Claude and Codex alike.
+With Always on, agents use it whenever it fits what you ask. Turn it off
+and it's there only when you ask by name: type its slash command, like
+/pele, in a message. A change reaches each thread the next time its agent
+starts. Remove takes a skill away everywhere.
+
 ## Patches: your own buttons and panels
 <!-- slug: patches -->
 

@@ -19,6 +19,7 @@ extension AppModel {
         if VoiceMode.shared.isOn, VoiceMode.shared.threadId != threadId { VoiceMode.shared.stop() }
         // Picking a thread shows it, closing Settings if it covered the panel.
         showsSettingsPage = false
+        showsSkillsPage = false
         selection = threadId
         openProjectId = nil
         showsProjectsHome = false

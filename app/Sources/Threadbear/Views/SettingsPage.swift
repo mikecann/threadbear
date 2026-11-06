@@ -29,6 +29,7 @@ extension AppModel {
         if let tab { settingsTab = tab }
         // A Settings window that's open already is brought forward instead.
         if SettingsPlace.current == .panel, SettingsWindow.current?.isVisible != true {
+            showsSkillsPage = false
             showsSettingsPage = true
         } else {
             settingsRequest += 1

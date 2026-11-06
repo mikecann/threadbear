@@ -36,7 +36,7 @@ export const BACKGROUND_WAIT_MS = 30 * 60_000;
 // What a release holds from runner/, as deploy.mjs's RELEASE_PATHS: only a
 // change to these changes what runs, so a commit that only touches tests
 // or docs doesn't restart the runner.
-export const RELEASE_PATHS = ['src', 'bin', 'package.json', 'package-lock.json'];
+export const RELEASE_PATHS = ['src', 'bin', 'skills', 'package.json', 'package-lock.json'];
 const TRANSIENT = /Another deploy \(pid/;
 
 export type UpdateState = 'off' | 'idle' | 'checking' | 'building' | 'waiting' | 'failed';
