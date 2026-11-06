@@ -344,6 +344,11 @@ Any other file you paste or drop in (a video, a PDF, a folder) goes in as
 its full path where you drop it, for the agent to open where it is.
 Nothing's copied, so a big one is fine.
 
+Your messages show basic Markdown as replies do: start lines with "- " or
+"1. " for a list, and use **bold**, *italics*, `code`, [links](https://example.com),
+"# " headings and "> " quotes. Your line breaks are kept as you typed them,
+and a message with none of that in it shows exactly as you wrote it.
+
 Paste a thread's id (Copy thread id in its ... menu or its right-click
 menu in the sidebar), or drag its row from the sidebar onto the open
 thread, and it goes in as a chip with that thread's title. Dragging a row
@@ -1240,6 +1245,68 @@ question, whether to land it. There's only ever one; if you leave it open,
 a newer release goes into the same thread. A release Mike marks important
 (a security or data fix) starts one straight away. Change how often, or
 turn it off, in Settings (⌘,) > General > Updates from Mike.
+
+### Talking with a thread
+
+Press the waveform button beside Send to talk with the thread out loud.
+It turns red while Voice is on. Say what you want as you would to a
+person; when you pause for about a second it goes to the thread as your
+message, and the agent's reply is read out. You can keep talking while it
+works (what you say goes into the turn it's on, as typing does), and if
+you talk over it, it stops to listen. It's the same thread with the same
+memory, tools and approvals. When it needs your OK it asks out loud, and
+you can just say "yes", "go ahead", "no" or "always allow"; anything
+longer ("no, use the other folder") goes to it as your message, as
+typing would. A question card you answer on screen.
+While Voice is on, the bear sits over the message box with what you're
+saying beside it: it perks up while it listens, nods along as you talk,
+looks up with thought dots while it works, and talks along with its
+voice. Code and tables aren't read out; it
+tells you they're on screen. Press the button again, or go to another
+thread, to end Voice.
+
+Settings (⌘,) > Voice picks who it sounds like (Emily, Mike and about
+twenty more), how fast it talks, the language, and the microphone. Play
+a Sample tries a voice. The first time you use Voice, Threadbear
+downloads its voice engine (Kyutai's pocket-tts) and a voice model of
+about 240 MB, and macOS asks to let it use the microphone. Listening is
+done on your Mac by macOS; nothing you say is recorded. On headphones
+(AirPods and the like) you can talk over it any time. On the Mac's
+speakers you can too, as long as macOS's echo cancellation starts; when
+it won't, Voice stops listening while it speaks, so it doesn't hear
+itself.
+
+### The bear
+
+The bear at the top right of the sidebar is a chat for anything: a quick
+question, what to cook, planning your week, or real work. Click it to open
+your chat with it, and type, or press the waveform button beside Send
+to talk with it out loud (that works before its first message too).
+Right-click it and pick Talk Out Loud to go straight to talking. It remembers: whenever it learns something lasting about
+you, it saves it to its memory, so a new chat with it still knows you.
+Its chats are ordinary threads in `~/ThreadbearThreads/Bear`, with the
+same tools and approvals as any thread, and they show in the sidebar like
+the rest. Its instructions are `CLAUDE.md` in that folder (right-click
+the bear, Show the Bear's Folder): change them and it changes. It thinks
+while its chat is working. To hide it, turn off Show the bear in the
+sidebar in Settings (⌘,) > General; its chats, memory and Voice keep
+working.
+
+### Where Settings opens
+
+Settings (⌘, or the gear at the bottom of the bar on the left) opens over
+the main panel, with its tabs along the top. The thread or page you had
+open stays as it was under it: the X at the top right, Esc, the gear again
+or picking a thread closes Settings and puts you back. To have Settings in
+a window of its own instead, set Open Settings in to Its own window in
+Settings > General.
+
+### Light and dark
+
+Threadbear follows your Mac's appearance (System Settings > Appearance)
+unless you pick one for it alone: Settings (⌘,) > General > Appearance has
+Same as the Mac, Light and Dark. It changes straight away and stays picked
+the next time the app opens.
 
 ### The activity log
 

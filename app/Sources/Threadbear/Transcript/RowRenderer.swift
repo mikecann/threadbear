@@ -1271,6 +1271,9 @@ enum RowRenderer {
         } else if let rest = Decisions.extra(in: message.text, answers: message.answers) {
             (lines, extra) = (message.answers.map { ($0.action, $0.answer) }, rest)
         } else {
+            // Basic Markdown in his words (a "- " list, **bold**, `code`),
+            // drawn as a reply's is; anything else stays plain (UserMarkdown).
+            if let markdown = UserMarkdown.prepare(message.text) { return MarkdownRenderer.render(markdown).string }
             return NSAttributedString(string: message.text.isEmpty ? " " : message.text, attributes: plain)
         }
         let output = NSMutableAttributedString()
@@ -1291,7 +1294,12 @@ enum RowRenderer {
             output.append(NSAttributedString(string: item.text.replacingOccurrences(of: "\n", with: "\u{2028}"), attributes: answer))
         }
         if !extra.isEmpty {
-            output.append(NSAttributedString(string: "\n" + extra, attributes: plain))
+            output.append(NSAttributedString(string: "\n", attributes: plain))
+            if let markdown = UserMarkdown.prepare(extra) {
+                output.append(MarkdownRenderer.render(markdown).string)
+            } else {
+                output.append(NSAttributedString(string: extra, attributes: plain))
+            }
         }
         return output
     }

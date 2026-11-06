@@ -4,10 +4,13 @@ import ThreadbearCore
 
 /// The Settings window (⌘,): the runner's settings, in the grouped form
 /// every Mac app's settings use. All of it lives in the runner, and this
-/// only shows it and sends changes, apart from the activity log's switch,
-/// which is this Mac's own (ActivityRecorder).
+/// only shows it and sends changes, apart from the appearance and the
+/// activity log's switch, which are this Mac's own (AppAppearance,
+/// ActivityRecorder).
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
+    /// In the main panel (SettingsPage) rather than its window.
+    var inPanel = false
 
     var body: some View {
         @Bindable var app = app
@@ -15,6 +18,9 @@ struct SettingsView: View {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
+            VoiceSettings()
+                .tabItem { Label("Voice", systemImage: "waveform") }
+                .tag(SettingsTab.voice)
             ModelSettings()
                 .tabItem { Label("Models", systemImage: "sparkles") }
                 .tag(SettingsTab.models)
@@ -32,7 +38,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.keyboard)
         }
         .frame(width: 540)
-        .background(SettingsWindowFinder())
+        .background { if !inPanel { SettingsWindowFinder() } }
     }
 }
 
@@ -80,10 +86,34 @@ private struct SettingsErrorRow: View {
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var app
     @AppStorage(ActivityRecorder.enabledKey) private var activityLog = false
+    @AppStorage(AppAppearance.key) private var appearance: AppAppearance = .system
+    @AppStorage(SettingsPlace.key) private var settingsPlace: SettingsPlace = .panel
+    @AppStorage(BearChat.shownKey) private var bearShown = true
 
     var body: some View {
         SettingsGate { settings in
             Form {
+                SettingsSection("Appearance",
+                                about: "Light or dark for Threadbear only (Same as the Mac follows System Settings > Appearance), and where Settings opens: over the main panel, where its X or Esc puts you back where you were, or in a window of its own.",
+                                ask: "change it for you.") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
+                    }
+                    .tip("Light or dark for Threadbear, whatever the Mac is set to")
+                    .onChange(of: appearance) { _, new in new.apply() }
+                    Picker("Open Settings in", selection: $settingsPlace) {
+                        ForEach(SettingsPlace.allCases) { Text($0.title).tag($0) }
+                    }
+                    .tip("Over the main panel, with an X to close it, or in a window of its own")
+                }
+
+                SettingsSection("The bear",
+                                about: "The bear at the top right of the sidebar is a chat for anything, out loud too (right-click it), that remembers what it learns about you. Hiding it only takes the button away: its chats stay in the sidebar, and its memory and Voice still work.",
+                                ask: "change what the bear knows or how it talks. Its instructions are CLAUDE.md in ~/ThreadbearThreads/Bear.") {
+                    Toggle("Show the bear in the sidebar", isOn: $bearShown)
+                        .tip("Show or hide the bear at the top right of the sidebar")
+                }
+
                 SettingsSection("New threads",
                                 about: "Where a new thread starts when you don't pick a folder.",
                                 ask: "change it, or anything else about how threads run. Most settings aren't shown here, and your agent edits them in runner.json.") {

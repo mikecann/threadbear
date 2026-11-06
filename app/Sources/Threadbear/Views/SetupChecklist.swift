@@ -204,8 +204,7 @@ private struct SetupRow: View {
             }
         case .phone:
             Button("Open Phone & browser") {
-                app.settingsTab = .devices
-                app.settingsRequest += 1
+                app.openSettings(tab: .devices)
             }
             .tip("Settings › Phone & browser, where Show the code… gives the iPhone app a code to scan")
         case .website:

@@ -166,6 +166,17 @@ struct ComposerControls: View {
                     NSHostingController(rootView: ContextPopover(threadId: thread.id).environment(app))
                 }
             }
+            // Voice is for a thread that exists: what he says is its message.
+            if let thread, !draftAway {
+                VoiceButton(threadId: thread.id, size: SendButton.size)
+                    .layoutPriority(1)
+            } else if thread == nil, !draftAway, app.newThreadCwd == BearChat.folder.path {
+                // The bear's chat before its first message: Voice starts it.
+                VoiceButton(threadId: nil, size: SendButton.size) {
+                    app.startBearChat { VoiceMode.shared.start(threadId: $0) }
+                }
+                .layoutPriority(1)
+            }
             SendButton(running: running, canSend: canSend, sending: sending, onSend: onSend, onStop: { app.interrupt() })
                 .layoutPriority(1)
                 // Right-click send for later, as Mail and Slack do. Not on

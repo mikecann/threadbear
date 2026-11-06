@@ -24,7 +24,11 @@ struct DetailView: View {
         // The Scheduled page, from the activity bar's Scheduled.
         let scheduledHome = project == nil && app.showsScheduledHome
         Group {
-        if let project {
+        // Settings over the main panel (SettingsPage): whatever's under it
+        // stays as it was, for when it closes.
+        if app.showsSettingsPage {
+            SettingsPage()
+        } else if let project {
             VStack(spacing: 0) {
                 ConnectionBanner()
                 ErrorBanner()
@@ -142,6 +146,10 @@ private struct ArchivedToast: View {
             }
         }
         .animation(Juice.reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.3), value: app.archivedNote?.id)
+        // Going anywhere else from the bar or the sidebar closes Settings.
+        .onChange(of: app.showsHomePage) { _, shown in if shown { app.showsSettingsPage = false } }
+        .onChange(of: app.openProjectId) { _, id in if id != nil { app.showsSettingsPage = false } }
+        .onChange(of: app.sidebarMode) { app.showsSettingsPage = false }
     }
 
     private func toast(_ note: ArchivedNote) -> some View {
@@ -590,13 +598,23 @@ struct ComposerPlacement: Layout {
 }
 
 private struct NewThreadHeading: View {
+    @Environment(AppModel.self) private var app
+
     var body: some View {
-        Text("What should we work on?")
+        // The bear's chat (BearChat) greets you as the bear.
+        let bear = app.newThreadCwd == BearChat.folder.path
+        VStack(spacing: zoomed(10)) {
+        if bear {
+            VoiceBear(mood: .listening, level: 0, animated: false)
+                .frame(width: zoomed(72), height: zoomed(72))
+        }
+        Text(bear ? "What's on your mind?" : "What should we work on?")
             .font(.system(size: zoomed(24), weight: .semibold))
             .foregroundStyle(.primary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, zoomed(24))
             .frame(maxWidth: .infinity)
+        }
     }
 }
 
