@@ -462,6 +462,11 @@ enum Automation {
             // `"focused": true` presses it where the cursor is, as `type` does.
             if c["focused"] as? Bool == true { return pressAtCursor(window, characters: "\r", keyCode: 36) }
             return pressReturn(window, shift: c["shift"] as? Bool == true)
+        case "shift-tab":
+            // Shift-Tab in the text box with the cursor, as the key does (insertBacktab).
+            guard let field = window?.firstResponder as? NSTextView else { return "error the cursor isn't in a text box" }
+            field.insertBacktab(nil)
+            return "ok"
         case "escape":
             // The Escape key, where the cursor is.
             return pressAtCursor(window, characters: "\u{1b}", keyCode: 53)

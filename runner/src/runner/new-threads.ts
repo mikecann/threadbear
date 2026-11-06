@@ -35,11 +35,13 @@ export const newThreadsPart = {
     // worktree per thread.
     worktree?: boolean;
     startedBy?: ThreadStartedBy;
+    // Its first message in Plan or Ask mode (modes.ts).
+    mode?: 'plan' | 'ask';
   }): { thread: ThreadSummary; turnId: string } {
     if (!params.text && !params.images?.length) throw new RpcError(ErrorCode.badParams, 'text or images required');
     checkImages(params.images ?? []);
     const { st, notes } = this.makeThread(params);
-    const turnId = this.sendTo(st, params.text ?? '', params.images ?? [], { origin: params.origin, scheduleId: params.scheduleId });
+    const turnId = this.sendTo(st, params.text ?? '', params.images ?? [], { origin: params.origin, scheduleId: params.scheduleId, ...(params.mode ? { mode: params.mode } : {}) });
     // Under the first turn, so they read as part of starting it.
     for (const text of notes) this.emit(st, { type: 'system.note', text }, st.rt.turn?.turnId ?? turnId);
     if (!st.rec.titleSet && params.text?.trim()) void this.titleFromModel(st, params.text);

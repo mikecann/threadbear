@@ -91,6 +91,7 @@ private struct GeneralSettings: View {
     @AppStorage(BearChat.shownKey) private var bearShown = true
     @AppStorage(NotesStore.shownKey) private var notesShown = true
     @AppStorage(FileOpenPlace.key) private var fileOpenPlace: FileOpenPlace = .threadbear
+    @AppStorage(TurnModes.enabledKey) private var turnModesOn = true
 
     var body: some View {
         SettingsGate { settings in
@@ -131,6 +132,14 @@ private struct GeneralSettings: View {
                     Toggle("Show Notes", isOn: $notesShown)
                         .tip("Show Notes in the bar on the left")
                         .onChange(of: notesShown) { _, on in if !on { app.showsNotesPage = false } }
+                }
+
+                SettingsSection("Plan and Ask modes",
+                                about: "Shift-Tab in the message box steps through Plan mode (nothing changes; the reply is a plan, saved in the thread's plans/ folder as the date and project's name) and Ask mode (nothing changes; it just answers), then off. Off shows nothing and messages work as they always have. Turning this off takes Shift-Tab back to what it did before.",
+                                ask: "explain or change what Plan and Ask modes do.") {
+                    Toggle("Use Plan and Ask modes (Shift-Tab)", isOn: $turnModesOn)
+                        .tip("Shift-Tab in the message box for Plan and Ask modes")
+                        .onChange(of: turnModesOn) { _, on in if !on { app.turnModes = [:] } }
                 }
 
                 SettingsSection("Files",

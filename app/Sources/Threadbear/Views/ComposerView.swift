@@ -103,6 +103,7 @@ struct ComposerView: View {
                 handle: handle,
                 onEscape: { cancelEdit() },
                 onPaletteKey: { paletteKey($0, text: draft.wrappedValue.text) },
+                onShiftTab: { app.cycleTurnMode(draftKey) },
                 editable: !creating
             )
             .frame(height: height)
@@ -585,6 +586,8 @@ struct ComposerTextField: NSViewRepresentable {
     var onEscape: () -> Bool = { false }
     /// The slash command palette's keys, first: true if it took the key.
     var onPaletteKey: (PaletteKey) -> Bool = { _ in false }
+    /// Shift-Tab: the next of Plan and Ask mode (AppModel.cycleTurnMode); false leaves it to the text box.
+    var onShiftTab: () -> Bool = { false }
     /// False while what's in it is being sent (a new thread being made).
     var editable = true
 
@@ -661,6 +664,7 @@ struct ComposerTextField: NSViewRepresentable {
         textView.pictures = pictures
         textView.onEscape = onEscape
         textView.onPaletteKey = onPaletteKey
+        textView.onShiftTab = onShiftTab
         textView.placeholder = placeholder
         handle?.textView = textView
         if textView.isEditable != editable { textView.isEditable = editable }
@@ -737,6 +741,7 @@ final class ComposerTextView: NSTextView {
     var onReturnWhenEmpty: (() -> Bool)?
     var onPaletteKey: ((PaletteKey) -> Bool)?
     var onEscape: (() -> Bool)?
+    var onShiftTab: (() -> Bool)?
     /// Pictures pasted or dropped in an ask's box, which keeps them beside
     /// its words (AskAnswerBox). The composer sets `pictures` instead.
     var onImages: (([URL]) -> Void)?
@@ -1022,6 +1027,12 @@ final class ComposerTextView: NSTextView {
             return
         }
         insertText(edit.text, replacementRange: edit.range)
+    }
+
+    /// Shift-Tab steps through Plan and Ask mode, as in Claude Code.
+    override func insertBacktab(_ sender: Any?) {
+        if onShiftTab?() == true { return }
+        super.insertBacktab(sender)
     }
 
     override func cancelOperation(_ sender: Any?) {

@@ -264,7 +264,8 @@ extension AppModel {
             }
         } else {
             let account = newThreadAccountId
-            let request = newThreadRequest(text: trimmed, images: draft.images)
+            var request = newThreadRequest(text: trimmed, images: draft.images)
+            request.turnMode = turnMode(for: "new")
             creatingThread = true
             Task {
                 defer { creatingThread = false }
@@ -281,6 +282,8 @@ extension AppModel {
                     // has the most room. The model and effort stick.
                     newThreadCwd = nil
                     newThreadPermission = .full
+                    // Plan or Ask mode carries on in the thread it started.
+                    if let mode = turnModes.removeValue(forKey: "new") { turnModes[thread.id] = mode }
                     newThreadAccount = nil
                     newThreadPool = nil
                     newThreadProvider = nil
@@ -315,6 +318,8 @@ extension AppModel {
     /// transcript until the runner shows it. `failed` puts back whatever
     /// the send took from the composer, if the runner doesn't take it.
     private func post(threadId: String, text: String, images: [ImageRef], answers: [AskAnswer], client: RPCClient, failed: @escaping () -> Void = {}) {
+        // The composer's Plan or Ask mode goes with every message from it.
+        let mode = turnMode(for: threadId)
         let pendingId = UUID().uuidString
         // The thread's own session, open already as its composer is
         // showing; kept by the Task, so a failure finds it.
@@ -323,7 +328,7 @@ extension AppModel {
         Task {
             do {
                 do {
-                    try await client.send(threadId: threadId, text: text, images: images, answers: answers)
+                    try await client.send(threadId: threadId, text: text, images: images, answers: answers, mode: mode)
                 } catch {
                     // Sent in the moment a restarting runner lets go of its
                     // idle threads, before the new one is up: the old one

@@ -159,6 +159,10 @@ struct ComposerControls: View {
             ) {
                 settings.permissionMenu()
             }
+            // Plan or Ask mode, only while one is on (Shift-Tab, TurnModes.swift).
+            if let mode = app.turnMode(for: thread?.id ?? "new") {
+                TurnModeChip(mode: mode) { app.cycleTurnMode(thread?.id ?? "new") }
+            }
             Spacer(minLength: zoomed(8))
             // How full the context is, beside send: where you decide to
             // carry on, /compact or start afresh.
@@ -1531,5 +1535,32 @@ private struct LoginRow: View {
         case .low?: return AnyShapeStyle(Color.orange)
         case nil: return AnyShapeStyle(.secondary)
         }
+    }
+}
+
+/// Plan or Ask beside the permission chip, in the accent colour so it's
+/// plain the next message won't change anything. A click steps on, as
+/// Shift-Tab does.
+private struct TurnModeChip: View {
+    let mode: TurnMode
+    let next: () -> Void
+
+    var body: some View {
+        Button(action: next) {
+            HStack(spacing: zoomed(4)) {
+                Image(systemName: mode.symbol)
+                Text(mode.title)
+            }
+            .font(.system(size: TypeScale.scaled(12), weight: .semibold))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, zoomed(7))
+            .padding(.vertical, zoomed(3))
+            .background(Capsule().fill(Color.accentColor.opacity(0.14)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .shortcutHint("⇧⇥", .before)
+        .tip(mode.help)
+        .accessibilityLabel("\(mode.title) mode")
     }
 }

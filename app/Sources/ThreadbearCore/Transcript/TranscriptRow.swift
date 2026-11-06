@@ -88,6 +88,8 @@ public struct UserMessage: Sendable, Hashable {
     public var review: ReviewAnswer?
     /// The seq of the message this one replaced, when Mike edited one.
     public var editOf: Int?
+    /// "plan" or "ask": sent in Plan or Ask mode (the bubble says so).
+    public var mode: String?
     /// Mike can edit it and carry on from there (docs/protocol.md, "Editing
     /// a message"). Set by the reducer, which knows whether it started its
     /// own turn.

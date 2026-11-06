@@ -530,6 +530,7 @@ export class RpcServer {
           title: optString(p, 'title'),
           ...(p.worktree === false ? { worktree: false } : {}),
           ...optStartedBy(p),
+          ...optTurnMode(p),
         });
         return { thread: res.thread, turnId: res.turnId };
       }
@@ -548,7 +549,7 @@ export class RpcServer {
       case 'reviews.cancel':
         return r.cancelReview(reqString(p, 'threadId'), reqString(p, 'reviewId'), p.revision as number);
       case 'threads.send':
-        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p) });
+        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p), ...optTurnMode(p) });
       case 'threads.edit':
         return r.editMessage(reqString(p, 'threadId'), reqNumber(p, 'seq'), optString(p, 'text') ?? '', optImages(p) ?? [], { stopBackground: p.stopBackground === true });
       case 'threads.interrupt':
@@ -859,4 +860,11 @@ function optImages(p: Record<string, unknown>): ImageRef[] | undefined {
     if (!x || typeof x !== 'object' || typeof (x as ImageRef).path !== 'string') throw bad('each image needs a path');
     return x as ImageRef;
   });
+}
+
+// Plan or Ask mode for the message (modes.ts); anything else is -32602.
+function optTurnMode(p: Record<string, unknown>): { mode?: 'plan' | 'ask' } {
+  if (p.mode === undefined || p.mode === null) return {};
+  if (p.mode !== 'plan' && p.mode !== 'ask') throw new RpcError(ErrorCode.badParams, 'mode must be "plan" or "ask"');
+  return { mode: p.mode };
 }

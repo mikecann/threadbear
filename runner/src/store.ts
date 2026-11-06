@@ -7,7 +7,9 @@ import { paths } from './config.ts';
 import type { WorktreeRecord } from './worktrees.ts';
 import type { WakeWhen } from './wake-when.ts';
 
-export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number };
+export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number; mode?: TurnMode };
+// Plan or Ask mode, from the composer (modes.ts): a read-only turn.
+export type TurnMode = 'plan' | 'ask';
 
 // What thread.json holds: the public summary fields plus a few internal ones.
 export type ThreadRecord = {

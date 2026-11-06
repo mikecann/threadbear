@@ -344,6 +344,17 @@ Any other file you paste or drop in (a video, a PDF, a folder) goes in as
 its full path where you drop it, for the agent to open where it is.
 Nothing's copied, so a big one is fine.
 
+Shift-Tab in the message box steps through **Plan mode** and **Ask
+mode**, then off. In either, the agent reads what it needs but changes
+nothing: no edits, whatever the Full access chip says. In Plan mode its
+reply is a plan, and Threadbear saves it in the thread's folder as
+`plans/<date>-<project>.md` (the folder's name if the thread isn't in a
+project) and pins it in Highlights. In Ask mode it just answers. The mode
+shows as a chip beside Full access (click it to step on) and stays on for
+the thread until you change it; your message says which mode it was sent
+in. Off, nothing shows and messages work as always. Settings (⌘,) >
+General can turn the modes off altogether.
+
 Your messages show basic Markdown as replies do: start lines with "- " or
 "1. " for a list, and use **bold**, *italics*, `code`, [links](https://example.com),
 "# " headings and "> " quotes. Your line breaks are kept as you typed them,

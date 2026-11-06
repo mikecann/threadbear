@@ -1218,7 +1218,15 @@ enum RowRenderer {
     /// the review's title small, then what he picked and his notes, not
     /// the review's id and the wording the agent gets (Mike, 29 Oct).
     static func userText(_ message: UserMessage) -> NSAttributedString {
-        skillMentions(cardChips(pictureChips(userWords(message), images: message.images)))
+        let words = skillMentions(cardChips(pictureChips(userWords(message), images: message.images)))
+        guard let mode = message.mode.flatMap(TurnMode.init(rawValue:)) else { return words }
+        // Sent in Plan or Ask mode: said small over his words.
+        let small = Theme.text(Theme.smallFont, color: .controlAccentColor, line: TypeScale.scaled(18))
+        let out = NSMutableAttributedString()
+        out.append(symbol(mode.symbol, label: mode.title, font: Theme.smallFont, attributes: small, color: .controlAccentColor))
+        out.append(NSAttributedString(string: " \(mode.title) mode\n", attributes: small))
+        out.append(words)
+        return out
     }
 
     /// His /pele and the like, for skills Threadbear has, drawn as links:

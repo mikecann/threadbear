@@ -271,6 +271,9 @@ export class ClaudeAdapter implements AgentAdapter {
 // (set by the caller), brings CLAUDE.md back without its settings (tried
 // on CLI 2.1.318, 5 Nov 2026), and the rest of the settings come in as flag
 // settings, which sit above user settings as project ones do.
+// What Plan and Ask mode turns may not use (modes.ts).
+const READ_ONLY_REFUSED = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
+
 export function untrustedSettings(cwd: string, settings: Record<string, unknown>): Pick<Options, 'settingSources' | 'settings' | 'additionalDirectories'> {
   return { settingSources: ['user'], additionalDirectories: [cwd], ...(Object.keys(settings).length ? { settings } : {}) };
 }
@@ -390,7 +393,13 @@ class ClaudeSession implements AgentSession {
         // Every Edit and Write, in every mode, a sub-agent's too: where the
         // mode it ran on is recorded, and where one that writes code is
         // made to ask outside Full access (onEditCall).
-        PreToolUse: [{ matcher: [...EDIT_TOOLS].join('|'), hooks: [async (input) => this.onEditCall(input)] }],
+        PreToolUse: [
+          { matcher: [...EDIT_TOOLS].join('|'), hooks: [async (input) => this.onEditCall(input)] },
+          // Plan and Ask mode turns change nothing (modes.ts). PreToolUse runs
+          // whatever the permission mode, full access included; a refusal
+          // from either hook stops the call.
+          { hooks: [async (input) => this.readOnlyCheck(input)] },
+        ],
         SessionStart: [{ hooks: [async (input) => this.onCompact(input)] }],
       },
       abortController: this.abort,
@@ -532,6 +541,8 @@ class ClaudeSession implements AgentSession {
           this.forgetEndTurn();
           this.owedReply = undefined;
           this.endTurnAsks.clear();
+          // The turn's over: the next message says whether it's read-only.
+          this.readOnly = false;
         }
         for (let out of this.normalizer.handle(msg as Record<string, unknown>)) {
           // The mode the call went through on, recorded at the call.
@@ -684,7 +695,27 @@ class ClaudeSession implements AgentSession {
     }
   }
 
+  /** The turn is in Plan or Ask mode (UserInput.readOnly). */
+  private readOnly = false;
+
+  /** Refuses tools that change files while the turn is read-only. */
+  private readOnlyCheck(input: HookInput): Record<string, unknown> {
+    if (!this.readOnly || input.hook_event_name !== 'PreToolUse') return {};
+    const tool = (input as { tool_name?: string }).tool_name ?? '';
+    if (!READ_ONLY_REFUSED.has(tool)) return {};
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: "This turn is in Plan or Ask mode, so nothing may change: reply instead (in Plan mode, with the plan).",
+      },
+    };
+  }
+
   send(input: UserInput): void {
+    // A Plan or Ask message makes its turn read-only until it ends (a plain
+    // one steered into it doesn't unlock it).
+    if (input.readOnly) this.readOnly = true;
     this.normalizer.sent();
     // A new message takes over from a reply owed to the last one (onCompact).
     this.owedReply = undefined;

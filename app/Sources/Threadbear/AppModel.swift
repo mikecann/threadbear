@@ -458,6 +458,9 @@ final class AppModel {
     var showsSkillsPage = false
     /// The Notes page over the main panel (NotesPage).
     var showsNotesPage = false
+    /// Plan or Ask mode per composer (a thread's id, or "new"): on until
+    /// he changes it, as in Claude Code (TurnModes.swift).
+    var turnModes: [String: TurnMode] = [:]
     /// Threadbear's skills (SkillsModel.swift), from skills.list and skills.updated.
     var skills: [Skill] = []
     var suggestedSkills: [SuggestedSkill] = []

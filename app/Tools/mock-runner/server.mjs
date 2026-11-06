@@ -649,6 +649,9 @@ async function dispatch(client, method, p) {
       const turnId = 'turn_' + crypto.randomBytes(4).toString('hex');
       // Answers from the card go on the user.message, as the runner keeps them.
       const extra = Array.isArray(p.answers) && p.answers.length ? { answers: p.answers } : {};
+      // Plan or Ask mode (docs/protocol.md, "Plan and Ask modes").
+      if (p.mode !== undefined && p.mode !== 'plan' && p.mode !== 'ask') throw rpcError(-32602, 'mode must be "plan" or "ask"');
+      if (p.mode) extra.mode = p.mode;
       // As the runner has it once the CLI starts a session (the app's
       // Finish setting up counts that as a login that works).
       t.summary.nativeSessionId ??= 'mock-session-' + t.summary.id;
@@ -1429,6 +1432,8 @@ async function fakeTurn(threadId, text, images, turnId = 'turn_' + crypto.random
   const started = Date.now();
   persist(threadId, { type: 'user.message', text, images, ...(origin ? { origin } : {}), ...extra }, turnId);
   persist(threadId, { type: 'turn.started', turnId }, turnId);
+  // A Plan mode turn's reply is saved as the plan, as the runner does.
+  if (extra.mode === 'plan') setTimeout(() => persist(threadId, { type: 'system.note', text: `Saved the plan to plans/${new Date().toISOString().slice(0, 10)}-mock.md.` }, turnId), 900);
   setStatus(threadId, 'running');
 
   // A provider refusal for checking the recovery offer, without sending
