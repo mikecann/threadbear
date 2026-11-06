@@ -134,11 +134,11 @@ private struct GeneralSettings: View {
                         .onChange(of: notesShown) { _, on in if !on { app.showsNotesPage = false } }
                 }
 
-                SettingsSection("Plan and Ask modes",
-                                about: "Shift-Tab in the message box steps through Plan mode (nothing changes; the reply is a plan, saved in the thread's plans/ folder as the date and project's name) and Ask mode (nothing changes; it just answers), then off. Off shows nothing and messages work as they always have. Turning this off takes Shift-Tab back to what it did before.",
-                                ask: "explain or change what Plan and Ask modes do.") {
-                    Toggle("Use Plan and Ask modes (Shift-Tab)", isOn: $turnModesOn)
-                        .tip("Shift-Tab in the message box for Plan and Ask modes")
+                SettingsSection("Shift-Tab modes",
+                                about: "Shift-Tab in the message box steps through Plan first (the agent reads and plans, changes nothing, and puts its plan to you on a card to approve or send back; the plan is also saved in the thread's plans/ folder, named for the date and project, and opens beside the thread), Ask (nothing changes; it just answers), then off, back to the access the thread had. Off shows nothing and messages work as they always have. Turning this off takes Shift-Tab back to what it did before; Plan first stays in the access menu.",
+                                ask: "explain or change what Plan first and Ask do.") {
+                    Toggle("Use Shift-Tab for Plan first and Ask", isOn: $turnModesOn)
+                        .tip("Shift-Tab in the message box steps through Plan first and Ask")
                         .onChange(of: turnModesOn) { _, on in if !on { app.turnModes = [:] } }
                 }
 

@@ -862,9 +862,10 @@ function optImages(p: Record<string, unknown>): ImageRef[] | undefined {
   });
 }
 
-// Plan or Ask mode for the message (modes.ts); anything else is -32602.
-function optTurnMode(p: Record<string, unknown>): { mode?: 'plan' | 'ask' } {
+// Ask mode for the message (modes.ts); anything else is -32602. "plan"
+// from an app before Plan first took over planning reads as Ask: read-only.
+function optTurnMode(p: Record<string, unknown>): { mode?: 'ask' } {
   if (p.mode === undefined || p.mode === null) return {};
-  if (p.mode !== 'plan' && p.mode !== 'ask') throw new RpcError(ErrorCode.badParams, 'mode must be "plan" or "ask"');
-  return { mode: p.mode };
+  if (p.mode !== 'plan' && p.mode !== 'ask') throw new RpcError(ErrorCode.badParams, 'mode must be "ask"');
+  return { mode: 'ask' };
 }

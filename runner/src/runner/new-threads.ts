@@ -35,8 +35,8 @@ export const newThreadsPart = {
     // worktree per thread.
     worktree?: boolean;
     startedBy?: ThreadStartedBy;
-    // Its first message in Plan or Ask mode (modes.ts).
-    mode?: 'plan' | 'ask';
+    // Its first message in Ask mode (modes.ts).
+    mode?: 'ask';
   }): { thread: ThreadSummary; turnId: string } {
     if (!params.text && !params.images?.length) throw new RpcError(ErrorCode.badParams, 'text or images required');
     checkImages(params.images ?? []);

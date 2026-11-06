@@ -461,6 +461,9 @@ final class AppModel {
     /// Plan or Ask mode per composer (a thread's id, or "new"): on until
     /// he changes it, as in Claude Code (TurnModes.swift).
     var turnModes: [String: TurnMode] = [:]
+    /// The permission mode Shift-Tab's Plan first stepped away from, per
+    /// composer, put back when it steps on (TurnModes.swift).
+    var planPutBack: [String: PermissionMode] = [:]
     /// Threadbear's skills (SkillsModel.swift), from skills.list and skills.updated.
     var skills: [Skill] = []
     var suggestedSkills: [SuggestedSkill] = []

@@ -344,18 +344,19 @@ Any other file you paste or drop in (a video, a PDF, a folder) goes in as
 its full path where you drop it, for the agent to open where it is.
 Nothing's copied, so a big one is fine.
 
-Shift-Tab in the message box steps through **Plan mode** and **Ask
-mode**, then off. In either, the agent reads what it needs but changes
-nothing: no edits, whatever the Full access chip says. In Plan mode its
-reply is a plan, and Threadbear saves it in the thread's folder as
+Shift-Tab in the message box steps through **Plan first** and **Ask**,
+then off. Plan first is the access menu's Plan first: the agent reads and
+plans, changes nothing, and puts its plan to you on a card with Go ahead
+and Send back. Threadbear also saves each plan in the thread's folder as
 `plans/<date>-<project>.md` (the folder's name if the thread isn't in a
-project), opens it in the panel beside the thread straight away, and pins
-it in Highlights; the "Saved the plan to …" line under the reply opens it
-again. In Ask mode it just answers. The mode
-shows as a chip beside Full access (click it to step on) and stays on for
-the thread until you change it; your message says which mode it was sent
-in. Off, nothing shows and messages work as always. Settings (⌘,) >
-General can turn the modes off altogether.
+project), opens it in the panel beside the thread, and pins it in
+Highlights; a revised plan updates the same file until you say Go ahead.
+Stepping on from Plan first puts back the access the thread had. In Ask,
+the agent reads what it needs but changes nothing, whatever the access
+chip says, and just answers; it shows as an Ask chip beside the access
+chip (click it to turn it off) and stays on for the thread until you
+change it. Off, nothing shows and messages work as always. Settings (⌘,)
+> General can turn Shift-Tab's modes off.
 
 Your messages show basic Markdown as replies do: start lines with "- " or
 "1. " for a list, and use **bold**, *italics*, `code`, [links](https://example.com),

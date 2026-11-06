@@ -9,7 +9,7 @@ import type { WakeWhen } from './wake-when.ts';
 
 export type QueuedSend = { turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number; mode?: TurnMode };
 // Plan or Ask mode, from the composer (modes.ts): a read-only turn.
-export type TurnMode = 'plan' | 'ask';
+export type TurnMode = 'ask';
 
 // What thread.json holds: the public summary fields plus a few internal ones.
 export type ThreadRecord = {
@@ -56,6 +56,9 @@ export type ThreadRecord = {
   // waiting for Mike (its plan.proposed itemId).
   modeBeforePlan?: PermissionMode;
   openPlan?: string;
+  // The file the current Plan first plan is saved in (Runner.savePlan): a
+  // revision overwrites it; Go ahead starts the next plan in a new one.
+  planFile?: string;
   status: ThreadStatus;
   createdAt: string;
   updatedAt: string;

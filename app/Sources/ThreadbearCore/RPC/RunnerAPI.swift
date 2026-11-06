@@ -324,19 +324,11 @@ public enum ThreadListScope: String, Sendable, CaseIterable {
     case inbox, snoozed, archived
 }
 
-/// Plan or Ask mode for a message (docs/protocol.md, "Plan and Ask modes"):
-/// a read-only turn, and in Plan mode its reply saved as the plan.
+/// Ask mode for a message (docs/protocol.md, "Ask mode"): a read-only
+/// turn that just answers. `plan` is only read, from messages sent before
+/// Plan first (permissionMode "plan") took over planning; it's never sent.
 public enum TurnMode: String, Sendable, Hashable, CaseIterable {
     case plan, ask
-
-    /// Shift-Tab's order: off, Plan, Ask, off.
-    public static func next(after mode: TurnMode?) -> TurnMode? {
-        switch mode {
-        case nil: .plan
-        case .plan: .ask
-        case .ask: nil
-        }
-    }
 }
 
 public struct NewThreadRequest: Sendable, Hashable {

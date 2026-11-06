@@ -1,4 +1,4 @@
-// Plan and Ask modes (modes.ts): read-only turns, and a plan saved.
+// Ask mode (modes.ts) and Plan first's plans saved as files (Runner.savePlan).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,56 +6,54 @@ import path from 'node:path';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
 import { planPath } from '../../src/modes.ts';
 
-function reply(h: ReturnType<typeof makeHarness>, text: string) {
-  const s = h.adapter.last;
-  s.init();
-  s.out({ kind: 'event', event: { type: 'assistant.text', itemId: `a${Math.random()}`, text } as never });
-  s.result('completed');
-}
-
-test('a Plan mode message: read-only, told what Plan mode is, and its reply saved as the plan and pinned', async () => {
+test('an Ask mode message is read-only, says so, and the next one is ordinary', async () => {
   const cwd = tmpDir();
   const h = makeHarness();
-  const { thread } = h.runner.create({ text: 'How should we add billing?', cwd, accountId: 'claude-3', mode: 'plan' });
+  const { thread } = h.runner.create({ text: 'What does this repo do?', cwd, accountId: 'claude-3', mode: 'ask' });
   await tick();
   const sent = h.adapter.last.sent.at(-1)!;
   assert.equal(sent.readOnly, true);
-  assert.match(sent.text, /^\[Plan mode\][\s\S]*\n\nHow should we add billing\?$/);
-  assert.equal(h.events(thread.id).find((e) => e.type === 'user.message')?.mode, 'plan');
-  reply(h, '## Goal\n\nAdd Stripe.\n\n## Steps\n\n1. Install');
+  assert.match(sent.text, /^\[Ask mode\][\s\S]*\n\nWhat does this repo do\?$/);
+  assert.equal(h.events(thread.id).find((e) => e.type === 'user.message')?.mode, 'ask');
+  h.adapter.last.init();
+  h.adapter.last.result('completed');
   await tick();
-  const plans = fs.readdirSync(path.join(cwd, 'plans'));
-  assert.equal(plans.length, 1);
-  assert.match(plans[0], /^\d{4}-\d{2}-\d{2}-.+\.md$/);
-  const doc = fs.readFileSync(path.join(cwd, 'plans', plans[0]), 'utf8');
-  assert.match(doc, /^# Plan: /);
-  assert.match(doc, /## Goal\n\nAdd Stripe\./);
-  const note = h.events(thread.id).find((e) => e.type === 'system.note' && /^Saved the plan to /.test(e.text));
-  assert.match(note.text, /^Saved the plan to \[plans\/[^\]]+\.md\]\(<\/.+\/plans\/[^>]+\.md>\)\.$/);
-  // Opened in the panel straight away.
-  assert.equal(h.runner.highlights(thread.id).highlights.find((i) => i.path?.includes('/plans/'))?.show, true);
-  assert.ok(h.runner.highlights(thread.id).highlights.some((i) => i.path?.includes(`plans/${plans[0]}`)));
-  // The next message without a mode is an ordinary turn again.
-  h.runner.send(thread.id, 'Go ahead');
+  h.runner.send(thread.id, 'Now fix it');
   await tick();
   assert.equal(h.adapter.last.sent.at(-1)!.readOnly, undefined);
-  assert.equal(h.adapter.last.sent.at(-1)!.text, 'Go ahead');
+  assert.equal(h.adapter.last.sent.at(-1)!.text, 'Now fix it');
 });
 
-test('an Ask mode message is read-only and saves nothing', async () => {
+test('a Plan first plan is saved, pinned and opened; a revision overwrites it; after Go ahead the next is new', async () => {
   const cwd = tmpDir();
   const h = makeHarness();
-  h.runner.create({ text: 'What does this repo do?', cwd, accountId: 'claude-3', mode: 'ask' });
+  const { thread } = h.runner.create({ text: 'Add billing', cwd, accountId: 'claude-3' });
   await tick();
-  const sent = h.adapter.last.sent.at(-1)!;
-  assert.equal(sent.readOnly, true);
-  assert.match(sent.text, /^\[Ask mode\]/);
-  reply(h, 'It is a podcast player.');
+  const s = h.adapter.last;
+  s.init();
+  s.out({ kind: 'planProposed', itemId: 'p1', text: '## Plan\n\n1. Stripe' } as never);
   await tick();
-  assert.equal(fs.existsSync(path.join(cwd, 'plans')), false);
+  const plans = () => fs.readdirSync(path.join(cwd, 'plans')).sort();
+  assert.equal(plans().length, 1);
+  const first = path.join(cwd, 'plans', plans()[0]);
+  assert.match(fs.readFileSync(first, 'utf8'), /^# Plan: [\s\S]*1\. Stripe/);
+  assert.ok(h.events(thread.id).some((e) => e.type === 'system.note' && /^Saved the plan in \[plans\/[^\]]+\]\(<\/.+>\)\.$/.test(e.text)));
+  assert.equal(h.runner.highlights(thread.id).highlights.find((i) => i.path === first)?.show, true);
+  // Sent back and proposed again: the same file, said as updated.
+  s.out({ kind: 'planProposed', itemId: 'p2', text: '## Plan\n\n1. Stripe\n2. Webhooks' } as never);
+  await tick();
+  assert.equal(plans().length, 1);
+  assert.match(fs.readFileSync(first, 'utf8'), /2\. Webhooks/);
+  assert.ok(h.events(thread.id).some((e) => e.type === 'system.note' && /^Updated the plan in /.test(e.text)));
+  // Go ahead, then a new plan: a file of its own.
+  h.runner.approvePlan({ threadId: thread.id, itemId: 'p2' });
+  await tick();
+  s.out({ kind: 'planProposed', itemId: 'p3', text: '## Next plan' } as never);
+  await tick();
+  assert.equal(plans().length, 2);
 });
 
-test('plan files are named for the day and project, and never overwrite', () => {
+test('plan files are named for the day and project, and never overwrite another', () => {
   const cwd = tmpDir();
   const day = new Date('2026-11-06T10:00:00Z');
   const first = planPath(cwd, 'Hello App!', day);
@@ -64,4 +62,3 @@ test('plan files are named for the day and project, and never overwrite', () => 
   fs.writeFileSync(first, 'x');
   assert.equal(path.basename(planPath(cwd, 'Hello App!', day)), '2026-11-06-hello-app-2.md');
 });
-

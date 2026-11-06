@@ -1,22 +1,13 @@
-// Plan and Ask modes (docs/protocol.md, "Plan and Ask modes"): a message
-// sent in one starts a read-only turn. The agent is told what the mode
-// means before the message; nothing it does may change files (UserInput's
-// readOnly); and a Plan mode reply is saved as the plan, in
-// plans/<date>-<project>.md in the thread's folder (Runner.savePlan).
+// Ask mode (docs/protocol.md, "Ask mode"): a message sent in it starts a
+// read-only turn. The agent is told what the mode means before the message,
+// and nothing it does may change files (UserInput's readOnly). Planning is
+// Plan first (permissionMode "plan"); its plans are saved as
+// plans/<date>-<project>.md by Runner.savePlan, named by planPath here.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { TurnMode } from './store.ts';
 
-export function modeInstructions(mode: TurnMode): string {
-  if (mode === 'plan') {
-    return [
-      '[Plan mode] The user wants a plan, not changes yet. Read whatever you need, but change nothing:',
-      'no file edits and no commands that change files, data or state. Then reply with the complete plan',
-      'in Markdown: the goal, what you found, the steps in order, the files and pieces each step touches,',
-      'risks, and anything you need them to decide. Threadbear saves your reply as the plan in the',
-      "thread's plans/ folder, so make the reply the plan itself.",
-    ].join(' ');
-  }
+export function modeInstructions(_mode: TurnMode): string {
   return [
     '[Ask mode] The user just wants an answer. Read whatever you need, but change nothing:',
     'no file edits and no commands that change files, data or state. Answer the question directly.',

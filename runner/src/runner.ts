@@ -290,8 +290,6 @@ export type Turn = {
   workedIn?: Set<string>;
   /** Tool calls this turn that published something (site-links.ts). */
   publishCalls?: Set<string>;
-  /** A Plan mode turn: its reply is saved as the plan (modes.ts). */
-  plan?: boolean;
   // The agent's own end_turn input and last text, for what the turn needs
   // from Mike (needs.ts). Never a sub-agent's.
   endTurn?: Record<string, unknown>;
@@ -1494,8 +1492,9 @@ export class Runner {
   // step while he's out and keeps the reply short. It goes on every phone
   // message rather than once, as he moves between the two. The transcript
   // keeps what he typed.
-  forAgent(msg: { text: string; origin?: MessageOrigin; mode?: TurnMode }, provider?: Provider): string {
-    if (msg.mode) return `${modeInstructions(msg.mode)}\n\n${this.forAgent({ ...msg, mode: undefined }, provider)}`;
+  // `mode` "plan" is a message logged before Plan first took over planning: read-only, as Ask.
+  forAgent(msg: { text: string; origin?: MessageOrigin; mode?: TurnMode | 'plan' }, provider?: Provider): string {
+    if (msg.mode) return `${modeInstructions('ask')}\n\n${this.forAgent({ ...msg, mode: undefined }, provider)}`;
     // /name for a Threadbear skill, made to work in this thread's CLI (skill-mentions.ts).
     if (provider && this.skillNames) {
       const names = this.skillNames();
@@ -1526,7 +1525,7 @@ export class Runner {
     }
     rt.idleTimer?.cancel();
     rt.idleTimer = undefined;
-    rt.turn = { turnId: msg.turnId, startedAt: this.clock.now(), interruptRequested: false, messages: [msg.turnId], edited: new Set(), access: rec.permissionMode, ...(msg.mode === 'plan' ? { plan: true } : {}) };
+    rt.turn = { turnId: msg.turnId, startedAt: this.clock.now(), interruptRequested: false, messages: [msg.turnId], edited: new Set(), access: rec.permissionMode };
     rt.activeAt = this.clock.now();
     rec.turnId = msg.turnId;
     rec.lastActivityAt = this.isoNow();
@@ -1553,30 +1552,34 @@ export class Runner {
     });
   }
 
-  // A site a deploy put up (site-links.ts) as "Live site" on each project
-  // the thread is in, unless the project has it already (its title then
-  // stays as it is) or already has as many links as it can.
-  // The plan a Plan mode turn replied with, as a Markdown file in the
-  // thread's folder named for the day and its project (or folder), pinned
-  // in Highlights and noted in the transcript.
+  // A Plan first plan (plan.proposed) as a Markdown file in the thread's
+  // folder, plans/<date>-<project or folder>.md, pinned in Highlights and
+  // opened beside the thread, with a note linking it. A revision before Go
+  // ahead overwrites the same file (rec.planFile), saying so only once.
   savePlan(st: ThreadState, text: string): void {
     const { rec } = st;
     try {
       const project = this.projects?.threadProjects(rec)?.[0]?.title;
-      const file = planPath(rec.cwd, project ?? path.basename(rec.cwd), new Date(this.clock.now()));
+      const now = new Date(this.clock.now());
+      const again = Boolean(rec.planFile && fs.existsSync(rec.planFile));
+      const file = again ? rec.planFile! : planPath(rec.cwd, project ?? path.basename(rec.cwd), now);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, planDocument(text, { title: rec.title, project, date: new Date(this.clock.now()) }));
+      fs.writeFileSync(file, planDocument(text, { title: rec.title, project, date: now }));
+      rec.planFile = file;
       const shown = path.relative(rec.cwd, file);
       // A link, so a click opens it here in the app's panel.
-      this.emit(st, { type: 'system.note', text: `Saved the plan to [${shown}](<${file}>).` });
+      this.emit(st, { type: 'system.note', text: `${again ? 'Updated' : 'Saved'} the plan in [${shown}](<${file}>).` });
       // Pinned, and opened beside the thread now (the app shows it in the panel).
-      this.pin(rec.id, { path: file, title: `Plan: ${rec.title}`, note: 'The plan from Plan mode', show: true });
+      this.pin(rec.id, { path: file, title: `Plan: ${rec.title}`, note: 'The plan from Plan first', show: true });
     } catch (err) {
       this.log.warn('could not save a plan', { threadId: rec.id, err: String(err) });
       this.emit(st, { type: 'system.note', text: `Couldn't save the plan: ${err instanceof Error ? err.message : String(err)}` });
     }
   }
 
+  // A site a deploy put up (site-links.ts) as "Live site" on each project
+  // the thread is in, unless the project has it already (its title then
+  // stays as it is) or already has as many links as it can.
   addSiteLinks(rec: ThreadRecord, sites: string[]): void {
     const projects = this.projects;
     if (!projects) return;
@@ -2043,6 +2046,8 @@ export class Runner {
         if (rec.openPlan && rec.openPlan !== o.itemId) this.emit(st, { type: 'plan.resolved', itemId: rec.openPlan, decision: 'revise' }, rt.turn?.turnId);
         rec.openPlan = o.itemId;
         this.emit(st, { type: 'plan.proposed', itemId: o.itemId, text: o.text }, rt.turn?.turnId);
+        // Kept as a file too, opened beside the thread (a revision overwrites it).
+        this.savePlan(st, o.text);
         this.markDirty(st);
         break;
       case 'allowRules': {
@@ -2285,8 +2290,6 @@ export class Runner {
     // The turn may have changed what live state reads (comments resolved,
     // a handback): read it now rather than at the next poll.
     if (rt.patches?.live && !this.stopping) void this.refreshPatches(st);
-    // A Plan mode turn: its reply saved as plans/<date>-<project>.md and pinned.
-    if (outcome === 'completed' && finished?.plan && finished.lastText) this.savePlan(st, finished.lastText);
     if (outcome && finished && !finished.auto && !this.stopping) {
       this.tellActivity({ kind: 'turn.end', threadId: rec.id, outcome, edited: [...finished.edited].map((p) => path.resolve(rec.cwd, p)), workedIn: [...(finished.workedIn ?? [])] });
     }
