@@ -50,8 +50,12 @@ struct SkillsPage: View {
                 VStack(alignment: .leading, spacing: zoomed(22)) {
                     intro
                     InstructionsBox()
-                    if let binding = Binding($draft) {
-                        SkillForm(draft: binding) { draft = nil }
+                    // The form keeps its own copy: tying it to `draft` through
+                    // Binding($draft) crashed SwiftUI when a save set it to nil
+                    // while the form was still drawing.
+                    if let draft {
+                        SkillForm(start: draft) { self.draft = nil }
+                            .id(draft.id)
                     }
                     importBox
                     installed
@@ -259,7 +263,8 @@ private struct SuggestedRow: View {
 
 /// What the New Skill form holds: a new skill, or (with `replacing`) one
 /// of his own being edited.
-struct SkillDraft {
+struct SkillDraft: Identifiable {
+    var id = UUID()
     var name = ""
     var description = ""
     var text = ""
@@ -272,8 +277,13 @@ struct SkillDraft {
 /// other skill, in every thread, on every login.
 private struct SkillForm: View {
     @Environment(AppModel.self) private var app
-    @Binding var draft: SkillDraft
+    @State private var draft: SkillDraft
     let close: () -> Void
+
+    init(start: SkillDraft, close: @escaping () -> Void) {
+        _draft = State(initialValue: start)
+        self.close = close
+    }
     @State private var saving = false
     @State private var error: String?
     @FocusState private var nameFocused: Bool
