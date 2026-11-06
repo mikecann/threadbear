@@ -32,3 +32,12 @@ final class UserMarkdownTests: XCTestCase {
         XCTAssertNotNil(UserMarkdown.prepare("this is *important*"))
     }
 }
+
+final class LinkedNoteTests: XCTestCase {
+    func testANoteWithALinkIsNeverFoldedAway() {
+        let linked = TranscriptRow(id: "n:1", seq: 1, turnId: "t", content: .note("Saved the plan to [plans/a.md](</tmp/plans/a.md>)."))
+        let plain = TranscriptRow(id: "n:2", seq: 2, turnId: "t", content: .note("Resumed session"))
+        XCTAssertFalse(TranscriptModel.isWork(linked))
+        XCTAssertTrue(TranscriptModel.isWork(plain))
+    }
+}

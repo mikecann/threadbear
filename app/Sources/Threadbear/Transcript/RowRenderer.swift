@@ -467,7 +467,11 @@ enum RowRenderer {
                 let header = headerText(title: firstLine(note), subtitle: "")
                 return RowRender(height: RowMetrics.workHeight, text: header, textSize: header.size())
             }
-            let text = NSAttributedString(string: note, attributes: Theme.text(Theme.smallFont, color: Theme.quietText, line: TypeScale.scaled(17), alignment: .center))
+            let attributes = Theme.text(Theme.smallFont, color: Theme.quietText, line: TypeScale.scaled(17), alignment: .center)
+            // A note with a link in it (the saved plan's) keeps the link, so a click opens it.
+            let text: NSAttributedString = note.contains("](") && !note.contains("\n")
+                ? noteText(note, font: Theme.smallFont, color: Theme.quietText, style: attributes[.paragraphStyle] as? NSParagraphStyle ?? .default, offset: 0)
+                : NSAttributedString(string: note, attributes: attributes)
             let size = measurer.measure(text, width: width)
             return RowRender(height: vertical + size.height, text: text, textSize: size)
 

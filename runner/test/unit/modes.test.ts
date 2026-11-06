@@ -30,7 +30,10 @@ test('a Plan mode message: read-only, told what Plan mode is, and its reply save
   const doc = fs.readFileSync(path.join(cwd, 'plans', plans[0]), 'utf8');
   assert.match(doc, /^# Plan: /);
   assert.match(doc, /## Goal\n\nAdd Stripe\./);
-  assert.ok(h.events(thread.id).some((e) => e.type === 'system.note' && /Saved the plan to plans\//.test(e.text)));
+  const note = h.events(thread.id).find((e) => e.type === 'system.note' && /^Saved the plan to /.test(e.text));
+  assert.match(note.text, /^Saved the plan to \[plans\/[^\]]+\.md\]\(<\/.+\/plans\/[^>]+\.md>\)\.$/);
+  // Opened in the panel straight away.
+  assert.equal(h.runner.highlights(thread.id).highlights.find((i) => i.path?.includes('/plans/'))?.show, true);
   assert.ok(h.runner.highlights(thread.id).highlights.some((i) => i.path?.includes(`plans/${plans[0]}`)));
   // The next message without a mode is an ordinary turn again.
   h.runner.send(thread.id, 'Go ahead');

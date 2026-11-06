@@ -1567,8 +1567,10 @@ export class Runner {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, planDocument(text, { title: rec.title, project, date: new Date(this.clock.now()) }));
       const shown = path.relative(rec.cwd, file);
-      this.emit(st, { type: 'system.note', text: `Saved the plan to ${shown}.` });
-      this.pin(rec.id, { path: file, title: `Plan: ${rec.title}`, note: 'The plan from Plan mode' });
+      // A link, so a click opens it here in the app's panel.
+      this.emit(st, { type: 'system.note', text: `Saved the plan to [${shown}](<${file}>).` });
+      // Pinned, and opened beside the thread now (the app shows it in the panel).
+      this.pin(rec.id, { path: file, title: `Plan: ${rec.title}`, note: 'The plan from Plan mode', show: true });
     } catch (err) {
       this.log.warn('could not save a plan', { threadId: rec.id, err: String(err) });
       this.emit(st, { type: 'system.note', text: `Couldn't save the plan: ${err instanceof Error ? err.message : String(err)}` });

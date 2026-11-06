@@ -1022,7 +1022,10 @@ public struct TranscriptModel: Sendable {
     static func isWork(_ row: TranscriptRow) -> Bool {
         switch row.content {
         case .tool(let tool): return !isTakenEndTurn(tool)
-        case .reasoning, .note: return true
+        case .reasoning: return true
+        // A note with a link (the saved plan's "Saved the plan to …") is
+        // something to click, so it stays out where it can be seen.
+        case .note(let text): return !text.contains("](")
         case .approval(let item): return item.isAllowed
         default: return false
         }
@@ -1231,6 +1234,8 @@ public struct TranscriptModel: Sendable {
         case .error, .footer, .asks, .review, .gap, .planCard: return true
         case .images(_, _, let generated): return generated
         case .tool(let tool): return Self.isTakenEndTurn(tool) || pressedRuns.contains(items[k].id)
+        // A note with a link (the saved plan's) is something to click.
+        case .note(let text): return text.contains("](")
         default: return false
         }
     }

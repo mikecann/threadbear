@@ -349,7 +349,9 @@ mode**, then off. In either, the agent reads what it needs but changes
 nothing: no edits, whatever the Full access chip says. In Plan mode its
 reply is a plan, and Threadbear saves it in the thread's folder as
 `plans/<date>-<project>.md` (the folder's name if the thread isn't in a
-project) and pins it in Highlights. In Ask mode it just answers. The mode
+project), opens it in the panel beside the thread straight away, and pins
+it in Highlights; the "Saved the plan to …" line under the reply opens it
+again. In Ask mode it just answers. The mode
 shows as a chip beside Full access (click it to step on) and stays on for
 the thread until you change it; your message says which mode it was sent
 in. Off, nothing shows and messages work as always. Settings (⌘,) >

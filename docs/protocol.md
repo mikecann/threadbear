@@ -3237,7 +3237,10 @@ rest of the running turn it goes into, changes nothing (`src/modes.ts`):
 - A Plan mode turn that completes has its reply (the turn's last message)
   saved as `plans/<YYYY-MM-DD>-<project or folder>.md` in the thread's
   folder (`-2`, `-3` for more the same day), under a short header, pinned
-  in Highlights, with a `system.note` "Saved the plan to plans/…".
+  in Highlights with `show` (so the app opens it in the side pane
+  straight away), with a `system.note` "Saved the plan to
+  [plans/…](<path>)." whose link opens it in the panel. A note with a
+  Markdown link stays out of its turn's folded work.
 
 The next message without a `mode` is an ordinary turn again. The mode is
 the app's to remember (it stays on for the thread until Mike changes it);
