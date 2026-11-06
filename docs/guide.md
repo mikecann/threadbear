@@ -1243,6 +1243,25 @@ a newer release goes into the same thread. A release Mike marks important
 (a security or data fix) starts one straight away. Change how often, or
 turn it off, in Settings (⌘,) > General > Updates from Mike.
 
+### Talking with a thread
+
+Press the waveform button beside Send to talk with the thread out loud.
+It turns red while Voice is on. Say what you want as you would to a
+person; when you pause for about a second it goes to the thread as your
+message, and the agent's reply is read out. You can keep talking while it
+works (what you say goes into the turn it's on, as typing does), and if
+you talk over it, it stops to listen. It's the same thread with the same
+memory, tools and approvals: when it needs your OK or has a question it
+says so, and you answer on screen. Code and tables aren't read out; it
+tells you they're on screen. Press the button again, or go to another
+thread, to end Voice.
+
+Settings (⌘,) > Voice picks who it sounds like (Emily, Mike and about
+twenty more), how fast it talks, the language, and the microphone. Play
+a Sample tries a voice. The first time you use Voice, Threadbear
+downloads its voice engine (Kyutai's pocket-tts) and a voice model of
+about 240 MB, and macOS asks to let it use the microphone. Listening is
+done on your Mac by macOS; nothing you say is recorded.
 ### Where Settings opens
 
 Settings (⌘, or the gear at the bottom of the bar on the left) opens over
