@@ -1277,8 +1277,9 @@ itself.
 
 The bear at the top right of the sidebar is a chat for anything: a quick
 question, what to cook, planning your week, or real work. Click it to open
-your chat with it; right-click it and pick Talk Out Loud to talk with it
-using Voice. It remembers: whenever it learns something lasting about
+your chat with it, and type, or press the waveform button beside Send
+to talk with it out loud (that works before its first message too).
+Right-click it and pick Talk Out Loud to go straight to talking. It remembers: whenever it learns something lasting about
 you, it saves it to its memory, so a new chat with it still knows you.
 Its chats are ordinary threads in `~/ThreadbearThreads/Bear`, with the
 same tools and approvals as any thread, and they show in the sidebar like

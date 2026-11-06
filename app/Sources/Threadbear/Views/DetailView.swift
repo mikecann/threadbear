@@ -598,13 +598,23 @@ struct ComposerPlacement: Layout {
 }
 
 private struct NewThreadHeading: View {
+    @Environment(AppModel.self) private var app
+
     var body: some View {
-        Text("What should we work on?")
+        // The bear's chat (BearChat) greets you as the bear.
+        let bear = app.newThreadCwd == BearChat.folder.path
+        VStack(spacing: zoomed(10)) {
+        if bear {
+            VoiceBear(mood: .listening, level: 0, animated: false)
+                .frame(width: zoomed(72), height: zoomed(72))
+        }
+        Text(bear ? "What's on your mind?" : "What should we work on?")
             .font(.system(size: zoomed(24), weight: .semibold))
             .foregroundStyle(.primary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, zoomed(24))
             .frame(maxWidth: .infinity)
+        }
     }
 }
 

@@ -170,6 +170,12 @@ struct ComposerControls: View {
             if let thread, !draftAway {
                 VoiceButton(threadId: thread.id, size: SendButton.size)
                     .layoutPriority(1)
+            } else if thread == nil, !draftAway, app.newThreadCwd == BearChat.folder.path {
+                // The bear's chat before its first message: Voice starts it.
+                VoiceButton(threadId: nil, size: SendButton.size) {
+                    app.startBearChat { VoiceMode.shared.start(threadId: $0) }
+                }
+                .layoutPriority(1)
             }
             SendButton(running: running, canSend: canSend, sending: sending, onSend: onSend, onStop: { app.interrupt() })
                 .layoutPriority(1)

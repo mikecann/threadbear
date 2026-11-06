@@ -5,15 +5,18 @@ import ThreadbearCore
 /// and red while it's on, its bars moving with whoever is talking. The
 /// words he's saying, or what it's doing, show beside it.
 struct VoiceButton: View {
-    let threadId: String
+    /// Nil for a chat not started yet (the bear's): `startNew` starts it,
+    /// and Voice with it.
+    let threadId: String?
     let size: CGFloat
+    var startNew: (() -> Void)? = nil
     @State private var voice = VoiceMode.shared
 
     var body: some View {
-        let on = voice.isOn(for: threadId)
+        let on = threadId.map { voice.isOn(for: $0) } ?? false
         HStack(spacing: 6) {
             Button {
-                voice.toggle(threadId: threadId)
+                if let threadId { voice.toggle(threadId: threadId) } else { startNew?() }
             } label: {
                 VoiceBars(level: on ? CGFloat(voice.level) : 0, active: on, busy: busy)
                     .frame(width: size * 0.5, height: size * 0.5)
@@ -39,7 +42,7 @@ struct VoiceButton: View {
 
     private var failureShown: Binding<Bool> {
         Binding(get: {
-            if case .failed = voice.phase, voice.threadId == threadId { return true }
+            if case .failed = voice.phase, threadId != nil, voice.threadId == threadId { return true }
             return false
         }, set: { if !$0 { voice.dismissFailure() } })
     }
