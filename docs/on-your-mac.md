@@ -92,6 +92,11 @@ link to each skill in that login's `CODEX_HOME/skills/` folder, and only
 ever touches links of its own there. Adding the built-in Pele runs
 `npm ci --omit=dev --ignore-scripts` in its folder, which fetches the
 `pele` package from npm.
+The Terminal panel runs your login shell (`$SHELL -l`, else zsh) in the
+thread's folder, one per thread for as long as the app runs, without the
+thread's own THREADBEAR_ and CLAUDE variables; they all end when the
+app quits (`app/Sources/Threadbear/Views/TerminalPanel.swift`, drawn by
+the SwiftTerm package).
 Notes (the bar's Notes) are files in `~/Library/Application Support/Threadbear/notes/`
 (the folder only you can open, each file only you can read), each a note
 encrypted with AES-GCM under a key the app makes the first time and keeps

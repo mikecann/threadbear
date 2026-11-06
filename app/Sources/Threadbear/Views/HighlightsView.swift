@@ -306,13 +306,17 @@ struct HighlightsView: View {
             ForEach(paths, id: \.self) { path in
                 PaneRow(icon: FileIcon.symbol(forPath: path), title: (path as NSString).lastPathComponent,
                         detail: HighlightText.folder(of: path, cwd: thread.cwd), indent: true) {
+                    // Where Settings > General > Open files in says.
+                    let inPanel = FileOpenPlace.current == .threadbear
                     if thread.isRemote {
-                        app.openRemoteFile(URL(fileURLWithPath: path), .app, in: thread)
+                        app.openRemoteFile(URL(fileURLWithPath: path), inPanel ? .panel : .app, in: thread)
+                    } else if inPanel {
+                        app.preview(path: path, in: thread)
                     } else {
                         app.openExternally(URL(fileURLWithPath: path))
                     }
                 }
-                .tip("Open in its app")
+                .tip(FileOpenPlace.current == .threadbear ? "Open it here, in the panel" : "Open in its app")
                 .fileDrag(URL(fileURLWithPath: path))
                 .iconContextMenu { FileMenu(path: path, thread: thread, title: (path as NSString).lastPathComponent) }
             }

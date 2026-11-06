@@ -274,6 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             VoiceMode.shared.stop()
             VoiceServer.shared.stop()
             NotesStore.shared.flush()
+            TerminalSessions.shared.endAll()
             AppUpdater.shared.applyAtQuit()
         }
     }

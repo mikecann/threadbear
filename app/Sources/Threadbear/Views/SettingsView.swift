@@ -90,6 +90,7 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsPlace.key) private var settingsPlace: SettingsPlace = .panel
     @AppStorage(BearChat.shownKey) private var bearShown = true
     @AppStorage(NotesStore.shownKey) private var notesShown = true
+    @AppStorage(FileOpenPlace.key) private var fileOpenPlace: FileOpenPlace = .threadbear
 
     var body: some View {
         SettingsGate { settings in
@@ -130,6 +131,15 @@ private struct GeneralSettings: View {
                     Toggle("Show Notes", isOn: $notesShown)
                         .tip("Show Notes in the bar on the left")
                         .onChange(of: notesShown) { _, on in if !on { app.showsNotesPage = false } }
+                }
+
+                SettingsSection("Files",
+                                about: "Where a file opens when you click it in a reply, Highlights or Files: here in Threadbear's panel (code with syntax colours, Markdown drawn, Edit for text) or in the app your Mac opens it with, such as Cursor or Xcode. ⌘-click always opens it in its app, and the right-click menu has both.",
+                                ask: "change which app opens a kind of file.") {
+                    Picker("Open files in", selection: $fileOpenPlace) {
+                        ForEach(FileOpenPlace.allCases) { Text($0.title).tag($0) }
+                    }
+                    .tip("Threadbear's panel, or the file's own app")
                 }
 
                 SettingsSection("New threads",

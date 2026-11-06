@@ -1,6 +1,29 @@
 import AppKit
 import ThreadbearCore
 
+/// Where a file opens when it's clicked (Settings > General > Open files
+/// in): Threadbear's panel, with its code viewer, Edit and Markdown, or the
+/// app macOS gives the file (an editor such as Cursor or Xcode). A project
+/// bundle (`isAppProject`) always opens in its app, and ⌘-click always
+/// means its app.
+enum FileOpenPlace: String, CaseIterable, Identifiable {
+    case threadbear, app
+
+    static let key = "fileOpenPlace"
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .threadbear: "Threadbear"
+        case .app: "Its own app"
+        }
+    }
+
+    static var current: FileOpenPlace {
+        UserDefaults.standard.string(forKey: key).flatMap(FileOpenPlace.init(rawValue:)) ?? .threadbear
+    }
+}
+
 /// What a file link in the transcript can do, from its right-click menu.
 /// The menu also sets which one a plain click does.
 enum FileLinkAction: String, CaseIterable {
@@ -23,7 +46,11 @@ enum FileLinkAction: String, CaseIterable {
     /// another Mac has none of its media, so that's left to the pane).
     static func forClick(on path: String, commandKey: Bool, remote: Bool, appFor: (URL) -> URL? = defaultApp) -> FileLinkAction {
         if commandKey { return .app }
-        return !remote && opensInItsApp(path, appFor: appFor) ? .app : click
+        if !remote && opensInItsApp(path, appFor: appFor) { return .app }
+        // "Panel for docs, app for the rest" is the app's half only when
+        // Settings says files open in their app.
+        if click == .automatic, FileOpenPlace.current == .threadbear { return .panel }
+        return click
     }
 
     /// A project file with an app here to open it. Asking for the app means

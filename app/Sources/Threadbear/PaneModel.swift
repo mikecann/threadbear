@@ -291,7 +291,7 @@ extension AppModel {
         }
         let path = url.path
         var action = action
-        if action == .automatic { action = PreviewRules.previewsInPane(transcriptLink: url) || FolderListing.isBrowsable(path) ? .panel : .app }
+        if action == .automatic { action = FileOpenPlace.current == .threadbear || PreviewRules.previewsInPane(transcriptLink: url) || FolderListing.isBrowsable(path) ? .panel : .app }
         switch action {
         case .panel:
             // The pane belongs to a thread; on a project page there's none.

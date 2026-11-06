@@ -514,6 +514,24 @@ Show or Hide Panels (⌥⌘P) for the panels beside the thread, and Reset
 Panel Layout, which puts everything back how it started. Threadbear remembers your
 layout between launches.
 
+## Files and Terminal
+
+Two buttons on the rail down the right, below the folder's own panels
+(such as Worktrees): **Files** lists the thread's folder, to go into
+folders and open files in the panel (a thread on another Mac lists that
+Mac's folder), and **Terminal** is a real terminal in the thread's
+folder, running your own login shell as Terminal.app would, with your
+PATH, aliases and colours. Each thread keeps its own terminal while the
+app runs, so going to another thread and back finds it as you left it;
+type `exit` and the next look starts a fresh one. Terminal is for
+threads on this Mac.
+
+Clicking a file in a reply, Highlights or Files opens it here in the
+panel: code with syntax colours, Markdown drawn, and Edit for text. To
+have files open in the app your Mac uses for them instead (Cursor, Xcode),
+set Open files in to Its own app in Settings (⌘,) > General. ⌘-click
+always opens a file in its app, and its right-click menu has both.
+
 ## Highlights
 <!-- slug: highlights -->
 
