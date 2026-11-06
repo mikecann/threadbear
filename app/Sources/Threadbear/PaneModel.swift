@@ -181,6 +181,11 @@ extension AppModel {
     func show(_ preview: PanePreview, in threadId: String) {
         var preview = preview
         preview.opened = (panePreview[threadId]?.opened ?? 0) + 1
+        // Edit files like an editor: a text file opens ready to type in.
+        if FileEditorMode.isOn, preview.away == nil, let path = preview.fileURL?.path,
+           TextFileView.shows(path), TextFileView.canEdit(path), PreviewRules.viewer(forPath: path) != .web {
+            preview.editing = true
+        }
         panePreview[threadId] = preview
         // Over the section it's from, opening that if it's closed.
         showPane(preview.from)

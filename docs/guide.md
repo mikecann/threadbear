@@ -546,6 +546,20 @@ have files open in the app your Mac uses for them instead (Cursor, Xcode),
 set Open files in to Its own app in Settings (⌘,) > General. ⌘-click
 always opens a file in its app, and its right-click menu has both.
 
+To work on files here as you would in an editor, turn on Edit files like
+an editor in Settings (⌘,) > General > Files (it's off until you do). A
+text file then opens ready to type in, with line numbers down the side
+and a bar underneath showing the line and column, and whether what you
+typed is in the file yet: Edited with a blue dot, or Saved. Nothing is
+written while you type, so a dev server watching the file doesn't reload
+on every pause. ⌘S or Save writes it, and so does leaving the file
+(Back, another file, closing the panel or quitting), so nothing typed is
+lost. The eye at the top shows the file as it reads (Markdown drawn) and
+the pencil goes back to editing. If an agent changes the file while you
+have unsaved edits, a bar asks whether to take the file's version or keep
+yours. With the setting off, the pencil switches a file to editing and
+what you type is saved as you go.
+
 ## Highlights
 <!-- slug: highlights -->
 

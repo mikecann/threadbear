@@ -91,6 +91,7 @@ private struct GeneralSettings: View {
     @AppStorage(BearChat.shownKey) private var bearShown = true
     @AppStorage(NotesStore.shownKey) private var notesShown = true
     @AppStorage(FileOpenPlace.key) private var fileOpenPlace: FileOpenPlace = .threadbear
+    @AppStorage(FileEditorMode.key) private var editLikeAnEditor = false
     @AppStorage(TurnModes.enabledKey) private var turnModesOn = true
 
     var body: some View {
@@ -143,12 +144,15 @@ private struct GeneralSettings: View {
                 }
 
                 SettingsSection("Files",
-                                about: "Where a file opens when you click it in a reply, Highlights or Files: here in Threadbear's panel (code with syntax colours, Markdown drawn, Edit for text) or in the app your Mac opens it with, such as Cursor or Xcode. ⌘-click always opens it in its app, and the right-click menu has both.",
+                                about: "Where a file opens when you click it in a reply, Highlights or Files: here in Threadbear's panel (code with syntax colours, Markdown drawn, Edit for text) or in the app your Mac opens it with, such as Cursor or Xcode. ⌘-click always opens it in its app, and the right-click menu has both. Edit files like an editor opens text files ready to type in, with line numbers, and writes them when you save (⌘S) rather than as you type.",
                                 ask: "change which app opens a kind of file.") {
                     Picker("Open files in", selection: $fileOpenPlace) {
                         ForEach(FileOpenPlace.allCases) { Text($0.title).tag($0) }
                     }
                     .tip("Threadbear's panel, or the file's own app")
+                    Toggle("Edit files like an editor", isOn: $editLikeAnEditor)
+                        .disabled(fileOpenPlace == .app)
+                        .tip("Open text files ready to type in, with line numbers, and save with ⌘S")
                 }
 
                 SettingsSection("New threads",

@@ -57,6 +57,9 @@ struct TextFileView: View {
                     NoteBar(text: note)
                 }
                 TextFileHost(controller: controller)
+                if controller.editing, controller.editorMode, controller.document.isEditable {
+                    EditorStatusBar(controller: controller)
+                }
             } else {
                 Color.clear
             }
@@ -104,6 +107,35 @@ private struct ConflictBar: View {
     }
 }
 
+/// Under the text in Edit files like an editor: where the cursor is, and
+/// whether what's typed is in the file yet, with Save (⌘S).
+private struct EditorStatusBar: View {
+    let controller: TextFileController
+
+    var body: some View {
+        HStack(spacing: zoomed(10)) {
+            Text("Line \(controller.cursor.line), Column \(controller.cursor.column)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if controller.dirty {
+                Circle().fill(Color.accentColor).frame(width: zoomed(6), height: zoomed(6))
+                Text("Edited").foregroundStyle(.secondary)
+            } else {
+                Text("Saved").foregroundStyle(.tertiary)
+            }
+            Button("Save") { controller.saveNow() }
+                .controlSize(.small)
+                .disabled(!controller.dirty || controller.conflict != nil)
+                .tip("Write what's typed into the file (⌘S)")
+        }
+        .font(.system(size: TypeScale.label))
+        .padding(.horizontal, zoomed(12))
+        .padding(.vertical, zoomed(5))
+        .overlay(alignment: .top) { Rectangle().fill(Color(nsColor: Theme.hairline)).frame(height: 0.5) }
+    }
+}
+
 /// A grey line over the text: the file is cut off, or can't be edited.
 private struct NoteBar: View {
     let text: String
@@ -144,6 +176,14 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     var conflict: String?
     var note: String?
     private(set) var editing = false
+    /// Edit files like an editor (FileEditorMode), as it was when the file
+    /// opened: saves wait for ⌘S, Save or leaving the file.
+    let editorMode: Bool
+    /// Typed and not in the file yet (editor mode; otherwise it's saved
+    /// a moment after the typing stops).
+    private(set) var dirty = false
+    /// Where the cursor is, 1-based, for the status bar.
+    private(set) var cursor = (line: 1, column: 1)
     @ObservationIgnored private var dark = false
     @ObservationIgnored private var saveTimer: DispatchWorkItem?
     @ObservationIgnored private var colourTimer: DispatchWorkItem?
@@ -171,6 +211,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     init(url: URL) {
         self.url = url
         document = TextFileDocument(url: url)
+        editorMode = FileEditorMode.isOn
         // The transcript's layout manager, for the boxes behind rendered
         // Markdown's code blocks and the pills behind inline code.
         let storage = NSTextStorage()
@@ -208,6 +249,13 @@ final class TextFileController: NSObject, NSTextViewDelegate {
         scroll.documentView = textView
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
+        if editorMode {
+            let ruler = LineNumberRuler(textView: textView)
+            scroll.verticalRulerView = ruler
+            scroll.hasVerticalRuler = true
+            scroll.rulersVisible = false
+        }
+        textView.onSave = { [weak self] in self?.saveNow() }
     }
 
     // MARK: Lifecycle
@@ -223,6 +271,20 @@ final class TextFileController: NSObject, NSTextViewDelegate {
             return
         }
         show(document.saved, keepPlace: false)
+        if editing {
+            textView.isEditable = document.isEditable
+            if editorMode { scroll.rulersVisible = true }
+            if !document.isEditable {
+                note = document.truncated ? "Only the start of this file is shown, so it can't be edited here."
+                    : "This file isn't UTF-8 text, so it can't be edited here."
+            }
+            // Ready to type, once it's on screen.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.editing else { return }
+                self.textView.window?.makeFirstResponder(self.textView)
+                self.textView.setSelectedRange(NSRange(location: 0, length: 0))
+            }
+        }
         document.watch(shown: { [weak self] in self?.shownText ?? "" }) { [weak self] change in
             self?.fileChanged(change)
         }
@@ -354,6 +416,8 @@ final class TextFileController: NSObject, NSTextViewDelegate {
                 : "This file isn't UTF-8 text, so it can't be edited here."
         }
         textView.isEditable = editing && document.isEditable
+        // Line numbers are for the raw text, not rendered Markdown.
+        if editorMode { scroll.rulersVisible = editing }
         // Markdown changes shape; code and text only change whether they
         // take typing.
         if isMarkdown { show(document.saved, keepPlace: true) }
@@ -363,11 +427,23 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         guard editing else { return }
         generation += 1
-        scheduleSave()
+        if editorMode { dirty = textView.string != document.saved } else { scheduleSave() }
+        (scroll.verticalRulerView as? LineNumberRuler)?.needsDisplay = true
         colourTimer?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.colour() }
         colourTimer = item
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250), execute: item)
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        guard editorMode else { return }
+        let text = textView.string as NSString
+        let location = min(textView.selectedRange().location, text.length)
+        let before = text.substring(to: location)
+        let line = before.utf16.reduce(1) { $1 == 10 ? $0 + 1 : $0 }
+        let lastBreak = (before as NSString).range(of: "\n", options: .backwards)
+        let lineStart = lastBreak.location == NSNotFound ? 0 : NSMaxRange(lastBreak)
+        cursor = (line, location - lineStart + 1)
     }
 
     private func scheduleSave() {
@@ -384,6 +460,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
         guard editing, conflict == nil, document.isEditable else { return }
         do {
             try document.save(textView.string)
+            dirty = false
         } catch {
             note = "Couldn't save: \(error.localizedDescription)"
         }
@@ -397,6 +474,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
             break
         case .reload(let text):
             conflict = nil
+            dirty = false
             show(text, keepPlace: true)
         case .conflict(let text):
             conflict = text
@@ -409,6 +487,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     /// The conflict bar's "Use the file's": the file wins.
     func useFile(_ text: String) {
         conflict = nil
+        dirty = false
         document.adopt(text)
         show(text, keepPlace: true)
     }
@@ -436,6 +515,17 @@ final class FileTextView: NSTextView {
 
     /// The file's folder, which relative links are from.
     var base: URL?
+    /// ⌘S while it's being edited.
+    var onSave: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if isEditable, window?.firstResponder === self, flags == .command, event.charactersIgnoringModifiers == "s", let onSave {
+            onSave()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func clicked(onLink link: Any, at charIndex: Int) {
         let commandKey = NSApp.currentEvent?.modifierFlags.contains(.command) ?? false

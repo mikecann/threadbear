@@ -705,8 +705,18 @@ enum Automation {
             // "edit" true or false is the bar's pencil or Done, "insert"
             // types text at the end of the editor (and waits for the
             // save, unless "wait" is false), and "resolve" ("file" or
-            // "mine") is the conflict bar's button.
+            // "mine") is the conflict bar's button. "editor" true or false
+            // turns Settings' Edit files like an editor on or off first, and
+            // "save" true is ⌘S.
             guard let thread = app.selectedThread else { return "error no thread selected" }
+            if let on = c["editor"] as? Bool { UserDefaults.standard.set(on, forKey: FileEditorMode.key) }
+            if c["save"] as? Bool == true {
+                guard let controller = TextFileController.current, app.panePreview[thread.id]?.editing == true else {
+                    return "error nothing is being edited"
+                }
+                controller.saveNow()
+                return "ok saved, \(controller.dirty ? "still edited" : "nothing unsaved"), file ends \(((try? String(contentsOf: controller.url, encoding: .utf8)) ?? "").suffix(40).debugDescription)"
+            }
             if c["close"] as? Bool == true {
                 app.closePreview(in: thread.id)
             } else if c["back"] as? Bool == true {
@@ -720,7 +730,7 @@ enum Automation {
                 }
                 controller.insertAtEnd(text)
                 if c["wait"] as? Bool != false { try? await Task.sleep(for: .seconds(1.2)) }
-                return "ok editor ends \(String(controller.textView.string.suffix(40)).debugDescription), file ends \(((try? String(contentsOf: controller.url, encoding: .utf8)) ?? "").suffix(40).debugDescription)"
+                return "ok \(controller.dirty ? "edited, " : "")editor ends \(String(controller.textView.string.suffix(40)).debugDescription), file ends \(((try? String(contentsOf: controller.url, encoding: .utf8)) ?? "").suffix(40).debugDescription)"
             } else if let side = c["resolve"] as? String {
                 guard let controller = TextFileController.current, let fileText = controller.conflict else { return "error no conflict to resolve" }
                 if side == "file" { controller.useFile(fileText) } else { controller.keepMine() }

@@ -737,9 +737,14 @@ struct PreviewButtons: View {
         // would change), and its folder is just the cache.
         if let file = preview.fileURL, preview.away == nil {
             if preview.editing {
-                PaneHeaderButton(symbol: "checkmark", help: "Done. What you typed is saved.") { app.setPreviewEditing(false, in: thread.id) }
+                PaneHeaderButton(symbol: FileEditorMode.isOn ? "eye" : "checkmark",
+                                 help: FileEditorMode.isOn ? "Stop editing and read it. What you typed is saved." : "Done. What you typed is saved.") {
+                    app.setPreviewEditing(false, in: thread.id)
+                }
             } else if TextFileView.shows(file.path), TextFileView.canEdit(file.path) {
-                PaneHeaderButton(symbol: "pencil", help: "Edit the file here. It's saved as you type.") { app.setPreviewEditing(true, in: thread.id) }
+                PaneHeaderButton(symbol: "pencil", help: FileEditorMode.isOn ? "Edit the file here. ⌘S saves." : "Edit the file here. It's saved as you type.") {
+                    app.setPreviewEditing(true, in: thread.id)
+                }
             }
             PaneHeaderButton(symbol: "folder", help: "Reveal in Finder") { app.revealInFinder(file.path) }
         }
