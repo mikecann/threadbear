@@ -70,7 +70,7 @@ const DEFAULT_HOME = path.join(os.homedir(), 'Library', 'Application Support', '
 // scripts is the same; systemd takes launchd's place (install-runner.sh).
 const LINUX = process.platform === 'linux';
 // What a release holds from runner/, besides node_modules and release.json.
-const RELEASE_PATHS = ['src', 'bin', 'package.json', 'package-lock.json'];
+const RELEASE_PATHS = ['src', 'bin', 'skills', 'package.json', 'package-lock.json'];
 const KEEP_RELEASES = 5;
 const HEALTH_MS = 30_000;
 // How long a release that came up has to stay up before the deploy says so

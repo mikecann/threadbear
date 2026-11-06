@@ -54,6 +54,10 @@ struct ComposerView: View {
         if let thread {
             RefusalOffer(thread: thread)
         }
+        // Voice mode's bear, over the box while it's on for this thread.
+        if VoiceMode.shared.isOn(for: thread?.id ?? VoiceMode.newThread) {
+            VoiceStage(threadId: thread?.id ?? VoiceMode.newThread)
+        }
         // The folder's actions (patches), on shelves sitting on the box's
         // top edge, in from its rounded corner (ActionChips).
         if let thread, !thread.actions.isEmpty || thread.patches.contains(where: { $0.untrusted != nil }) {
@@ -782,6 +786,90 @@ final class ComposerTextView: NSTextView {
         restyle()
     }
 
+    // MARK: /skill completion
+    //
+    // Typing / at the start of a word lists the installed skills (none
+    // while the store is off), narrowing as he types, in a small list over
+    // the cursor (SkillPicker): ↑↓ to move, Return or Tab to pick, Esc to
+    // close, or a click. Not the text view's own complete(_:), which runs
+    // an event loop of its own and holds the whole app up while it's open.
+
+    private lazy var skillPicker = SkillPicker { [weak self] name in self?.pickSkill(name) }
+
+    /// The /word the cursor is at the end of, slash included.
+    private func skillToken() -> NSRange? {
+        let sel = selectedRange()
+        guard sel.length == 0, !hasMarkedText() else { return nil }
+        let ns = string as NSString
+        var start = sel.location
+        func isNameChar(_ c: unichar) -> Bool {
+            (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 45
+        }
+        while start > 0, isNameChar(ns.character(at: start - 1)) { start -= 1 }
+        guard start > 0, ns.character(at: start - 1) == 47 else { return nil } // "/"
+        let slash = start - 1
+        if slash > 0 {
+            let before = ns.character(at: slash - 1)
+            guard before == 32 || before == 10 || before == 9 || before == 40 else { return nil } // space, newline, tab, (
+        }
+        return NSRange(location: slash, length: sel.location - slash)
+    }
+
+    /// The list for what's typed now: shown, moved or put away.
+    private func offerSkills() {
+        guard isEditable, window != nil, let range = skillToken() else { skillPicker.hide(); return }
+        let query = String((string as NSString).substring(with: range).dropFirst())
+        let matches = SkillPicker.matches(query, in: SkillMentions.skills)
+        // Nothing to offer, or the word is already a whole skill's name.
+        guard !matches.isEmpty, !(matches.count == 1 && matches[0].name == query.lowercased()) else { skillPicker.hide(); return }
+        var caret = firstRect(forCharacterRange: NSRange(location: range.location, length: 0), actualRange: nil)
+        if caret.height == 0 { caret.size.height = 16 }
+        skillPicker.show(matches, above: caret, parent: window)
+    }
+
+    private func pickSkill(_ name: String) {
+        guard let range = skillToken() else { skillPicker.hide(); return }
+        insertText("/\(name) ", replacementRange: range)
+        skillPicker.hide()
+    }
+
+    /// ↑↓, Return, Tab and Esc go to the list while it's open.
+    private func skillPickerKey(_ event: NSEvent) -> Bool {
+        guard skillPicker.isShown else { return false }
+        switch event.keyCode {
+        case 126: skillPicker.move(-1); return true // up
+        case 125: skillPicker.move(1); return true // down
+        case 36, 76, 48: // Return, Enter, Tab
+            if let name = skillPicker.selected { pickSkill(name) }
+            return true
+        case 53: skillPicker.hide(); return true // Esc
+        default: return false
+        }
+    }
+
+    /// The cursor moved off the /word (a click, the arrow keys): the list goes.
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if !stillSelecting, skillToken() == nil { skillPicker.hide() }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        skillPicker.hide()
+        return super.resignFirstResponder()
+    }
+
+    /// /pele and the like, for skills Threadbear has, coloured as you type:
+    /// that's a skill the message will run. Layout-only colour, so the
+    /// draft's text and its pictures are never touched (SkillMentions).
+    func markSkills() {
+        guard let layoutManager, let storage = textStorage else { return }
+        let whole = NSRange(location: 0, length: storage.length)
+        layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: whole)
+        for range in SkillMentions.ranges(in: storage.string) {
+            layoutManager.addTemporaryAttribute(.foregroundColor, value: NSColor.controlAccentColor, forCharacterRange: range)
+        }
+    }
+
     /// The composer's font and line spacing on the whole text, keeping the
     /// pictures' chips (setAttributes alone would drop them).
     private func restyle() {
@@ -795,6 +883,7 @@ final class ComposerTextView: NSTextView {
         storage.setAttributes(ComposerTextField.attributes, range: whole)
         for (range, chip) in chips { storage.addAttribute(.attachment, value: chip, range: range) }
         storage.endEditing()
+        markSkills()
     }
 
     // MARK: A chip's hover card
@@ -893,7 +982,10 @@ final class ComposerTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         hoverChip(nil)
+        // The slash palette (a message starting with /) first, then the
+        // skill list for a /skill further on.
         if !hasMarkedText(), let key = Self.paletteKey(event), onPaletteKey?(key) == true { return }
+        if skillPickerKey(event) { return }
         let isReturn = event.keyCode == 36 || event.keyCode == 76
         if isReturn, !hasMarkedText() {
             if event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.option) {
@@ -1138,6 +1230,8 @@ final class ComposerTextView: NSTextView {
     override func didChangeText() {
         renumberPictures()
         super.didChangeText()
+        markSkills()
+        offerSkills()
         if string.isEmpty != wasEmpty {
             wasEmpty = string.isEmpty
             needsDisplay = true

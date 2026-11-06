@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 // The thread manager: owns threads, turns, the event log, approvals, idle
 // release and snoozes. Providers plug in through AgentAdapter; the WebSocket
 // server in rpc.ts is a thin layer over the public methods here.
 import { RELEASE } from './release.ts';
+import { withSkillMentions } from './skill-mentions.ts';
 import { reachable, type Reachable } from './net-probe.ts';
 import type { UpstreamStatus } from './upstream.ts';
 import fs from 'node:fs';
@@ -156,6 +158,8 @@ export type Notification =
   | { method: 'remoteThreads.updated'; params: import('./thread-index.ts').RemoteThreads }
   | { method: 'clis.updated'; params: { clis: CliStatus[] } }
   | { method: 'settings.updated'; params: { settings: Settings } }
+  | { method: 'skills.updated'; params: { skills: import('./skills.ts').Skill[]; enabled: boolean } }
+  | { method: 'skills.instructions'; params: { instructions: string } }
   | { method: 'runner.updates'; params: { updates: RunnerUpdates } }
   | { method: 'projects.updated'; params: { projects: Project[] } }
   | { method: 'librarian.updated'; params: { librarian: LibrarianStatus } }
@@ -496,6 +500,10 @@ export type RunnerDeps = {
   // Projects (projects.ts): their folders' patches, the brief a session
   // starts with, and the summary's `projects`. Started by start().
   projects?: Projects;
+  /** Mike's standing instructions for every session (Skills > Instructions, skills.ts); '' for none. */
+  standingInstructions?: () => string;
+  /** The skills threads get (skills.ts): none while the store is off. */
+  skillNames?: () => string[];
   // A completed turn asked Mike to Restart to Update, by end_turn or in its
   // closing "What I need from you" (app-restarts.ts signs the thread up).
   appRestartAsked?: (threadId: string) => void;
@@ -590,6 +598,8 @@ export class Runner {
   // Where answers to ask_secret go, and the key the phone seals them to.
   secrets: SecretStore;
   models?: Pick<Models, 'generate'>;
+  standingInstructions?: () => string;
+  skillNames?: () => string[];
   projects?: Projects;
   activity = new Set<(a: ThreadActivity) => void>();
   patchCache: PatchCache = new Map();
@@ -671,6 +681,8 @@ export class Runner {
     this.secrets = new SecretStore(paths.secrets(deps.config.home), () => this.clock.now());
     this.models = deps.models;
     this.projects = deps.projects;
+    this.standingInstructions = deps.standingInstructions;
+    this.skillNames = deps.skillNames;
     this.appRestartAsked = deps.appRestartAsked;
     this.atMac = deps.atMac;
     this.adapters = deps.adapters;
@@ -1466,7 +1478,7 @@ export class Runner {
     // more thing" shouldn't send the thread away. It can ask again.
     if (turn.endTurn?.archive) turn.endTurn = { ...turn.endTurn, archive: false };
     this.markDirty(st);
-    rt.session!.send({ id: msg.turnId, text: this.forAgent(msg), images: msg.images });
+    rt.session!.send({ id: msg.turnId, text: this.forAgent(msg, st.rec.provider), images: msg.images });
   }
 
   // The text the agent gets for a message. One from the phone says so, and
@@ -1474,7 +1486,12 @@ export class Runner {
   // step while he's out and keeps the reply short. It goes on every phone
   // message rather than once, as he moves between the two. The transcript
   // keeps what he typed.
-  forAgent(msg: { text: string; origin?: MessageOrigin }): string {
+  forAgent(msg: { text: string; origin?: MessageOrigin }, provider?: Provider): string {
+    // /name for a Threadbear skill, made to work in this thread's CLI (skill-mentions.ts).
+    if (provider && this.skillNames) {
+      const names = this.skillNames();
+      if (names.length) msg = { ...msg, text: withSkillMentions(msg.text, names, provider) };
+    }
     if (msg.origin !== 'phone') return msg.text;
     const atMac = this.atMac?.();
     const where = atMac === true ? ', at the Mac' : atMac === false ? ', away from the Mac' : '';
@@ -1548,7 +1565,7 @@ export class Runner {
       rt.turn.command = true;
       if (/^\/(compact|review|clear)\b/i.test(msg.text.trim())) rt.turn.noSteer = true;
     }
-    let text = command ? msg.text : this.forAgent(msg);
+    let text = command ? msg.text : this.forAgent(msg, rec.provider);
     // Claude's CLI starts a new session for /clear, which the runner follows
     // (its next init), but says nothing.
     if (command && rec.provider === 'claude' && /^\/clear\b/i.test(msg.text.trim())) {
@@ -1599,6 +1616,8 @@ export class Runner {
     // Kept for the next message when this one is a command.
     const news = command ? undefined : this.projectNews(rec);
     if (news) text = `${news}\n\n${text}`;
+    const standing = this.instructionsNews(rec);
+    if (standing) text = `${standing}\n\n${text}`;
     if (rec.moved) {
       // A CLI that moves folders itself: the live session got setCwd, or a
       // released one resumes in the new folder (startSession passes it).
@@ -2352,7 +2371,7 @@ export class Runner {
             // transcript carried to a new folder that wouldn't resume gets
             // the move's note, any other thread with earlier turns the
             // not-found one.
-            let text = this.forAgent(first);
+            let text = this.forAgent(first, rec.provider);
             const earlier = rec.lastTurnCompletedSeq > 0;
             if (!inUse && (rt.carried || earlier)) {
               rec.handoff = rt.carried ?? { fromCwd: rec.cwd, fromAccountId: rec.accountId, lost: true };
@@ -2366,7 +2385,7 @@ export class Runner {
             // order, matched to their ids when the counts agree.
             if (msgs.length === turn.messages.length) {
               msgs.slice(1).forEach((m, i) => {
-                if (m.type === 'user.message') rt.session!.send({ id: turn.messages[i + 1], text: this.forAgent(m), images: m.images });
+                if (m.type === 'user.message') rt.session!.send({ id: turn.messages[i + 1], text: this.forAgent(m, rec.provider), images: m.images });
               });
             }
             return;
@@ -3077,6 +3096,10 @@ export class Runner {
   briefFor(rec: ThreadRecord, resume: boolean): { instructions?: string } {
     if (resume) return {};
     const parts: string[] = [];
+    // Mike's own standing instructions first: they're for everything.
+    const standing = this.standingInstructions?.().trim() ?? '';
+    rec.instructionsTold = instructionsHash(standing);
+    if (standing) parts.push(standingText(standing));
     if (this.projects) {
       rec.projectsTold = this.projects.briefIds(rec);
       const brief = this.projects.brief(rec);
@@ -3090,6 +3113,20 @@ export class Runner {
   // The thread's projects its session hasn't been told about, as lines to
   // put before its next message, or undefined. A thread whose session
   // predates projects (never told anything) gets the whole brief.
+  // Mike's standing instructions, when they've changed since the session
+  // last heard them (or it never has): a resumed Claude session keeps its
+  // first system prompt, so the change comes before his next message.
+  instructionsNews(rec: ThreadRecord): string | undefined {
+    if (!this.standingInstructions) return undefined;
+    const standing = this.standingInstructions().trim();
+    const hash = instructionsHash(standing);
+    if (rec.instructionsTold === hash) return undefined;
+    const before = rec.instructionsTold;
+    rec.instructionsTold = hash;
+    if (!standing) return before === undefined || before === instructionsHash('') ? undefined : 'Note from Threadbear: the user cleared their standing instructions; earlier ones no longer apply.';
+    return `Note from Threadbear: the user's standing instructions${before === undefined || before === instructionsHash('') ? '' : ' have changed, and replace any earlier ones'}.\n\n${standingText(standing)}`;
+  }
+
   projectNews(rec: ThreadRecord): string | undefined {
     if (!this.projects) return undefined;
     const ids = this.projects.briefIds(rec);
@@ -3421,4 +3458,12 @@ function openInBrowser(url: string): Promise<void> {
 const ACCESS_ORDER: PermissionMode[] = ['ask', 'auto', 'full'];
 function moreAccess(a: PermissionMode | undefined, b: PermissionMode): PermissionMode {
   return a && ACCESS_ORDER.indexOf(a) > ACCESS_ORDER.indexOf(b) ? a : b;
+}
+// Mike's standing instructions as an agent is given them.
+function standingText(text: string): string {
+  return `The user's standing instructions (set in Threadbear, Skills > Instructions). Keep them in mind in everything you do for them:\n\n${text}`;
+}
+
+function instructionsHash(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
