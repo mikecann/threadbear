@@ -1110,6 +1110,14 @@ its ... menu moves it on. Suggested lists ones worth having, such as Pele
 (Mermaid diagrams, which comes with Threadbear) and Anatomy (interactive
 drawings of how a machine works), with an Add button each.
 
+**Instructions**, folded at the top of the page, is for what every agent
+should always keep in mind: who you are, how you like things written,
+what you build with. Click it open and type; it saves as you go, and
+folded it shows its first line. Threadbear gives it to every thread's
+agent in every session, on every login, Claude and Codex alike, and a
+chat that's already going hears a change before your next message.
+Leave it empty for none. It applies even with the skills store off.
+
 To write one of your own, press New Skill at the top of the page: give
 it a name (its slash command: brand-voice becomes /brand-voice), say
 when agents should use it if you like (its first line is used

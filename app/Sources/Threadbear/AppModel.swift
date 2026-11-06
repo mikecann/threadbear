@@ -465,6 +465,8 @@ final class AppModel {
     var skillsSupported = false
     /// The whole store on (Settings > General); off hides the Skills button too.
     var skillsEnabled = true
+    /// His standing instructions for every session (the Skills page's Instructions).
+    var standingInstructions = ""
     /// What an import or update is doing, while it runs.
     var skillsBusy: String?
     /// Settings › Phone & browser (DevicesModel.swift): the backend's list

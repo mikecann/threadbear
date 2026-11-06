@@ -83,6 +83,7 @@ model and voices from Hugging Face into `~/.cache/huggingface` (about
 240 MB; another language is another model). macOS asks once for the
 microphone, and may download its own speech recognition files for the
 language (`app/Sources/Threadbear/Voice/`). Skills (the bar's Skills page) live in `~/Library/Application Support/Threadbear/skills/`:
+`instructions.md` (the page's Instructions, given to every session),
 `skills.json`, each skill's files in `<name>@<commit>/` as fetched from
 GitHub (`api.github.com` to find the commit, `codeload.github.com` for the
 files; nothing fetched is run), and `plugin/`, which every Claude session

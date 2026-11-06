@@ -1237,6 +1237,12 @@ async function dispatch(client, method, p) {
       broadcast('skills.updated', { skills: mockSkills, enabled: mockSkillsOn });
       return { skills: mockSkills, saved: name };
     }
+    case 'skills.instructions':
+      if (typeof p.text === 'string') {
+        mockInstructions = p.text.trim() ? p.text.trim() + '\n' : '';
+        broadcast('skills.instructions', { instructions: mockInstructions });
+      }
+      return { instructions: mockInstructions };
     case 'skills.read': {
       const k = mockSkills.find((x) => x.name === p.name);
       if (!k) throw rpcError(-32602, `no skill ${p.name}`);
@@ -1788,6 +1794,7 @@ function mockSkill(name, description, source) {
 }
 let mockSkills = [mockSkill('pele', MOCK_SUGGESTED[0].description, { kind: 'builtin' })];
 let mockSkillsOn = true;
+let mockInstructions = '';
 function mockSuggested() {
   return MOCK_SUGGESTED.filter((s) => !mockSkills.some((k) => k.name === s.name));
 }

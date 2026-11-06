@@ -81,6 +81,10 @@ public struct SkillsResult: Sendable, Decodable {
     public var enabled: Bool?
 }
 
+public struct SkillsInstructions: Sendable, Decodable {
+    public var instructions: String
+}
+
 public struct SkillText: Sendable, Decodable {
     public var text: String
 }
@@ -118,6 +122,12 @@ public extension RPCClient {
     /// A skill's SKILL.md, for Edit.
     func skillText(name: String) async throws -> String {
         try await call("skills.read", .object(["name": .string(name)]), as: SkillText.self).text
+    }
+
+    /// His standing instructions for every session; with `text`, sets them.
+    func standingInstructions(set text: String? = nil) async throws -> String {
+        let params: [String: JSONValue] = text.map { ["text": .string($0)] } ?? [:]
+        return try await call("skills.instructions", .object(params), as: SkillsInstructions.self).instructions
     }
 
     /// Turns the whole store on or off for every thread.

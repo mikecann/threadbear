@@ -12,6 +12,8 @@ extension AppModel {
                 let result = try await client.skills()
                 suggestedSkills = result.suggested ?? []
                 receive(skills: result.skills, enabled: result.enabled)
+                // A runner from before Instructions just leaves the box empty.
+                if let text = try? await client.standingInstructions() { standingInstructions = text }
             } catch RPCError.server(let code, _) where code == RPCError.methodNotFound {
                 // A runner from before Skills: no button.
                 skillsSupported = false
@@ -64,6 +66,19 @@ extension AppModel {
     /// what to say under the form.
     func saveSkill(name: String, text: String, description: String, replacing: String?) async -> String? {
         await skillChange("Saving…") { try await $0.saveSkill(name: name, text: text, description: description, replacing: replacing) }
+    }
+
+    /// Saves his standing instructions. Nil when it worked, else why not.
+    func saveStandingInstructions(_ text: String) async -> String? {
+        guard let client, connection == .connected else { return "Not connected to the runner." }
+        do {
+            standingInstructions = try await client.standingInstructions(set: text)
+            return nil
+        } catch RPCError.server(_, let message) {
+            return message
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// The SKILL.md of one of his own, for Edit.

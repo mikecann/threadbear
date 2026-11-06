@@ -236,6 +236,7 @@ async function main(): Promise<void> {
   // only come through that mirror.
   let atMac: boolean | undefined;
   runner = new Runner({
+    standingInstructions: () => skills.instructions(),
     projects,
     atMac: () => atMac,
     config: cfg,

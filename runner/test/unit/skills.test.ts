@@ -207,3 +207,15 @@ test('saving, editing and renaming a skill of his own', async () => {
   await assert.rejects(s.save({ name: 'empty', text: '   ' }), /needs some text/);
   await assert.rejects(s.update({ name: 'house-style', latest: true }), /nothing newer/);
 });
+
+test('standing instructions are kept beside the skills, and cleared by an empty box', () => {
+  const { s, dataDir, published } = store((async () => new Response('', { status: 404 })) as typeof fetch);
+  assert.equal(s.instructions(), '');
+  assert.deepEqual(s.setInstructions('  Be warm.\r\nBe brief.  '), { instructions: 'Be warm.\nBe brief.\n' });
+  assert.equal(fs.readFileSync(path.join(dataDir, 'skills', 'instructions.md'), 'utf8'), 'Be warm.\nBe brief.\n');
+  assert.equal(published.length, 1);
+  s.setInstructions('   ');
+  assert.equal(fs.existsSync(path.join(dataDir, 'skills', 'instructions.md')), false);
+  assert.equal(s.instructions(), '');
+  assert.throws(() => s.setInstructions('x'.repeat(20_001)), /20,000/);
+});

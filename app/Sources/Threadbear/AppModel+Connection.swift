@@ -164,6 +164,8 @@ extension AppModel {
                 receive(settings)
             case .skillsUpdated(let list, let enabled):
                 receive(skills: list, enabled: enabled)
+            case .standingInstructions(let text):
+                standingInstructions = text
             case .runnerNotice(let level, let message):
                 notice(level: level, message)
             case .runnerUpdates(let updates):

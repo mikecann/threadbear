@@ -323,6 +323,34 @@ export class SkillStore {
     });
   }
 
+  /**
+   * Mike's standing instructions for every session (Skills > Instructions),
+   * in instructions.md beside the skills. '' for none.
+   */
+  instructions(): string {
+    try {
+      return fs.readFileSync(path.join(this.root, 'instructions.md'), 'utf8');
+    } catch {
+      return '';
+    }
+  }
+
+  setInstructions(text: string): { instructions: string } {
+    if (text.length > 20_000) throw bad('instructions are at most 20,000 characters');
+    fs.mkdirSync(this.root, { recursive: true });
+    const file = path.join(this.root, 'instructions.md');
+    const clean = text.replace(/\r\n/g, '\n').trim();
+    if (clean) {
+      fs.writeFileSync(`${file}.tmp`, clean + '\n');
+      fs.renameSync(`${file}.tmp`, file);
+    } else {
+      fs.rmSync(file, { force: true });
+    }
+    // Running threads hear it before their next message (Runner.instructionsNews).
+    this.deps.publish({ method: 'skills.instructions', params: { instructions: this.instructions() } } as Notification);
+    return { instructions: this.instructions() };
+  }
+
   /** A skill's SKILL.md, for the app's Edit. */
   read(name: string): { text: string } {
     const skill = this.skills.find((s) => s.name === name);
@@ -640,6 +668,11 @@ export function skillMethods(s: SkillStore): Record<string, (p: Record<string, u
       return s.save({ name: name(p), text: p.text, description: p.description as string | undefined, replacing: p.replacing as string | undefined });
     },
     'skills.read': (p) => s.read(name(p)),
+    'skills.instructions': (p) => {
+      if (p.text === undefined) return { instructions: s.instructions() };
+      if (typeof p.text !== 'string') throw bad('text must be a string');
+      return s.setInstructions(p.text);
+    },
     'skills.enable': (p) => {
       if (typeof p.enabled !== 'boolean') throw bad('enabled must be a boolean');
       return s.setEnabled(p.enabled);
