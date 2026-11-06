@@ -60,6 +60,18 @@ extension AppModel {
         await skillChange("Importing…") { try await $0.addSkill(url: link.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
 
+    /// Saves a skill written on the Skills page. Nil when it worked, else
+    /// what to say under the form.
+    func saveSkill(name: String, text: String, description: String, replacing: String?) async -> String? {
+        await skillChange("Saving…") { try await $0.saveSkill(name: name, text: text, description: description, replacing: replacing) }
+    }
+
+    /// The SKILL.md of one of his own, for Edit.
+    func skillText(_ name: String) async -> String? {
+        guard let client else { return nil }
+        return try? await client.skillText(name: name)
+    }
+
     func addSuggestedSkill(_ id: String) async -> String? {
         await skillChange("Adding \(id)…") { try await $0.addSkill(suggested: id) }
     }

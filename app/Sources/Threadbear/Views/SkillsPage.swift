@@ -12,6 +12,8 @@ struct SkillsPage: View {
     @State private var link = ""
     @State private var importError: String?
     @State private var importing = false
+    /// The New Skill (or Edit) form, while it's open.
+    @State private var draft: SkillDraft?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +21,13 @@ struct SkillsPage: View {
                 Text("Skills")
                     .font(.system(size: zoomed(17), weight: .semibold))
                 Spacer()
+                Button {
+                    draft = SkillDraft()
+                } label: {
+                    Label("New Skill", systemImage: "plus")
+                }
+                .disabled(draft != nil)
+                .tip("Write a skill of your own, with its own slash command")
                 Button {
                     app.showsSkillsPage = false
                 } label: {
@@ -40,6 +49,9 @@ struct SkillsPage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: zoomed(22)) {
                     intro
+                    if let binding = Binding($draft) {
+                        SkillForm(draft: binding) { draft = nil }
+                    }
                     importBox
                     installed
                     if !app.suggestedSkills.isEmpty { suggested }
@@ -117,7 +129,12 @@ struct SkillsPage: View {
                 VStack(spacing: 0) {
                     ForEach(Array(app.skills.enumerated()), id: \.element.id) { index, skill in
                         if index > 0 { Divider().padding(.leading, zoomed(14)) }
-                        SkillRow(skill: skill)
+                        SkillRow(skill: skill) { name in
+                            Task {
+                                let text = await app.skillText(name) ?? ""
+                                draft = SkillDraft(name: name, text: text, replacing: name)
+                            }
+                        }
                     }
                 }
                 .background(RoundedRectangle(cornerRadius: zoomed(10)).fill(Color.primary.opacity(0.04)))
@@ -143,6 +160,8 @@ struct SkillsPage: View {
 private struct SkillRow: View {
     @Environment(AppModel.self) private var app
     let skill: Skill
+    /// Edit, for one he wrote here.
+    var onEdit: (String) -> Void = { _ in }
 
     var body: some View {
         HStack(alignment: .top, spacing: zoomed(12)) {
@@ -172,7 +191,11 @@ private struct SkillRow: View {
                 .controlSize(.small)
                 .tip(skill.always ? "Agents use it whenever it fits. Turn off to use it only with /\(skill.name)" : "Only /\(skill.name) uses it. Turn on to let agents use it whenever it fits")
             IconMenu {
-                Button("Update to the Latest", systemImage: "arrow.down.circle") { app.updateSkill(skill.name) }
+                if skill.isCustom {
+                    Button("Edit", systemImage: "pencil") { onEdit(skill.name) }
+                } else {
+                    Button("Update to the Latest", systemImage: "arrow.down.circle") { app.updateSkill(skill.name) }
+                }
                 if let url = skill.sourceURL {
                     Button("View on GitHub", systemImage: "safari") { NSWorkspace.shared.open(url) }
                 }
@@ -230,5 +253,108 @@ private struct SuggestedRow: View {
         .padding(.horizontal, zoomed(14))
         .padding(.vertical, zoomed(10))
         .background(RoundedRectangle(cornerRadius: zoomed(10)).strokeBorder(Color.primary.opacity(0.08)))
+    }
+}
+
+/// What the New Skill form holds: a new skill, or (with `replacing`) one
+/// of his own being edited.
+struct SkillDraft {
+    var name = ""
+    var description = ""
+    var text = ""
+    var replacing: String?
+}
+
+/// New Skill: the slash command's name, when agents should use it, and
+/// the skill's text (plain instructions, or a whole SKILL.md pasted in).
+/// Save, Return in a field or ⌘Return saves it; it then works like any
+/// other skill, in every thread, on every login.
+private struct SkillForm: View {
+    @Environment(AppModel.self) private var app
+    @Binding var draft: SkillDraft
+    let close: () -> Void
+    @State private var saving = false
+    @State private var error: String?
+    @FocusState private var nameFocused: Bool
+
+    private var slug: String {
+        draft.name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "^/", with: "", options: .regularExpression)
+            .lowercased().replacingOccurrences(of: #"[^a-z0-9-]+"#, with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    private var canSave: Bool { !slug.isEmpty && !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !saving }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: zoomed(10)) {
+            Text(draft.replacing == nil ? "New skill" : "Edit \(draft.replacing!)").font(.headline)
+            HStack(spacing: zoomed(4)) {
+                Text("/").font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
+                TextField("name, like brand-voice", text: $draft.name)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($nameFocused)
+                    .onSubmit(save)
+                    .tip("Its slash command: type /\(slug.isEmpty ? "name" : slug) in a message to use it")
+            }
+            if draft.replacing == nil {
+                TextField("When should agents use it? (optional: its first line is used otherwise)", text: $draft.description)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(save)
+                    .tip("What it's for, so agents pick it up by themselves when Always on")
+            }
+            TextEditor(text: $draft.text)
+                .font(.system(size: zoomed(12), design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(zoomed(6))
+                .frame(minHeight: zoomed(180), maxHeight: zoomed(320))
+                .background(RoundedRectangle(cornerRadius: zoomed(6)).fill(Color.primary.opacity(0.04)))
+                .overlay(alignment: .topLeading) {
+                    if draft.text.isEmpty {
+                        Text("Paste the skill's text here: what the agent should do, or a whole SKILL.md")
+                            .font(.system(size: zoomed(12), design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .padding(zoomed(11))
+                            .allowsHitTesting(false)
+                    }
+                }
+                .tip("The skill's instructions. A pasted SKILL.md keeps its own header")
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                if !slug.isEmpty, slug != draft.name.trimmingCharacters(in: .whitespaces).lowercased() {
+                    Text("Saved as /\(slug)").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if saving { ProgressView().controlSize(.small) }
+                Button("Cancel", action: close)
+                    .keyboardShortcut(.cancelAction)
+                    .tip("Close without saving")
+                Button("Save", action: save)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canSave)
+                    .tip("Save it (⌘Return)")
+            }
+        }
+        .padding(zoomed(14))
+        .background(RoundedRectangle(cornerRadius: zoomed(10)).strokeBorder(Color.accentColor.opacity(0.5)))
+        .onAppear { if draft.replacing == nil { nameFocused = true } }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        saving = true
+        error = nil
+        let d = draft
+        Task {
+            let failed = await app.saveSkill(name: slug, text: d.text, description: d.description, replacing: d.replacing)
+            saving = false
+            if let failed { error = failed } else { close() }
+        }
     }
 }

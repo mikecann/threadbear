@@ -1110,6 +1110,14 @@ its ... menu moves it on. Suggested lists ones worth having, such as Pele
 (Mermaid diagrams, which comes with Threadbear) and Anatomy (interactive
 drawings of how a machine works), with an Add button each.
 
+To write one of your own, press New Skill at the top of the page: give
+it a name (its slash command: brand-voice becomes /brand-voice), say
+when agents should use it if you like (its first line is used
+otherwise), and paste or type its text: plain instructions, or a whole
+SKILL.md, which keeps its own header. Save (or ⌘Return) adds it, Always
+on, and it works like any other skill. Edit in its ... menu changes it,
+name and all.
+
 Every skill works in every thread, on every login, Claude and Codex alike.
 With Always on, agents use it whenever it fits what you ask. Turn it off
 and it's there only when you ask by name: type its slash command, like

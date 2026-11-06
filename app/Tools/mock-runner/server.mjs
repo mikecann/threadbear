@@ -1224,6 +1224,24 @@ async function dispatch(client, method, p) {
       broadcast('skills.updated', { skills: mockSkills });
       return { skills: mockSkills, added: [added.name], suggested: mockSuggested() };
     }
+    case 'skills.save': {
+      const name = String(p.name ?? '').trim().replace(/^\//, '').toLowerCase();
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw rpcError(-32602, 'a skill name is lower-case letters, digits and dashes, like brand-voice');
+      if (!String(p.text ?? '').trim()) throw rpcError(-32602, 'the skill needs some text: what the agent should do');
+      const old = p.replacing ? mockSkills.find((k) => k.name === p.replacing) : undefined;
+      if (mockSkills.some((k) => k.name === name && k !== old)) throw rpcError(-32602, `there's already a skill called ${name}`);
+      const k = mockSkill(name, p.description || String(p.text).split('\n').find((l) => l.trim()) || name, { kind: 'custom' });
+      k.commit = 'local-abc1234';
+      k.text = String(p.text);
+      if (old) { k.always = old.always; mockSkills[mockSkills.indexOf(old)] = k; } else mockSkills.push(k);
+      broadcast('skills.updated', { skills: mockSkills, enabled: mockSkillsOn });
+      return { skills: mockSkills, saved: name };
+    }
+    case 'skills.read': {
+      const k = mockSkills.find((x) => x.name === p.name);
+      if (!k) throw rpcError(-32602, `no skill ${p.name}`);
+      return { text: k.text ?? `---\nname: ${k.name}\ndescription: ${JSON.stringify(k.description)}\n---\n\nMock skill.\n` };
+    }
     case 'skills.update': {
       const k = mockSkills.find((x) => x.name === p.name);
       if (!k) throw rpcError(-32602, `no skill ${p.name}`);

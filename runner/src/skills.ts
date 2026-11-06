@@ -5,6 +5,7 @@
 // gets. Codex reads $CODEX_HOME/skills, one home per login, so each skill's
 // plugin folder is linked there too. Nothing fetched is ever run.
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -16,7 +17,9 @@ import type { Logger } from './log.ts';
 
 export type SkillSource =
   | { kind: 'github'; repo: string; ref?: string; path?: string; url: string }
-  | { kind: 'builtin' };
+  | { kind: 'builtin' }
+  // Written in the app (New Skill): its SKILL.md is his, and Edit changes it.
+  | { kind: 'custom' };
 
 export type Skill = {
   name: string;
@@ -123,6 +126,43 @@ export function readFrontmatter(text: string): Frontmatter {
     out[kv[1] as 'name' | 'description'] = value;
   }
   return out;
+}
+
+/**
+ * A skill written in the app as its SKILL.md: pasted text with a
+ * frontmatter keeps it, with `name` set to the one he gave (and the
+ * description he gave, if any); plain text gets a frontmatter made for it,
+ * described by what he gave or its first line.
+ */
+export function customSkillText(name: string, text: string, description?: string): string {
+  const body = text.replace(/\r\n/g, '\n').trim();
+  const given = description?.replace(/\s+/g, ' ').trim();
+  const m = /^---\n([\s\S]*?)\n---\n?/.exec(body);
+  if (m) {
+    let lines = m[1].split('\n').filter((l) => !/^name:/.test(l));
+    if (given) {
+      // Its description and any folded lines under it give way to his.
+      const out: string[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (/^description:/.test(lines[i])) {
+          while (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) i++;
+          continue;
+        }
+        out.push(lines[i]);
+      }
+      lines = [...out, `description: ${JSON.stringify(given)}`];
+    } else if (!lines.some((l) => /^description:/.test(l))) {
+      lines.push(`description: ${JSON.stringify(firstLine(body.slice(m[0].length), name))}`);
+    }
+    return `---\nname: ${name}\n${lines.join('\n')}\n---\n\n${body.slice(m[0].length).trim()}\n`;
+  }
+  return `---\nname: ${name}\ndescription: ${JSON.stringify(given || firstLine(body, name))}\n---\n\n${body}\n`;
+}
+
+/** What a skill with no description says it's for: its first line of words. */
+function firstLine(body: string, name: string): string {
+  const line = body.split('\n').map((l) => l.replace(/^#+\s*/, '').trim()).find((l) => l.length > 0);
+  return (line ?? `Use when asked to ${name.replace(/-/g, ' ')}.`).slice(0, 300);
 }
 
 /** The SKILL.md as the plugin gives it: `disable-model-invocation: true` when it's slash-only. */
@@ -244,12 +284,59 @@ export class SkillStore {
     });
   }
 
+  /**
+   * Saves a skill written in the app: a new one, or (with `replacing`) one
+   * of his own changed, renamed or not. Its files go in a new folder, so
+   * a CLI using the old one carries on until its fresh start.
+   */
+  save(p: { name: string; text: string; description?: string; replacing?: string }): Promise<{ skills: Skill[]; saved: string }> {
+    return this.serial(async () => {
+      const name = p.name.trim().replace(/^\//, '').toLowerCase();
+      if (!NAME.test(name)) throw bad('a skill name is lower-case letters, digits and dashes, like brand-voice');
+      if (!p.text.trim()) throw bad('the skill needs some text: what the agent should do');
+      if (p.text.length > 200_000) throw bad("that's too long for a skill (200,000 characters at most)");
+      const old = p.replacing ? this.skills.find((s) => s.name === p.replacing) : undefined;
+      if (p.replacing && !old) throw bad(`no skill ${p.replacing}`);
+      if (old && old.source.kind !== 'custom') throw bad(`${old.name} came from ${old.source.kind === 'github' ? 'GitHub' : 'Threadbear'}, so it can't be edited here`);
+      if (this.skills.some((s) => s.name === name && s !== old)) throw bad(`there's already a skill called ${name}`);
+      const text = customSkillText(name, p.text, p.description);
+      const hash = createHash('sha256').update(text).digest('hex').slice(0, 7);
+      const commit = `local-${hash}`;
+      const dir = path.join(this.root, `${name}@${commit}`);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'SKILL.md'), text);
+      }
+      const skill: Skill = {
+        name,
+        description: readFrontmatter(text).description ?? '',
+        always: old?.always ?? true,
+        source: { kind: 'custom' },
+        commit,
+        dir,
+        addedAt: old?.addedAt ?? new Date().toISOString(),
+      };
+      if (old) this.skills[this.skills.indexOf(old)] = skill;
+      else this.skills.push(skill);
+      this.changed();
+      return { skills: this.list().skills, saved: name };
+    });
+  }
+
+  /** A skill's SKILL.md, for the app's Edit. */
+  read(name: string): { text: string } {
+    const skill = this.skills.find((s) => s.name === name);
+    if (!skill) throw bad(`no skill ${name}`);
+    return { text: fs.readFileSync(path.join(skill.dir, 'SKILL.md'), 'utf8') };
+  }
+
   update(p: { name: string; always?: boolean; latest?: boolean }): Promise<{ skills: Skill[] }> {
     return this.serial(async () => {
       const skill = this.skills.find((s) => s.name === p.name);
       if (!skill) throw bad(`no skill ${p.name}`);
       if (typeof p.always === 'boolean') skill.always = p.always;
       if (p.latest) {
+        if (skill.source.kind === 'custom') throw bad(`${skill.name} is yours: there's nothing newer to fetch`);
         if (skill.source.kind === 'builtin') {
           const fresh = await this.addBuiltin(skill.name, true);
           Object.assign(skill, { commit: fresh.commit, dir: fresh.dir, description: fresh.description });
@@ -546,6 +633,13 @@ export function skillMethods(s: SkillStore): Record<string, (p: Record<string, u
       return s.update({ name: name(p), always: p.always as boolean | undefined, latest: p.latest === true });
     },
     'skills.remove': (p) => s.remove({ name: name(p) }),
+    'skills.save': (p) => {
+      if (typeof p.text !== 'string') throw bad('text is required');
+      if (p.description !== undefined && typeof p.description !== 'string') throw bad('description must be a string');
+      if (p.replacing !== undefined && typeof p.replacing !== 'string') throw bad('replacing must be a skill name');
+      return s.save({ name: name(p), text: p.text, description: p.description as string | undefined, replacing: p.replacing as string | undefined });
+    },
+    'skills.read': (p) => s.read(name(p)),
     'skills.enable': (p) => {
       if (typeof p.enabled !== 'boolean') throw bad('enabled must be a boolean');
       return s.setEnabled(p.enabled);

@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { Account } from '../../src/protocol.ts';
-import { SkillStore, codexPolicy, findSkillInPage, parseGitHubLink, pluginSkillText, readFrontmatter } from '../../src/skills.ts';
+import { SkillStore, codexPolicy, customSkillText, findSkillInPage, parseGitHubLink, pluginSkillText, readFrontmatter } from '../../src/skills.ts';
 import { nullLogger } from '../../src/log.ts';
 
 test('GitHub links of every shape', () => {
@@ -169,4 +169,41 @@ test('turning the store off takes every skill away, keeps them, and brings them 
   await again.setEnabled(true);
   assert.equal(again.plugins().length, 1);
   assert.ok(fs.lstatSync(path.join(codexHome, 'skills', 'solo')).isSymbolicLink());
+});
+
+test('a skill written in the app: plain text gets a frontmatter, a pasted SKILL.md keeps its own', () => {
+  assert.equal(customSkillText('brand-voice', '# Our voice\n\nWrite warmly.'), '---\nname: brand-voice\ndescription: "Our voice"\n---\n\n# Our voice\n\nWrite warmly.\n');
+  assert.equal(customSkillText('brand-voice', 'Write warmly.', 'Use for any copy'), '---\nname: brand-voice\ndescription: "Use for any copy"\n---\n\nWrite warmly.\n');
+  const pasted = '---\nname: old-name\ndescription: >\n  Theirs\n  folded\nlicense: MIT\n---\nBody';
+  assert.equal(customSkillText('mine', pasted), '---\nname: mine\ndescription: >\n  Theirs\n  folded\nlicense: MIT\n---\n\nBody\n');
+  assert.equal(customSkillText('mine', pasted, 'New "one"'), '---\nname: mine\nlicense: MIT\ndescription: "New \\"one\\""\n---\n\nBody\n');
+});
+
+test('saving, editing and renaming a skill of his own', async () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-codex-'));
+  const { s, dataDir, refreshed } = store((async () => new Response('', { status: 404 })) as typeof fetch, [{ id: 'codex-main', provider: 'codex', title: 'c', configDir: codexHome } as Account]);
+  const res = await s.save({ name: '/Brand-Voice', text: 'Write warmly and plainly.' });
+  assert.equal(res.saved, 'brand-voice');
+  const skill = res.skills[0];
+  assert.equal(skill.source.kind, 'custom');
+  assert.equal(skill.description, 'Write warmly and plainly.');
+  assert.match(skill.commit, /^local-[0-9a-f]{7}$/);
+  assert.match(fs.readFileSync(path.join(dataDir, 'skills', 'plugin', 'skills', 'brand-voice', 'SKILL.md'), 'utf8'), /Write warmly/);
+  assert.ok(fs.lstatSync(path.join(codexHome, 'skills', 'brand-voice')).isSymbolicLink());
+  assert.equal(refreshed(), 1);
+  await s.update({ name: 'brand-voice', always: false });
+  // Edit: same name, new text; Always on stays as he left it.
+  const edited = await s.save({ name: 'brand-voice', text: s.read('brand-voice').text.replace('warmly', 'briefly'), replacing: 'brand-voice' });
+  assert.equal(edited.skills.length, 1);
+  assert.equal(edited.skills[0].always, false);
+  assert.match(s.read('brand-voice').text, /briefly/);
+  // Renamed: the old name goes everywhere.
+  await s.save({ name: 'house-style', text: 'Briefly.', replacing: 'brand-voice' });
+  assert.deepEqual(s.list().skills.map((k) => k.name), ['house-style']);
+  assert.equal(fs.existsSync(path.join(codexHome, 'skills', 'brand-voice')), false);
+  assert.equal(fs.readdirSync(path.join(dataDir, 'skills')).filter((e) => e.startsWith('brand-voice@')).length, 0);
+  await assert.rejects(s.save({ name: 'house-style', text: 'again' }), /already a skill called house-style/);
+  await assert.rejects(s.save({ name: 'Bad Name!', text: 'x' }), /lower-case letters/);
+  await assert.rejects(s.save({ name: 'empty', text: '   ' }), /needs some text/);
+  await assert.rejects(s.update({ name: 'house-style', latest: true }), /nothing newer/);
 });

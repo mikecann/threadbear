@@ -29,6 +29,9 @@ public struct Skill: Sendable, Hashable, Decodable, Identifiable {
 
     public var id: String { name }
 
+    /// One he wrote in the app (New Skill), which Edit changes.
+    public var isCustom: Bool { source.kind == "custom" }
+
     public init(name: String, description: String, always: Bool, source: Source, commit: String, dir: String, addedAt: String = "") {
         self.name = name
         self.description = description
@@ -42,6 +45,7 @@ public struct Skill: Sendable, Hashable, Decodable, Identifiable {
     /// "wheresryan22/anatomy at 1482e84", "Comes with Threadbear".
     public var sourceLine: String {
         if source.kind == "builtin" { return "Comes with Threadbear" }
+        if source.kind == "custom" { return "Written in Threadbear" }
         let at = commit.count >= 7 ? " at \(commit.prefix(7))" : ""
         let place = [source.repo, source.path].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "/")
         return (place.isEmpty ? "GitHub" : place) + at
@@ -77,6 +81,10 @@ public struct SkillsResult: Sendable, Decodable {
     public var enabled: Bool?
 }
 
+public struct SkillText: Sendable, Decodable {
+    public var text: String
+}
+
 /// A runner from before Skills answers `-32601`, which the app reads as
 /// "no Skills page".
 public extension RPCClient {
@@ -97,6 +105,19 @@ public extension RPCClient {
         if let always { params["always"] = .bool(always) }
         if latest { params["latest"] = .bool(true) }
         return try await call("skills.update", .object(params), as: SkillsResult.self)
+    }
+
+    /// A skill written in the app, new or (with `replacing`) changed.
+    func saveSkill(name: String, text: String, description: String? = nil, replacing: String? = nil) async throws -> SkillsResult {
+        var params: [String: JSONValue] = ["name": .string(name), "text": .string(text)]
+        if let description, !description.isEmpty { params["description"] = .string(description) }
+        if let replacing { params["replacing"] = .string(replacing) }
+        return try await call("skills.save", .object(params), as: SkillsResult.self)
+    }
+
+    /// A skill's SKILL.md, for Edit.
+    func skillText(name: String) async throws -> String {
+        try await call("skills.read", .object(["name": .string(name)]), as: SkillText.self).text
     }
 
     /// Turns the whole store on or off for every thread.
