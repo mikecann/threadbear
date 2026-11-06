@@ -171,7 +171,6 @@ struct ComposerControls: View {
                     NSHostingController(rootView: ContextPopover(threadId: thread.id).environment(app))
                 }
             }
-            // Voice is for a thread that exists: what he says is its message.
             // Voice for the thread, or on a new thread's composer, where
             // what's said first starts it (Settings > Voice can hide it).
             if voiceEnabled, !draftAway {

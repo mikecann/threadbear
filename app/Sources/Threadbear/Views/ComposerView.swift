@@ -51,12 +51,12 @@ struct ComposerView: View {
         let needsYou = cardRow.map { row in if case .asks(let card) = row.content { !card.isDone } else { false } } ?? false
         let cardCollapsed = needsYou && thread.map { app.collapsedCards[$0.id] == cardRow?.seq } == true
         VStack(alignment: .leading, spacing: 0) {
-        if let thread {
-            RefusalOffer(thread: thread)
-        }
         // Voice mode's bear, over the box while it's on for this thread.
         if VoiceMode.shared.isOn(for: thread?.id ?? VoiceMode.newThread) {
             VoiceStage(threadId: thread?.id ?? VoiceMode.newThread)
+        }
+        if let thread {
+            RefusalOffer(thread: thread)
         }
         // The folder's actions (patches), on shelves sitting on the box's
         // top edge, in from its rounded corner (ActionChips).
@@ -102,8 +102,8 @@ struct ComposerView: View {
                 pictures: ComposerTextView.Pictures(allowed: { picturesAllowed() }, importOne: { await importPicture($0) }),
                 handle: handle,
                 onEscape: { cancelEdit() },
-                onPaletteKey: { paletteKey($0, text: draft.wrappedValue.text) },
                 onShiftTab: { app.cycleTurnMode(draftKey) },
+                onPaletteKey: { paletteKey($0, text: draft.wrappedValue.text) },
                 editable: !creating
             )
             .frame(height: height)
@@ -584,10 +584,10 @@ struct ComposerTextField: NSViewRepresentable {
     var handle: ComposerHandle?
     /// Esc: true if it did something (left an edit).
     var onEscape: () -> Bool = { false }
-    /// The slash command palette's keys, first: true if it took the key.
-    var onPaletteKey: (PaletteKey) -> Bool = { _ in false }
     /// Shift-Tab: the next of Plan and Ask mode (AppModel.cycleTurnMode); false leaves it to the text box.
     var onShiftTab: () -> Bool = { false }
+    /// The slash command palette's keys, first: true if it took the key.
+    var onPaletteKey: (PaletteKey) -> Bool = { _ in false }
     /// False while what's in it is being sent (a new thread being made).
     var editable = true
 
@@ -663,8 +663,8 @@ struct ComposerTextField: NSViewRepresentable {
         textView.onReturnWhenEmpty = onReturnWhenEmpty
         textView.pictures = pictures
         textView.onEscape = onEscape
-        textView.onPaletteKey = onPaletteKey
         textView.onShiftTab = onShiftTab
+        textView.onPaletteKey = onPaletteKey
         textView.placeholder = placeholder
         handle?.textView = textView
         if textView.isEditable != editable { textView.isEditable = editable }
@@ -793,7 +793,8 @@ final class ComposerTextView: NSTextView {
 
     // MARK: /skill completion
     //
-    // Typing / at the start of a word lists the installed skills (none
+    // Typing / at the start of a word after the first (the slash palette
+    // has a message that starts with /) lists the installed skills (none
     // while the store is off), narrowing as he types, in a small list over
     // the cursor (SkillPicker): ↑↓ to move, Return or Tab to pick, Esc to
     // close, or a click. Not the text view's own complete(_:), which runs
@@ -823,6 +824,8 @@ final class ComposerTextView: NSTextView {
     /// The list for what's typed now: shown, moved or put away.
     private func offerSkills() {
         guard isEditable, window != nil, let range = skillToken() else { skillPicker.hide(); return }
+        // A message starting with / is the slash palette's (SlashPaletteView): it lists skills too.
+        if string.prefix(range.location).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { skillPicker.hide(); return }
         let query = String((string as NSString).substring(with: range).dropFirst())
         let matches = SkillPicker.matches(query, in: SkillMentions.skills)
         // Nothing to offer, or the word is already a whole skill's name.

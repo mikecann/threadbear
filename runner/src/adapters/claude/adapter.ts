@@ -390,10 +390,10 @@ class ClaudeSession implements AgentSession {
       hooks: {
         Stop: [{ hooks: [(input) => this.onStop(input)] }],
         PostToolUse: [{ matcher: END_TURN_FULL_NAME, hooks: [async (input) => this.onEndTurn(input)] }],
-        // Every Edit and Write, in every mode, a sub-agent's too: where the
-        // mode it ran on is recorded, and where one that writes code is
-        // made to ask outside Full access (onEditCall).
         PreToolUse: [
+          // Every Edit and Write, in every mode, a sub-agent's too: where the
+          // mode it ran on is recorded, and where one that writes code is
+          // made to ask outside Full access (onEditCall).
           { matcher: [...EDIT_TOOLS].join('|'), hooks: [async (input) => this.onEditCall(input)] },
           // Plan and Ask mode turns change nothing (modes.ts). PreToolUse runs
           // whatever the permission mode, full access included; a refusal

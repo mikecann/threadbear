@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto';
 // The thread manager: owns threads, turns, the event log, approvals, idle
 // release and snoozes. Providers plug in through AgentAdapter; the WebSocket
 // server in rpc.ts is a thin layer over the public methods here.
-import { RELEASE } from './release.ts';
 import { isPublishCommand, siteUrls, SITE_LINK_TITLE } from './site-links.ts';
 import { modeInstructions, planDocument, planPath } from './modes.ts';
 import { withSkillMentions } from './skill-mentions.ts';
 import type { TurnMode } from './store.ts';
+import { RELEASE } from './release.ts';
 import { reachable, type Reachable } from './net-probe.ts';
 import type { UpstreamStatus } from './upstream.ts';
 import fs from 'node:fs';
@@ -1668,7 +1668,8 @@ export class Runner {
     // Kept for the next message when this one is a command.
     const news = command ? undefined : this.projectNews(rec);
     if (news) text = `${news}\n\n${text}`;
-    const standing = this.instructionsNews(rec);
+    // Kept for the next message when this one is a command, as the news is.
+    const standing = command ? undefined : this.instructionsNews(rec);
     if (standing) text = `${standing}\n\n${text}`;
     if (rec.moved) {
       // A CLI that moves folders itself: the live session got setCwd, or a
@@ -3517,10 +3518,6 @@ function openInBrowser(url: string): Promise<void> {
   });
 }
 
-const ACCESS_ORDER: PermissionMode[] = ['ask', 'auto', 'full'];
-function moreAccess(a: PermissionMode | undefined, b: PermissionMode): PermissionMode {
-  return a && ACCESS_ORDER.indexOf(a) > ACCESS_ORDER.indexOf(b) ? a : b;
-}
 // Mike's standing instructions as an agent is given them.
 function standingText(text: string): string {
   return `The user's standing instructions (set in Threadbear, Skills > Instructions). Keep them in mind in everything you do for them:\n\n${text}`;
@@ -3528,4 +3525,9 @@ function standingText(text: string): string {
 
 function instructionsHash(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
+
+const ACCESS_ORDER: PermissionMode[] = ['ask', 'auto', 'full'];
+function moreAccess(a: PermissionMode | undefined, b: PermissionMode): PermissionMode {
+  return a && ACCESS_ORDER.indexOf(a) > ACCESS_ORDER.indexOf(b) ? a : b;
 }
