@@ -1273,6 +1273,21 @@ speakers you can too, as long as macOS's echo cancellation starts; when
 it won't, Voice stops listening while it speaks, so it doesn't hear
 itself.
 
+### The bear
+
+The bear at the top right of the sidebar is a chat for anything: a quick
+question, what to cook, planning your week, or real work. Click it to open
+your chat with it; right-click it and pick Talk Out Loud to talk with it
+using Voice. It remembers: whenever it learns something lasting about
+you, it saves it to its memory, so a new chat with it still knows you.
+Its chats are ordinary threads in `~/ThreadbearThreads/Bear`, with the
+same tools and approvals as any thread, and they show in the sidebar like
+the rest. Its instructions are `CLAUDE.md` in that folder (right-click
+the bear, Show the Bear's Folder): change them and it changes. It thinks
+while its chat is working. To hide it, turn off Show the bear in the
+sidebar in Settings (⌘,) > General; its chats, memory and Voice keep
+working.
+
 ### Where Settings opens
 
 Settings (⌘, or the gear at the bottom of the bar on the left) opens over

@@ -82,7 +82,11 @@ with its log `serve.log` beside it. pocket-tts then downloads its English
 model and voices from Hugging Face into `~/.cache/huggingface` (about
 240 MB; another language is another model). macOS asks once for the
 microphone, and may download its own speech recognition files for the
-language (`app/Sources/Threadbear/Voice/`). `~/Library/Logs/Threadbear/voice.log`
+language (`app/Sources/Threadbear/Voice/`). The bear at the top right of the sidebar, the first time it's clicked,
+makes `~/ThreadbearThreads/Bear` with a `CLAUDE.md` of instructions for
+its chats (never rewritten once it's there); Claude Code keeps the bear's
+memory for that folder in `~/.claude/projects/`, as it does for any folder.
+`~/Library/Logs/Threadbear/voice.log`
 notes what Voice did (which microphone, whether echo cancellation
 started, errors), never what was said, and is started afresh past 256 KB.
 

@@ -13,6 +13,8 @@ struct VoiceBear: View {
     let mood: Mood
     /// 0...1: his voice while listening, its own while speaking.
     let level: CGFloat
+    /// Still when false (the sidebar's bear with nothing going on).
+    var animated = true
 
     @State private var smoothed: CGFloat = 0
     /// How open the mouth is, how much it nods: the smoothed level, or the
@@ -20,7 +22,7 @@ struct VoiceBear: View {
     private var amount: CGFloat { max(smoothed, level * 0.8) }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             Canvas { ctx, size in
                 draw(in: &ctx, size: size, t: t)
@@ -193,6 +195,60 @@ struct VoiceBear: View {
         guard x > period - 0.16 else { return 1 }
         let p = (x - (period - 0.16)) / 0.16
         return CGFloat(abs(cos(p * .pi)))
+    }
+}
+
+/// The bear at the top right of the sidebar (BearChat): click to chat,
+/// right-click to talk out loud. It thinks while its chat works and comes
+/// alive while Voice is on with it.
+struct BearButton: View {
+    @Environment(AppModel.self) private var app
+    @State private var voice = VoiceMode.shared
+    @State private var hovering = false
+
+    var body: some View {
+        let thread = BearChat.thread(in: app.threads)
+        let open = thread.map { app.selection == $0.id } ?? false
+        let talking = thread.map { voice.isOn(for: $0.id) } ?? false
+        Button { BearChat.open(app: app, talk: false) } label: {
+            VoiceBear(mood: mood(thread: thread, talking: talking), level: talking ? CGFloat(voice.level) : 0,
+                      animated: talking || thread?.status == .running)
+                .frame(width: zoomed(26), height: zoomed(26))
+                .scaleEffect(hovering ? 1.08 : 1)
+                .frame(width: zoomed(32))
+                .frame(maxHeight: .infinity)
+                .background(open ? Color.primary.opacity(0.08) : hovering ? SidebarMetrics.hover : .clear,
+                            in: RoundedRectangle(cornerRadius: SidebarMetrics.corner))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Juice.hover, value: hovering)
+        .iconContextMenu {
+            Button(talking ? "Stop Talking" : "Talk Out Loud", systemImage: "waveform") {
+                if talking { VoiceMode.shared.stop() } else { BearChat.open(app: app, talk: true) }
+            }
+            Button("Open Chat", systemImage: "bubble.left") { BearChat.open(app: app, talk: false) }
+            Button("Show the Bear's Folder", systemImage: "folder") {
+                BearChat.prepare()
+                NSWorkspace.shared.activateFileViewerSelecting([BearChat.folder.appendingPathComponent("CLAUDE.md")])
+            }
+        }
+        .tip("Chat with the bear. Right-click to talk out loud")
+        .accessibilityLabel("Chat with the bear")
+    }
+
+    private func mood(thread: ThreadSummary?, talking: Bool) -> VoiceBear.Mood {
+        if talking {
+            switch voice.phase {
+            case .starting: return .waking
+            case .hearing: return .hearing
+            case .thinking: return .thinking
+            case .speaking: return .speaking
+            default: return .listening
+            }
+        }
+        return thread?.status == .running ? .thinking : .listening
     }
 }
 
