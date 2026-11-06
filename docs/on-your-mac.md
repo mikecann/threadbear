@@ -74,7 +74,7 @@ File references are where to look.
   `mac-screen.json` in the data folder
   remembers what it's said about dialogs on the screen (below).
 
-Voice mode, the first time you use it (Settings > Voice, or the
+Voice mode, the first time you use it (Settings > Voice & Audio, or the
 waveform button beside Send), downloads Kyutai's pocket-tts (v4.0.1, its
 Apple silicon build, checked against its SHA-256 before it's used) from
 its GitHub release into `~/Library/Application Support/Threadbear/voice/`,

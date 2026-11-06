@@ -81,7 +81,7 @@ final class VoiceAudio {
             } catch {
                 VoiceLog.write("the microphone wouldn't start: \(Self.describe(error))")
                 resetEngine()
-                throw VoiceError("The microphone wouldn't start (Core Audio error \((error as NSError).code)). Try another microphone in Settings > Voice.")
+                throw VoiceError("The microphone wouldn't start (Core Audio error \((error as NSError).code)). Try another microphone in Settings > Voice & Audio.")
             }
             echoCancels = false
         }

@@ -271,6 +271,11 @@ extension AppModel {
         if becameNeedy && !showing && notificationsEnabled && !thread.isRemote {
             Notifier.post(thread: thread)
         }
+        // The ding for a finished thread (Settings > Voice & Audio), wherever
+        // you are looking. Not another runner's, as with notifications.
+        if !thread.isRemote, let previous {
+            DingPlayer.threadChanged(from: previous.status, to: thread.status, threadId: thread.id)
+        }
         if showing && thread.lastSeq > thread.lastSeenSeq && thread.status != .waiting {
             scheduleMarkSeen(thread.id)
         }

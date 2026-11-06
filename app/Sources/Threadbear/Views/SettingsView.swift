@@ -19,7 +19,7 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
             VoiceSettings()
-                .tabItem { Label("Voice", systemImage: "waveform") }
+                .tabItem { Label("Voice & Audio", systemImage: "waveform") }
                 .tag(SettingsTab.voice)
             ModelSettings()
                 .tabItem { Label("Models", systemImage: "sparkles") }

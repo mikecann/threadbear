@@ -1,9 +1,10 @@
 import SwiftUI
 import ThreadbearCore
 
-/// Settings > Voice: this Mac's own choices for Voice mode (VoiceMode),
-/// kept in UserDefaults rather than the runner, as the microphone and the
-/// speaker are this Mac's.
+/// Settings > Voice & Audio: this Mac's own choices for Voice mode
+/// (VoiceMode) and the ding when a thread finishes (DingPlayer), kept in
+/// UserDefaults rather than the runner, as the microphone and the speaker
+/// are this Mac's.
 struct VoiceSettings: View {
     @AppStorage(VoiceCatalog.voiceKey) private var voiceId = VoiceCatalog.defaultVoice.id
     @AppStorage(VoiceCatalog.speedKey) private var speed = 1.0
@@ -12,6 +13,9 @@ struct VoiceSettings: View {
     @AppStorage(VoiceMode.enabledKey) private var enabled = true
     @State private var microphones: [VoiceAudio.Microphone] = []
     @State private var voice = VoiceMode.shared
+    @AppStorage(CompletionSound.enabledKey) private var dingOn = false
+    @AppStorage(CompletionSound.dingKey) private var ding = CompletionSound.Ding.chime.rawValue
+    @AppStorage(CompletionSound.volumeKey) private var dingVolume = CompletionSound.defaultVolume
 
     var body: some View {
         Form {
@@ -42,6 +46,28 @@ struct VoiceSettings: View {
                             voice.preview(voice: VoiceCatalog.voice(voiceId), speed: VoiceCatalog.speed(speed))
                         }
                         .tip("Hear this voice at this speed")
+                    }
+                }
+            }
+
+            SettingsSection("Sounds",
+                            about: "A soft ding when a thread finishes working: its reply is done, it's waiting for your answer, or it hit an error. It plays wherever you are, even in another app, and stays quiet for a thread you stopped yourself or one you're talking with in Voice.",
+                            ask: "change when the ding plays.") {
+                Toggle("Play a sound when a thread finishes", isOn: $dingOn)
+                    .tip("A soft ding when a thread is done and ready for you")
+                    .onChange(of: dingOn) { _, on in if on { DingPlayer.play() } }
+                Picker("Sound", selection: $ding) {
+                    ForEach(CompletionSound.Ding.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                .tip("Which ding plays")
+                .onChange(of: ding) { _, new in DingPlayer.play(CompletionSound.ding(new)) }
+                LabeledContent("Volume") {
+                    HStack(spacing: 8) {
+                        Slider(value: $dingVolume, in: 0.1...1) { editing in if !editing { DingPlayer.play() } }
+                            .frame(maxWidth: 180)
+                            .tip("How loud the ding is")
+                        Button("Play") { DingPlayer.play() }
+                            .tip("Hear the ding")
                     }
                 }
             }

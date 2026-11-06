@@ -1362,7 +1362,7 @@ voice. Code and tables aren't read out; it
 tells you they're on screen. Press the button again, or go to another
 thread, to end Voice.
 
-Use Voice in Settings (⌘,) > Voice turns it off, which takes the
+Use Voice in Settings (⌘,) > Voice & Audio turns it off, which takes the
 waveform button away everywhere. The same tab picks who it sounds like (Emily, Mike and about
 twenty more), how fast it talks, the language, and the microphone. Play
 a Sample tries a voice. The first time you use Voice, Threadbear
@@ -1373,6 +1373,18 @@ done on your Mac by macOS; nothing you say is recorded. On headphones
 speakers you can too, as long as macOS's echo cancellation starts; when
 it won't, Voice stops listening while it speaks, so it doesn't hear
 itself.
+
+### A ding when a thread is done
+
+To hear when a thread finishes, turn on Play a sound when a thread
+finishes in Settings (⌘,) > Voice & Audio > Sounds. It's off until you
+do. A soft ding then plays whenever a thread stops working: its reply is
+done, it's waiting for your answer, or it hit an error. It plays wherever
+you are, in Threadbear or another app. It stays quiet for a thread you
+stopped yourself and for one you're talking with in Voice, which reads
+the reply out anyway. Several threads finishing at once make one ding.
+Pick Chime, Bell or Droplet (each plays as you pick it), set the volume,
+and press Play to hear it again.
 
 ### The bear
 

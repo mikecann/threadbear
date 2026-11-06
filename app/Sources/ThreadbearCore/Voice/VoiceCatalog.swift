@@ -1,6 +1,6 @@
 import Foundation
 
-/// The voices, speeds and languages Voice mode offers (Settings > Voice).
+/// The voices, speeds and languages Voice mode offers (Settings > Voice & Audio).
 /// Voices are pocket-tts's built-in ones; Emily and Mike are the names
 /// asked for, on pocket-tts's eve and michael.
 public struct VoiceOption: Sendable, Hashable, Identifiable {

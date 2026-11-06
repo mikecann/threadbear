@@ -63,7 +63,7 @@ final class VoiceMode {
     /// carries on in it. "new" is the new thread's draft key too.
     static let newThread = "new"
 
-    /// Settings > Voice's switch. Off hides every waveform button.
+    /// Settings > Voice & Audio's switch. Off hides every waveform button.
     static let enabledKey = "voiceEnabled"
     static var enabled: Bool { UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true }
 
