@@ -344,6 +344,11 @@ Any other file you paste or drop in (a video, a PDF, a folder) goes in as
 its full path where you drop it, for the agent to open where it is.
 Nothing's copied, so a big one is fine.
 
+Your messages show basic Markdown as replies do: start lines with "- " or
+"1. " for a list, and use **bold**, *italics*, `code`, [links](https://example.com),
+"# " headings and "> " quotes. Your line breaks are kept as you typed them,
+and a message with none of that in it shows exactly as you wrote it.
+
 Paste a thread's id (Copy thread id in its ... menu or its right-click
 menu in the sidebar), or drag its row from the sidebar onto the open
 thread, and it goes in as a chip with that thread's title. Dragging a row
