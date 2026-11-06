@@ -1129,9 +1129,12 @@ name and all.
 Every skill works in every thread, on every login, Claude and Codex alike.
 With Always on, agents use it whenever it fits what you ask. Turn it off
 and it's there only when you ask by name: type its slash command, like
-/pele, in a message. An installed skill's command turns blue as you type
-it, and shows as a link in your message once sent (click it for the
-Skills page), so you can see a skill will run. A change reaches threads
+/pele, in a message. Typing / at the start of a word lists your skills
+over the cursor, narrowing as you type: ↑ and ↓ to choose, Return or Tab
+to put it in, Esc to close. An installed skill's command turns blue as
+you type it, and shows as a link in your message once sent (click it for
+the Skills page), so you can see a skill will run. It works anywhere in
+the message, in Claude and Codex threads alike. A change reaches threads
 that are already running too: each gets a fresh start before its next
 message, carrying on the same conversation with the new skills. Remove
 takes a skill away everywhere. To stop giving threads any skills at all,

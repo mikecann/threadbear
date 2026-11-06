@@ -228,6 +228,11 @@ export class SkillStore {
     return this.enabled && this.skills.length && fs.existsSync(path.join(this.pluginDir, '.claude-plugin', 'plugin.json')) ? [{ type: 'local', path: this.pluginDir }] : [];
   }
 
+  /** The names threads can use: none while the store is off. */
+  names(): string[] {
+    return this.enabled ? this.skills.map((s) => s.name) : [];
+  }
+
   list(): { skills: Skill[]; suggested: SuggestedSkill[]; enabled: boolean } {
     return { skills: this.skills.map((s) => ({ ...s })), suggested: this.suggested(), enabled: this.enabled };
   }

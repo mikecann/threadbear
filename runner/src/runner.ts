@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 // release and snoozes. Providers plug in through AgentAdapter; the WebSocket
 // server in rpc.ts is a thin layer over the public methods here.
 import { RELEASE } from './release.ts';
+import { withSkillMentions } from './skill-mentions.ts';
 import { reachable, type Reachable } from './net-probe.ts';
 import type { UpstreamStatus } from './upstream.ts';
 import fs from 'node:fs';
@@ -501,6 +502,8 @@ export type RunnerDeps = {
   projects?: Projects;
   /** Mike's standing instructions for every session (Skills > Instructions, skills.ts); '' for none. */
   standingInstructions?: () => string;
+  /** The skills threads get (skills.ts): none while the store is off. */
+  skillNames?: () => string[];
   // A completed turn asked Mike to Restart to Update, by end_turn or in its
   // closing "What I need from you" (app-restarts.ts signs the thread up).
   appRestartAsked?: (threadId: string) => void;
@@ -596,6 +599,7 @@ export class Runner {
   secrets: SecretStore;
   models?: Pick<Models, 'generate'>;
   standingInstructions?: () => string;
+  skillNames?: () => string[];
   projects?: Projects;
   activity = new Set<(a: ThreadActivity) => void>();
   patchCache: PatchCache = new Map();
@@ -678,6 +682,7 @@ export class Runner {
     this.models = deps.models;
     this.projects = deps.projects;
     this.standingInstructions = deps.standingInstructions;
+    this.skillNames = deps.skillNames;
     this.appRestartAsked = deps.appRestartAsked;
     this.atMac = deps.atMac;
     this.adapters = deps.adapters;
@@ -1473,7 +1478,7 @@ export class Runner {
     // more thing" shouldn't send the thread away. It can ask again.
     if (turn.endTurn?.archive) turn.endTurn = { ...turn.endTurn, archive: false };
     this.markDirty(st);
-    rt.session!.send({ id: msg.turnId, text: this.forAgent(msg), images: msg.images });
+    rt.session!.send({ id: msg.turnId, text: this.forAgent(msg, st.rec.provider), images: msg.images });
   }
 
   // The text the agent gets for a message. One from the phone says so, and
@@ -1481,7 +1486,12 @@ export class Runner {
   // step while he's out and keeps the reply short. It goes on every phone
   // message rather than once, as he moves between the two. The transcript
   // keeps what he typed.
-  forAgent(msg: { text: string; origin?: MessageOrigin }): string {
+  forAgent(msg: { text: string; origin?: MessageOrigin }, provider?: Provider): string {
+    // /name for a Threadbear skill, made to work in this thread's CLI (skill-mentions.ts).
+    if (provider && this.skillNames) {
+      const names = this.skillNames();
+      if (names.length) msg = { ...msg, text: withSkillMentions(msg.text, names, provider) };
+    }
     if (msg.origin !== 'phone') return msg.text;
     const atMac = this.atMac?.();
     const where = atMac === true ? ', at the Mac' : atMac === false ? ', away from the Mac' : '';
@@ -1555,7 +1565,7 @@ export class Runner {
       rt.turn.command = true;
       if (/^\/(compact|review|clear)\b/i.test(msg.text.trim())) rt.turn.noSteer = true;
     }
-    let text = command ? msg.text : this.forAgent(msg);
+    let text = command ? msg.text : this.forAgent(msg, rec.provider);
     // Claude's CLI starts a new session for /clear, which the runner follows
     // (its next init), but says nothing.
     if (command && rec.provider === 'claude' && /^\/clear\b/i.test(msg.text.trim())) {
@@ -2361,7 +2371,7 @@ export class Runner {
             // transcript carried to a new folder that wouldn't resume gets
             // the move's note, any other thread with earlier turns the
             // not-found one.
-            let text = this.forAgent(first);
+            let text = this.forAgent(first, rec.provider);
             const earlier = rec.lastTurnCompletedSeq > 0;
             if (!inUse && (rt.carried || earlier)) {
               rec.handoff = rt.carried ?? { fromCwd: rec.cwd, fromAccountId: rec.accountId, lost: true };
@@ -2375,7 +2385,7 @@ export class Runner {
             // order, matched to their ids when the counts agree.
             if (msgs.length === turn.messages.length) {
               msgs.slice(1).forEach((m, i) => {
-                if (m.type === 'user.message') rt.session!.send({ id: turn.messages[i + 1], text: this.forAgent(m), images: m.images });
+                if (m.type === 'user.message') rt.session!.send({ id: turn.messages[i + 1], text: this.forAgent(m, rec.provider), images: m.images });
               });
             }
             return;

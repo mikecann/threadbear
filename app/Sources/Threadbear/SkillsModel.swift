@@ -28,7 +28,7 @@ extension AppModel {
         skillsSupported = true
         if let enabled { skillsEnabled = enabled }
         // Their slash commands show as links where they'd run (SkillMentions).
-        SkillMentions.names = skillsEnabled ? Set(list.map(\.name)) : []
+        SkillMentions.skills = skillsEnabled ? list.map { SkillMentions.Entry(name: $0.name, description: $0.description) } : []
         // What's suggested goes as it's added.
         let names = Set(list.map(\.name))
         suggestedSkills.removeAll { names.contains($0.name) }

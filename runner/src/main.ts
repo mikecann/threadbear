@@ -237,6 +237,7 @@ async function main(): Promise<void> {
   let atMac: boolean | undefined;
   runner = new Runner({
     standingInstructions: () => skills.instructions(),
+    skillNames: () => skills.names(),
     projects,
     atMac: () => atMac,
     config: cfg,

@@ -7,7 +7,28 @@ import os
 /// word of their own ("/pele", "run /pele now"), never inside a path
 /// ("src/pele.ts") or a longer word ("/peler").
 public enum SkillMentions {
+    /// A skill the composer's / list offers.
+    public struct Entry: Sendable, Hashable {
+        public var name: String
+        public var description: String
+        public init(name: String, description: String) {
+            self.name = name
+            self.description = description
+        }
+    }
+
     private static let state = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    private static let entries = OSAllocatedUnfairLock<[Entry]>(initialState: [])
+
+    /// The skills with their descriptions, for the composer's / list. Setting
+    /// them sets `names` too.
+    public static var skills: [Entry] {
+        get { entries.withLock { $0 } }
+        set {
+            entries.withLock { $0 = newValue }
+            names = Set(newValue.map(\.name))
+        }
+    }
 
     /// The skills' names, set by the app when its list changes. Read from
     /// any thread (the transcript renders off the main one).
