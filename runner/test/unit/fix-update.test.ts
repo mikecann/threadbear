@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { tmpDir } from '../helpers/fakes.ts';
 import { nullLogger } from '../../src/log.ts';
 import { UpdateFixer, type UpdateFailure } from '../../src/fix-update.ts';
@@ -35,7 +36,7 @@ test('a failed update starts one thread that fixes it, lands it and archives its
   assert.match(started[0].text, /\/tmp\/update\.log/);
   assert.match(started[0].text, /archive: true/);
   // A flake with nothing to land: clearing the failed record retries it.
-  assert.ok(started[0].text.includes(`${home}/runner/update.json`));
+  assert.ok(started[0].text.includes(path.join(home, 'runner', 'update.json')));
 });
 
 test('the same failure again says nothing; a newer one goes to the open thread', () => {

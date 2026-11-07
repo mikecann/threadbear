@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
+import { SHELL, escapeRegExp, sh } from '../helpers/platform.ts';
 import { checkSequence, checkSummary } from '../helpers/protocol-check.ts';
 import { makePng } from '../helpers/png.ts';
 import { RpcError } from '../../src/protocol.ts';
@@ -1266,7 +1267,7 @@ test('a send the disk refuses leaves no stuck turn behind', async () => {
   const file = path.join(h.home, 'threads', thread.id, 'events.ndjson');
   fs.chmodSync(file, 0o444);
   try {
-    assert.throws(() => h.runner.send(thread.id, 'this one fails'), /EACCES|permission/i);
+    assert.throws(() => h.runner.send(thread.id, 'this one fails'), process.platform === 'win32' ? /EPERM|EACCES|permission/i : /EACCES|permission/i);
   } finally {
     fs.chmodSync(file, 0o644);
   }
@@ -1431,7 +1432,7 @@ test('patch files give a thread actions; a command action runs in the folder and
     { title: "Docs", url: "https://example.com/docs" },
   ] };`);
   const opened: string[] = [];
-  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000, openUrl: async (u: string) => void opened.push(u) });
+  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 5000, openUrl: async (u: string) => void opened.push(u) });
   const { thread } = create(h, { cwd: project });
   // The first summary has the built-in bits only; the files follow.
   assert.equal(thread.actions, undefined);
@@ -1454,7 +1455,7 @@ test('patch files give a thread actions; a command action runs in the folder and
   assert.equal(run.actionId, 'tools.say-hi');
   assert.equal(run.title, 'Say hi');
   assert.equal(run.patch, 'tools');
-  assert.match(run.text, new RegExp(`hi from ${fs.realpathSync(project)}\nthread ${thread.id}`));
+  assert.match(run.text, new RegExp(`hi from ${escapeRegExp(sh(project, 'pwd'))}\nthread ${thread.id}`));
   assert.equal(run.ok, true);
 
   const bad = await h.runner.runAction(thread.id, 'tools.fail');
@@ -1486,7 +1487,7 @@ test('a patch file written later is noticed within the TTL and said in the trans
   const root = tmpDir();
   const project = path.join(root, 'app');
   fs.mkdirSync(project, { recursive: true });
-  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 5000 });
   const { thread } = create(h, { cwd: project });
   await tick();
   await h.runner.patchesIdle();
@@ -1531,7 +1532,7 @@ test('live state: threads in the same folder share one run of a command, and a s
   fs.writeFileSync(path.join(project, '.threadbear/patches/review.ts'), `
     const count = async ({ sh }) => Number((await sh("echo run >> runs; cat count")).trim());
     export default { actions: [{ title: "Your turn", prompt: "Do my comments.", badge: count }] };`);
-  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 5000 });
   const a = create(h, { cwd: project }).thread;
   const b = create(h, { cwd: project }).thread;
   const settle = async () => {
@@ -1559,7 +1560,7 @@ test('live state: a when chip comes and goes by itself on the poll, with its bad
   fs.writeFileSync(path.join(project, '.threadbear/patches/review.ts'), `
     const count = async ({ sh }) => Number((await sh("cat count")).trim());
     export default { actions: [{ title: "Your turn", prompt: "Do my comments.", when: async (c) => (await count(c)) > 0, badge: count }] };`);
-  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 5000 });
   const { thread } = create(h, { cwd: project });
   const settle = async () => {
     for (let i = 0; i < 50; i++) {
@@ -1592,7 +1593,7 @@ test('a turn.end hook runs after a turn that edited a matching file, and a failu
     { title: "Typecheck", on: "turn.end", run: "echo 'a.ts(1,1): error TS1' >&2; exit 1", edited: "**/*.ts" },
     { title: "Count", on: "turn.end", run: "echo counted", tell: "never" },
   ] };`);
-  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 5000 });
   const { thread } = create(h, { cwd: project });
   await tick();
   await h.runner.patchesIdle();
@@ -1658,7 +1659,7 @@ test('hooks don\'t run after an interrupted or failed turn, or a turn the runner
   const project = path.join(root, 'app');
   fs.mkdirSync(path.join(project, '.threadbear/patches'), { recursive: true });
   fs.writeFileSync(path.join(project, '.threadbear/patches/h.ts'), `export default { hooks: [{ title: "Every", on: "turn.end", run: "echo ran", tell: "never" }] };`);
-  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const h = makeHarness(undefined, {}, { panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 5000 });
   const { thread } = create(h, { cwd: project });
   await tick();
   const s = h.adapter.last;

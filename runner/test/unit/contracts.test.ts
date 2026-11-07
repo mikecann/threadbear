@@ -12,6 +12,7 @@ import * as context from '../../src/adapters/context.ts';
 import * as claudeNormalize from '../../src/adapters/claude/normalize.ts';
 import { checkAccount, checkCliStatus, checkEvent, checkSummary } from '../helpers/protocol-check.ts';
 import { tmpDir } from '../helpers/fakes.ts';
+import { IS_WINDOWS } from '../helpers/platform.ts';
 
 const ts = '2026-10-27T01:00:00.000Z';
 
@@ -28,9 +29,9 @@ test('config: the step 4 settings default safely', () => {
   const cfg = loadConfig({ THREADBEAR_HOME: home });
   assert.equal(cfg.codexPath, undefined, 'unset means Threadbear picks the binary');
   assert.deepEqual(cfg.codexArgs, []);
-  assert.ok(cfg.codexMainDir.endsWith('/.codex'));
-  assert.ok(cfg.tokenStatsLimitsFile.endsWith('/Token Stats/limits.json'));
-  assert.deepEqual(cfg.cliUpdates, { claude: 'auto', codex: 'auto', checkMinutes: 60, keepCodexVersions: 2 });
+  assert.ok(cfg.codexMainDir.endsWith(`${path.sep}.codex`));
+  assert.ok(cfg.tokenStatsLimitsFile.endsWith(path.sep + path.join('Token Stats', 'limits.json')));
+  assert.deepEqual(cfg.cliUpdates, { claude: 'auto', codex: IS_WINDOWS ? 'off' : 'auto', checkMinutes: 60, keepCodexVersions: 2 });
   // Nobody's notes or pool folders by default: Mike's are in his runner.json.
   assert.deepEqual(cfg.accountNotes, {});
   assert.deepEqual(cfg.poolFolders, {});
@@ -60,7 +61,7 @@ test('config: runner.json and env set the step 4 settings', () => {
   assert.equal(cfg.defaults.model, 'claude-haiku-5-5');
   assert.deepEqual(cfg.defaults.models, { codex: 'gpt-6-luna' }, 'blank values and unknown providers are dropped');
   assert.deepEqual(cfg.defaults.efforts, { codex: 'low' });
-  assert.ok(cfg.codexPath?.endsWith('/bin/codex') && !cfg.codexPath.startsWith('~'));
+  assert.ok(cfg.codexPath?.endsWith(path.sep + path.join('bin', 'codex')) && !cfg.codexPath.startsWith('~'));
   assert.deepEqual(cfg.codexArgs, ['-c', 'features.memories=false']);
   assert.deepEqual(cfg.cliUpdates, { claude: 'auto', codex: 'notify', checkMinutes: 15, keepCodexVersions: 2 });
   assert.deepEqual(cfg.accountNotes, { 'claude-3': 'Tests' }, "runner.json's notes replace the default ones");

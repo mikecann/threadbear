@@ -77,6 +77,7 @@ import { cleanUpWorktree, makeWorktree, sameSubfolder, worktreeInstructions } fr
 import { stripModelSuffix, type AccountRegistry, type LearnedAccountInfo } from './accounts.ts';
 import { pickAccount as pickByRoom, resetTime, type UsageReading } from './usage.ts';
 import { DEFAULT_POOL_FOLDERS, RUNNER_VERSION, expandHome, paths, readRunnerJson, writeRunnerJson, type Config } from './config.ts';
+import { missingBashNotice } from './system-tools.ts';
 import { WAIT_SLACK_MS, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from './pools.ts';
 import { copyImageInto, imageRefFor } from './media.ts';
 import { isDirectory } from './fsutil.ts';
@@ -1133,6 +1134,8 @@ export class Runner {
     if (!fs.existsSync(this.cfg.claudePath)) {
       out.push({ level: 'error', message: `The claude CLI isn't at ${this.cfg.claudePath}, so no turn can start. Install Claude Code, or set claudePath in runner.json.` });
     }
+    const noBash = missingBashNotice();
+    if (noBash) out.push({ level: 'error', message: noBash });
     return out;
   }
 
@@ -3464,7 +3467,9 @@ function openInBrowser(url: string): Promise<void> {
   const page = webPage(url);
   if (!page) return Promise.reject(new RpcError(ErrorCode.badParams, `Not a web page: ${url}`));
   return new Promise((resolve, reject) => {
-    execFile('/usr/bin/open', [page], (err) => (err ? reject(new RpcError(ErrorCode.other, `Couldn't open ${page}: ${err.message}`)) : resolve()));
+    // Windows: the URL handler directly, as `start` would run it through cmd.exe, where & and ^ mean something.
+    const [opener, openerArgs] = process.platform === 'win32' ? ['rundll32.exe', ['url.dll,FileProtocolHandler', page]] : ['/usr/bin/open', [page]];
+    execFile(opener, openerArgs, (err) => (err ? reject(new RpcError(ErrorCode.other, `Couldn't open ${page}: ${err.message}`)) : resolve()));
   });
 }
 

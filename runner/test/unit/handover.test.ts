@@ -6,6 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeAccounts, FakeAdapter, makeHarness, testConfig, tick, type Harness } from '../helpers/fakes.ts';
+import { skipOnWindows } from '../helpers/platform.ts';
 import { Runner, type Notification } from '../../src/runner.ts';
 import { ThreadStore } from '../../src/store.ts';
 import { FakeClock } from '../../src/clock.ts';
@@ -557,7 +558,7 @@ test('Peers: the bearer header goes only to a draining runner whose own drain fi
   peers.close();
 });
 
-test('connectDrain: the bearer header goes only over a socket whose other end is the draining runner itself', async () => {
+test('connectDrain: the bearer header goes only over a socket whose other end is the draining runner itself', skipOnWindows("a handover finds a socket's owner with lsof, which Windows hasn't got"), async () => {
   const { connectDrain, socketOwnedBy } = await import('../../src/handover.ts');
   const { WebSocketServer } = await import('ws');
   const { spawn } = await import('node:child_process');

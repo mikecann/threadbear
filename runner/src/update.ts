@@ -20,6 +20,7 @@ import { currentLink, readRelease, readState, type ReleaseJson } from './release
 import type { RestartResult } from './restart.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { inBackground } from './background.ts';
+import { IS_WINDOWS } from './platform.ts';
 import type { UpdateFailure } from './fix-update.ts';
 
 export const CHECK_INTERVAL_MS = 5 * 60_000;
@@ -237,6 +238,14 @@ function joinTreeHashes(lsTree: string): string | undefined {
   return hashes.length ? hashes.join('+') : undefined;
 }
 
+// The arguments for the clone the update builds in. Git for Windows changes
+// line endings on checkout (core.autocrlf) and stops at 260-character paths
+// (core.longpaths), and a build must see main's files as they are committed.
+// Nowhere else changes anything.
+export function cloneArgs(checkout: string, dir: string): string[] {
+  return IS_WINDOWS ? ['clone', '-q', '--no-checkout', '-c', 'core.autocrlf=false', '-c', 'core.longpaths=true', checkout, dir] : ['clone', '-q', '--no-checkout', checkout, dir];
+}
+
 // Brings <dir> to the checkout's main: a clone of the checkout (so only
 // what's committed on main is built, never a working tree), fetched and
 // reset each time. runner/node_modules is kept between runs for the checks,
@@ -245,7 +254,7 @@ export async function syncClone(checkout: string, prefix: string, dir: string): 
   if (!fs.existsSync(path.join(dir, '.git'))) {
     await fs.promises.rm(dir, { recursive: true, force: true });
     await fs.promises.mkdir(path.dirname(dir), { recursive: true });
-    await gitAsync(path.dirname(dir), ['clone', '-q', '--no-checkout', checkout, dir]);
+    await gitAsync(path.dirname(dir), cloneArgs(checkout, dir));
   }
   await gitAsync(dir, ['fetch', '-q', checkout, 'refs/heads/main']);
   await gitAsync(dir, ['checkout', '-q', '-B', 'main', 'FETCH_HEAD']);

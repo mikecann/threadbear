@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { processInfo } from './proc.ts';
+import { ownStartTime, pidExists, processInfo, sameStartTime } from './proc.ts';
+import { IS_WINDOWS } from './platform.ts';
 
 // One runner per data dir. A second one (`npm start` while the LaunchAgent
 // runs, say) would sweep the first one's CLIs as orphans and append to the
@@ -11,7 +12,8 @@ export type Lock = { release(): void };
 
 export function acquireLock(runDir: string): Lock | { heldBy: number } {
   const file = path.join(runDir, 'runner.pid');
-  const me = { pid: process.pid, lstart: processInfo(process.pid)?.lstart ?? '' };
+  // Where PowerShell can't give the start time on Windows, node's own clock does.
+  const me = { pid: process.pid, lstart: processInfo(process.pid)?.lstart ?? (IS_WINDOWS ? ownStartTime() : '') };
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       fs.mkdirSync(runDir, { recursive: true });
@@ -53,9 +55,24 @@ function readHolder(file: string): { pid: number; lstart?: string } | null {
 }
 
 function holderAlive(h: { pid: number; lstart?: string }): boolean {
+  if (IS_WINDOWS) return holderAliveWindows(h);
   const info = processInfo(h.pid);
   if (!info) return false;
   if (h.lstart) return info.lstart === h.lstart;
   // A runner under launch.mjs (a release) shows as launch.mjs, not main.ts.
   return /main\.ts|launch\.mjs/.test(info.command);
+}
+
+// Windows reads a process's start time through PowerShell, which can fail (policy,
+// AppLocker, a timeout under load). That must never make a live runner look gone,
+// or a second one starts on the same data dir.
+function holderAliveWindows(h: { pid: number; lstart?: string }): boolean {
+  if (!pidExists(h.pid)) return false;
+  const info = processInfo(h.pid);
+  // There, but PowerShell wouldn't say when it started. A stale lock that
+  // someone has to delete is a smaller harm than two runners.
+  if (!info) return true;
+  if (h.lstart) return sameStartTime(h.lstart, info.lstart);
+  // No start time recorded: the process name is all there is. The runner runs under node.
+  return /^node$/i.test(info.command);
 }

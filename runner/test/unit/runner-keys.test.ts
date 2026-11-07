@@ -7,6 +7,8 @@ import path from 'node:path';
 import { tmpDir } from '../helpers/fakes.ts';
 import { runnerKeysCommand, remoteCommand, REMOTE_ADMIN_CHECK, convexScratchDir } from '../../src/runner-keys.ts';
 import { spawnSync } from 'node:child_process';
+// NTFS has no modes: a file in the user's profile is already private to them (chmodSafe in src/platform.ts).
+import { IS_WINDOWS, SHELL } from '../helpers/platform.ts';
 
 const URL_ = 'https://opulent-moose-249.ap-southeast-2.convex.cloud';
 
@@ -145,7 +147,7 @@ test('tb runner add --out writes an owner-only file', async () => {
   const file = path.join(s.cfg.home, 'out', 'bruce.key');
   assert.equal(await runnerKeysCommand(s.cfg, ['add', 'bruce'], { out: file, id: 'cb921b2447ea' }, s.deps), 0);
   assert.equal(fs.readFileSync(file, 'utf8'), 'tbr_secret_value\n');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (!IS_WINDOWS) assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.ok(!s.printed.join('\n').includes('tbr_secret_value'));
 });
 
@@ -251,7 +253,7 @@ test('tb runner rotate-owner moves the main key with no gap: NEXT first, this Ma
   assert.equal(await runnerKeysCommand(s.cfg, ['rotate-owner'], {}, s.deps), 0);
   const fresh = fs.readFileSync(keyFile, 'utf8').trim();
   assert.match(fresh, /^[0-9a-f]{64}$/);
-  assert.equal(fs.statSync(keyFile).mode & 0o777, 0o600);
+  if (!IS_WINDOWS) assert.equal(fs.statSync(keyFile).mode & 0o777, 0o600);
   assert.deepEqual(s.convexCalls, [{ args: ['env', 'set', 'RUNNER_KEY_NEXT'], input: fresh }]);
   assert.ok(!s.printed.join('\n').includes(fresh), 'never printed');
   assert.match(s.printed.join('\n'), /restart/);
@@ -436,7 +438,7 @@ test('the remote admin check still finds a panel key name, quotes and all', () =
   const d = path.join(home, 'Library/Application Support/Threadbear/secrets/convex-panels');
   fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(d, 'x.json'), '{"name":"threadbear-panel-bruce-abc123","adminKey":"secret"}');
-  const r = spawnSync(ZSH ?? '/bin/sh', ['-c', remoteCommand(REMOTE_ADMIN_CHECK)], { env: { HOME: home, PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
+  const r = spawnSync(ZSH ?? SHELL[0], ['-c', remoteCommand(REMOTE_ADMIN_CHECK)], { env: { HOME: home, PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(r.stdout.trim().split('\n'), ['panel threadbear-panel-bruce-abc123', 'checked']);
 });
@@ -446,7 +448,7 @@ test('the remote admin check still finds a panel key name, quotes and all', () =
 test('the Convex CLI runs from a private folder that lists convex and nothing else', () => {
   const dir = convexScratchDir();
   try {
-    assert.equal(fs.statSync(dir).mode & 0o077, 0);
+    if (!IS_WINDOWS) assert.equal(fs.statSync(dir).mode & 0o077, 0);
     assert.deepEqual(fs.readdirSync(dir), ['package.json']);
     assert.ok(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).dependencies.convex);
   } finally {

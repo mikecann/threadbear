@@ -9,6 +9,9 @@ import { restartPath } from '../../src/restart.ts';
 import { RunnerClient } from '../../src/client.ts';
 import { nullLogger } from '../../src/log.ts';
 import { PATIENCE_MS, patiently } from '../helpers/patience.ts';
+import { IS_WINDOWS, skipOnWindows } from '../helpers/platform.ts';
+import { linkDir } from '../../src/platform.ts';
+import { pathToFileURL } from 'node:url';
 
 const RUNNER_DIR = path.join(import.meta.dirname, '..', '..');
 const PKG_VERSION = JSON.parse(fs.readFileSync(path.join(RUNNER_DIR, 'package.json'), 'utf8')).version as string;
@@ -64,6 +67,15 @@ function cleanEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+// A graceful stop: SIGTERM on macOS and Linux, where the runner exits 0. Windows
+// has no such signal (it ends the process outright, with no exit code to
+// check), so only that check is skipped there.
+async function stopGracefully(r: { proc: ChildProcess; exited: Promise<number | null> }): Promise<void> {
+  r.proc.kill('SIGTERM');
+  const code = await r.exited;
+  if (!IS_WINDOWS) assert.equal(code, 0);
+}
+
 function startRunner(entry: string, home: string, extra: Record<string, string> = {}) {
   let out = '';
   const proc: ChildProcess = spawn(process.execPath, [entry], {
@@ -111,7 +123,7 @@ function makeRelease(home: string, id: string): string {
   fs.mkdirSync(dir, { recursive: true });
   fs.cpSync(path.join(RUNNER_DIR, 'src'), path.join(dir, 'src'), { recursive: true });
   fs.copyFileSync(path.join(RUNNER_DIR, 'package.json'), path.join(dir, 'package.json'));
-  fs.symlinkSync(path.join(RUNNER_DIR, 'node_modules'), path.join(dir, 'node_modules'));
+  linkDir(path.join(RUNNER_DIR, 'node_modules'), path.join(dir, 'node_modules'));
   fs.writeFileSync(path.join(dir, 'release.json'), JSON.stringify({ id, commit: 'abc1234', dirty: false, builtAt: new Date().toISOString(), node: process.version }));
   return dir;
 }
@@ -123,7 +135,8 @@ test('a release reports its id, marks itself good, reports a rollback, and resta
   writeState(home, { current: id, previous: 'older', lastGood: 'older', boots: [{ release: id, at: new Date().toISOString() }], rolledBack: { from: 'broken', to: id, at: new Date().toISOString() } });
   // Long enough that a busy Mac still gets through the checks below before
   // the release marks itself good (3 s wasn't, at background priority).
-  const a = startRunner(path.join(dir, 'src', 'main.ts'), home, { THREADBEAR_GOOD_AFTER_MS: '10000' });
+  // (Windows has no background priority, and the whole test has 15 s there.)
+  const a = startRunner(path.join(dir, 'src', 'main.ts'), home, { THREADBEAR_GOOD_AFTER_MS: IS_WINDOWS ? '6000' : '10000' });
   try {
     const port = await a.listening;
     const { c, hello, notices } = await connect(home, port);
@@ -164,8 +177,7 @@ test('a release reports its id, marks itself good, reports a rollback, and resta
       assert.deepEqual(second.notices.filter((n) => /crashing/.test(n)), []);
       assert.equal(fs.existsSync(restartPath(home)), false);
       second.c.close();
-      b.proc.kill('SIGTERM');
-      assert.equal(await b.exited, 0);
+      await stopGracefully(b);
     } finally {
       b.proc.kill('SIGKILL');
     }
@@ -187,8 +199,7 @@ test('a runner run from source says +source and leaves state.json alone', async 
     await new Promise((res) => setTimeout(res, 200));
     assert.deepEqual(readState(home), state);
     c.close();
-    r.proc.kill('SIGTERM');
-    assert.equal(await r.exited, 0);
+    await stopGracefully(r);
   } finally {
     r.proc.kill('SIGKILL');
   }
@@ -199,7 +210,7 @@ test('a runner run from source says +source and leaves state.json alone', async 
 function installLaunch(home: string, current: string): string {
   const launch = path.join(home, 'runner', 'launch.mjs');
   fs.copyFileSync(path.join(RUNNER_DIR, 'launch.mjs'), launch);
-  fs.symlinkSync(path.join('releases', current), path.join(home, 'runner', 'current'));
+  linkDir(path.join('releases', current), path.join(home, 'runner', 'current'));
   return launch;
 }
 
@@ -214,7 +225,7 @@ async function nthListening(out: () => string, n: number, ms = PATIENCE_MS): Pro
   }
 }
 
-test('planned restarts under launch.mjs are clean stops, so several in a row are not a crash loop', async () => {
+test('planned restarts under launch.mjs are clean stops, so several in a row are not a crash loop', skipOnWindows("launch.mjs isn't ported to Windows yet: it points a symlink at the release and stops runners with signals"), async () => {
   const home = tmpDir();
   const older = '20261025T101500Z-0000001';
   const id = '20261026T101500Z-abc1234';
@@ -234,8 +245,7 @@ test('planned restarts under launch.mjs are clean stops, so several in a row are
       c.close();
     }
     // Stopping the supervisor stops its runner cleanly too.
-    r.proc.kill('SIGTERM');
-    assert.equal(await r.exited, 0);
+    await stopGracefully(r);
   } finally {
     r.proc.kill('SIGKILL');
   }
@@ -278,7 +288,7 @@ test('launch.mjs stops a release that never starts listening, and that start cou
 // channel, the way launch.mjs starts a runner.
 function ipcChild(code: string, env: Record<string, string> = { THREADBEAR_SUPERVISED: '1' }) {
   const src = path.join(RUNNER_DIR, 'src', 'release.ts');
-  const proc = spawn(process.execPath, ['--input-type=module', '-e', `import * as release from ${JSON.stringify(src)};\n${code}`], {
+  const proc = spawn(process.execPath, ['--input-type=module', '-e', `import * as release from ${JSON.stringify(pathToFileURL(src).href)};\n${code}`], {
     env: { ...cleanEnv(), ...env },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });

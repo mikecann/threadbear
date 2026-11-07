@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Hunk, PlanEntry, ToolKind } from './protocol.ts';
 import { LIMITS } from './protocol.ts';
 import { applyReplace, diffLines } from './diff.ts';
+import { realPathSync } from './platform.ts';
 
 const KINDS: Record<string, ToolKind> = {
   Bash: 'command',
@@ -80,7 +81,7 @@ function realCwd(cwd: string): string {
   let r = realpaths.get(cwd);
   if (r === undefined) {
     try {
-      r = fs.realpathSync(cwd);
+      r = realPathSync(cwd);
     } catch {
       r = cwd;
     }

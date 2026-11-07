@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { followOptions } from './patch-trust.ts';
+import { realPath } from './platform.ts';
 import type { PermissionMode } from './protocol.ts';
 import { looksRunnable, reachOf, reachOfCommand, Reads } from './script-trust.ts';
 
@@ -168,7 +169,7 @@ export function claudeCommands(cwd: string, home: string = os.homedir(), opts: C
   const shas: Record<string, string> = {};
   const add = (file: string, found: Record<string, unknown> | undefined, sha: string) => {
     if (!found) return;
-    parts[path.relative(dir, file)] = found;
+    parts[hashName(dir, file)] = found;
     files.push(file);
     shas[file] = sha;
   };
@@ -212,7 +213,7 @@ export function claudeCommands(cwd: string, home: string = os.homedir(), opts: C
       // A path with a space, a newline, a quote or a backslash in it goes
       // in as JSON (starting with a quote, which a plain one can't), so
       // each line still reads only one way; plain ones as they always did.
-      const rel = path.relative(real, f);
+      const rel = hashName(real, f);
       return `${/^[^\s"\\]+$/.test(rel) ? rel : JSON.stringify(rel)} ${h}`;
     })
     .sort();
@@ -1043,11 +1044,7 @@ function isInside(p: string, dir: string): boolean {
 }
 
 function realpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
+  return realPath(p);
 }
 
 function readOr(file: string): Buffer {
@@ -1060,4 +1057,11 @@ function readOr(file: string): Buffer {
 
 function sha256(data: Buffer): string {
   return crypto.createHash('sha256').update(data).digest('hex');
+}
+
+// A file's name in what the hash covers and in the messages: relative to the
+// folder, with forward slashes whatever the platform, so a hash means the same
+// on every one (a no-op where the separator already is a slash).
+function hashName(dir: string, file: string): string {
+  return path.relative(dir, file).split(path.sep).join('/');
 }

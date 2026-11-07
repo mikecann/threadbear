@@ -15,6 +15,7 @@ import {
 import { dynamicToolSpecs, NAMESPACE_DESCRIPTION_MAX, type ToolDefinition } from '../../src/adapters/codex/tools.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import { nullLogger } from '../../src/log.ts';
+import { shPath } from '../helpers/platform.ts';
 import type { QuestionAnswer, QuestionRequest, ToolApprovalAnswer, ToolApprovalRequest } from '../../src/adapters/types.ts';
 import type { CommandExecutionRequestApprovalParams } from '../../src/adapters/codex/types.ts';
 
@@ -199,7 +200,7 @@ function harness(rules: string[] = []) {
     note: (t) => notes.push(t),
     cwd: () => '/work/proj',
     itemPaths: (id) => (id === 'fc-3' ? ['/work/proj/a.ts', '/work/proj/b.ts', '/work/proj/c.ts'] : id === 'fc-1' ? ['/work/proj/a.txt'] : id === 'fc-p' ? ['.threadbear/patches/x.ts'] : undefined),
-    runsAsCode: (f) => f.includes('/.threadbear/'),
+    runsAsCode: (f) => shPath(f).includes('/.threadbear/'),
     callTool: async () => ({ contentItems: [{ type: 'inputText', text: 'ok' }], success: true }),
     now: () => 1_793_000_000_000,
   };

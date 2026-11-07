@@ -6,12 +6,16 @@
 // Runs the real script from a temp checkout, with a fake ssh that answers
 // the probe and the lock from files and runs everything else locally, and
 // an rsync that copies to "host:path" as plain local paths.
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
+import { testSkippedOnWindows } from '../helpers/platform.ts';
+
+// scripts/check-remote.sh copies a checkout to another machine with ssh and
+// rsync and names hosts with `hostname -s`: the check hosts are Macs and Linux.
+const test = testSkippedOnWindows("check-remote.sh runs checks on another machine over ssh and rsync, and Windows' hostname has no -s");
 
 const SCRIPT = path.join(import.meta.dirname, '..', '..', '..', 'scripts', 'check-remote.sh');
 

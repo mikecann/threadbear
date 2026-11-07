@@ -12,6 +12,7 @@ import crypto from 'node:crypto';
 import net from 'node:net';
 import fs from 'node:fs';
 import { authProof, isNonce, newNonce } from '../../src/rpc-auth.ts';
+import { IS_WINDOWS } from '../helpers/platform.ts';
 
 const TOKEN = 'test-token-0123456789';
 // What the runner's main server binds its proofs to.
@@ -235,7 +236,9 @@ test('before auth: frames over 64 KiB are refused, and only so many sockets may 
   const big = await rawConnect(url);
   const closed = new Promise<number>((r) => big.ws!.once('close', (code) => r(code)));
   big.ws!.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'auth', params: { token: TOKEN, pad: 'x'.repeat(100 * 1024) } }));
-  assert.equal(await closed, 1009);
+  // Windows can reset the connection before the close frame gets to the client (1006).
+  const code = await closed;
+  assert.ok(code === 1009 || (IS_WINDOWS && code === 1006), `closed with ${code}`);
   // Even with a valid bearer too much would be refused before auth; with
   // the challenge, three waiting sockets fill it and the fourth is 503.
   const waiting = [await rawConnect(url), await rawConnect(url), await rawConnect(url)];

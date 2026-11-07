@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaultHome, readToken, runnerUrl, type Config } from './config.ts';
+import { IS_WINDOWS, realPathSync } from './platform.ts';
 import { RunnerClient, RpcClientError } from './client.ts';
 import { ErrorCode, type Account, type ImageRef, type PersistedEvent, type RunnerDefaults, type ThreadSummary } from './protocol.ts';
 import { pushFailingText } from './push-failing.ts';
@@ -318,7 +319,10 @@ export function restartRefusal(s: Pick<RunnerStatus, 'version' | 'release' | 'ho
 // ran tb, directly or through a shell or a dev runner.
 function isAncestor(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 1) return false;
-  const r = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+  // There is no ps on Windows: the process table comes from PowerShell.
+  const r = IS_WINDOWS
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }'], { encoding: 'utf8', windowsHide: true, timeout: 20_000 })
+    : spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
   if (r.status !== 0) return false;
   const parent = new Map<number, number>();
   for (const line of r.stdout.split('\n')) {
@@ -848,7 +852,7 @@ function fallbackLog(cfg: Config): string {
 function sameDir(a: string, b: string): boolean {
   const real = (p: string) => {
     try {
-      return fs.realpathSync(p);
+      return realPathSync(p);
     } catch {
       return path.resolve(p);
     }

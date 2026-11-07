@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { chmodSafe } from './platform.ts';
 
 export const SECRET_TTL_MS = 24 * 60 * 60 * 1000;
 export const SECRET_TIMEOUT_DEFAULT_MIN = 10;
@@ -47,7 +48,7 @@ export class SecretStore {
   // `wx` never follows or replaces an existing path.
   write(value: string): SecretFiles {
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.dir, 0o700);
+    chmodSafe(this.dir, 0o700);
     const name = crypto.randomBytes(16).toString('hex');
     const file = path.join(this.dir, name);
     const askpass = `${file}.askpass`;

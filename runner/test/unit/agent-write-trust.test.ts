@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ACCOUNTS, FakeAccounts, makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
+import { SHELL, shPath } from '../helpers/platform.ts';
 import { loadPatchSet } from '../../src/patches.ts';
 import { PatchTrust } from '../../src/patch-trust.ts';
 import { ClaudeAdapter } from '../../src/adapters/claude/adapter.ts';
@@ -18,7 +19,7 @@ import type { AdapterOutput, SessionSink, ToolApprovalRequest } from '../../src/
 import { ProcessRegistry } from '../../src/proc.ts';
 import { nullLogger } from '../../src/log.ts';
 import { CLAUDE_PATCH_ID } from '../../src/claude-trust.ts';
-import { RUNS_AS_CODE, runsAsCodeByName } from '../../src/code-writes.ts';
+import { canonicalPath, RUNS_AS_CODE, runsAsCodeByName, windowsFileName } from '../../src/code-writes.ts';
 import type { PermissionMode } from '../../src/protocol.ts';
 
 const sha = (file: string) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -49,7 +50,7 @@ async function settle(h: ReturnType<typeof makeHarness>, threadId: string) {
 }
 
 function harness(root: string, home = tmpDir()) {
-  return makeHarness(home, {}, { panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 20_000, patchTrust: new PatchTrust({ file: path.join(home, 'patch-trust.json'), claudeHome: root }) });
+  return makeHarness(home, {}, { panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 20_000, patchTrust: new PatchTrust({ file: path.join(home, 'patch-trust.json'), claudeHome: root }) });
 }
 
 // The CLI's successful Write, as the adapter passes it on: the call, the
@@ -371,6 +372,71 @@ test("Full access: an agent's patch write doesn't ask (Mike's own workflow)", as
   a.state.close!();
 });
 
+// The Windows port's review: NTFS reads more than one spelling as the same
+// new file, so a write to `evil.ts::$DATA` made the real evil.ts while the
+// name check saw something else.
+test('windowsFileName: the stream, trailing dots and spaces NTFS drops from a name, whatever platform asks', () => {
+  const same = (given: string, want: string) => assert.equal(windowsFileName(given), want, given);
+  same('C:\\p\\.threadbear\\patches\\evil.ts::$DATA', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear\\patches\\evil.ts::$data', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear\\patches\\evil.ts:stream', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear\\patches\\evil.ts:stream:$DATA', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.claude\\settings.json::$DATA', 'C:\\p\\.claude\\settings.json');
+  same('C:\\p\\.mcp.json::$DATA', 'C:\\p\\.mcp.json');
+  same('C:\\p\\.threadbear\\patches\\evil.ts.', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear\\patches\\evil.ts ', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear\\patches\\evil.ts. . ', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear\\patches\\evil.ts.::$DATA', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear::$INDEX_ALLOCATION\\patches\\evil.ts', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:\\p\\.threadbear.\\patches \\evil.ts', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  same('C:/p/.threadbear/patches/evil.ts::$DATA', 'C:\\p\\.threadbear\\patches\\evil.ts');
+  // The drive stays, also after \\?\, and . and .. are left for the path to settle.
+  same('\\\\?\\C:\\p\\.mcp.json::$DATA', '\\\\?\\C:\\p\\.mcp.json');
+  same('C:\\p\\.\\q\\..\\.mcp.json', 'C:\\p\\.\\q\\..\\.mcp.json');
+  same('C:\\p\\.mcp.json', 'C:\\p\\.mcp.json');
+  same('C:\\p\\', 'C:\\p\\');
+  same('evil.ts::$DATA', 'evil.ts');
+});
+
+test('a write to a new file spelt as an NTFS stream or with a trailing dot is still code by its name (Windows)', { skip: process.platform === 'win32' ? false : 'NTFS names are Windows only' }, () => {
+  const home = tmpDir();
+  const project = tmpDir();
+  for (const dir of [path.join(project, '.threadbear', 'patches'), path.join(project, '.claude'), path.join(home, '.threadbear')]) fs.mkdirSync(dir, { recursive: true });
+  const spellings = (file: string) => [`${file}::$DATA`, `${file}::$data`, `${file}.`, `${file} `, `${file}. `, `${file}.::$DATA`];
+  for (const file of [path.join(project, '.threadbear', 'patches', 'evil.ts'), path.join(project, '.threadbear', 'patches', 'evil.mjs'), path.join(project, '.claude', 'settings.json'), path.join(project, '.claude', 'settings.local.json'), path.join(project, '.mcp.json'), path.join(home, '.threadbear', 'x.json')]) {
+    assert.ok(runsAsCodeByName(file, home), `${file}, plainly`);
+    for (const spelt of spellings(file)) assert.ok(runsAsCodeByName(spelt, home), spelt);
+  }
+  // A directory spelt the same way, and a name that only looks like one.
+  assert.ok(runsAsCodeByName(path.join(project, '.threadbear::$INDEX_ALLOCATION', 'patches', 'evil.ts'), home));
+  assert.ok(runsAsCodeByName(path.join(project, '.threadbear', 'patches. ', 'evil.ts'), home));
+  assert.ok(!runsAsCodeByName(`${path.join(project, 'src', 'index.ts')}::$DATA`, home));
+  assert.ok(!runsAsCodeByName(`${path.join(project, '.threadbear', 'patches', 'notes.md')}::$DATA`, home));
+  assert.ok(!runsAsCodeByName(`${path.join(project, '.threadbear', 'patches', 'evil.ts.bak')}. `, home));
+  // The real thing: writing through the stream spelling makes the real patch, and the name check agrees it's one.
+  const spelt = `${path.join(project, '.threadbear', 'patches', 'made.ts')}::$DATA`;
+  fs.writeFileSync(spelt, 'export default {};\n');
+  assert.ok(fs.existsSync(path.join(project, '.threadbear', 'patches', 'made.ts')), 'the stream spelling made made.ts');
+  assert.ok(runsAsCodeByName(spelt, home));
+});
+
+test("a script a hashed patch names that isn't there yet is covered when it's written by its stream spelling too (Windows)", { skip: process.platform === 'win32' ? false : 'NTFS names are Windows only' }, async () => {
+  const folder = path.join(tmpDir(), 'app');
+  fs.mkdirSync(path.join(folder, '.git'), { recursive: true });
+  put(path.join(folder, '.threadbear', 'patches', 'p.ts'), "export default { actions: [{ title: 'Go', run: './scripts/new.sh' }] };\n");
+  const patch = path.join(folder, '.threadbear', 'patches', 'p.ts');
+  const trust = new PatchTrust();
+  trust.trustCurrent([patch]);
+  await trust.check(patch, 0);
+  const made = path.join(folder, 'scripts', 'new.sh');
+  assert.equal(trust.covers(canonicalPath(made)), true, 'by its name');
+  for (const spelt of [`${made}::$DATA`, `${made}.`, `${made} `]) {
+    assert.equal(canonicalPath(spelt), canonicalPath(made), spelt);
+    assert.equal(trust.covers(canonicalPath(spelt)), true, spelt);
+  }
+  assert.equal(trust.covers(canonicalPath(`${path.join(folder, 'scripts', 'other.sh')}::$DATA`)), false);
+});
+
 test('what counts as code by name, and what the runner adds: files a hashed patch covers, scripts Claude settings name', async () => {
   const home = tmpDir();
   assert.ok(runsAsCodeByName('/x/.threadbear/patches/a.mjs', home));
@@ -426,7 +492,7 @@ test("Codex review, round 2: the runner's data dir, a link to a patch not there 
   // A home patch (root is home here) whose hook runs a script from the
   // thread's folder, and one naming an absolute script that isn't there.
   const missing = path.join(tmpDir(), 'on-end.sh');
-  put(path.join(root, '.threadbear', 'patches', 'mine.ts'), `export default { hooks: [{ title: 'Lint', on: 'turn.end', run: "sh ./scripts/lint.sh" }, { title: 'End', on: 'turn.end', run: ${JSON.stringify(missing)} }] };\n`);
+  put(path.join(root, '.threadbear', 'patches', 'mine.ts'), `export default { hooks: [{ title: 'Lint', on: 'turn.end', run: "sh ./scripts/lint.sh" }, { title: 'End', on: 'turn.end', run: ${JSON.stringify(shPath(missing))} }] };\n`);
   put(path.join(project, 'scripts', 'lint.sh'), '#!/bin/sh\ntrue\n');
   const h = makeHarness(home, {}, {
     panelsRoot: root,

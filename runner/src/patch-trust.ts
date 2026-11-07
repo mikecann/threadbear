@@ -53,6 +53,7 @@ import { fileURLToPath } from 'node:url';
 import { parseSync } from 'oxc-parser';
 import { atomicWriteFileSync } from './fsutil.ts';
 import { claudeCommands, type ClaudeOptions } from './claude-trust.ts';
+import { realPath, realPathSync, slashes } from './platform.ts';
 import { looksRunnable, MAX_READ_BYTES, reachOf, reachOfCommand, Reads, type FollowOptions } from './script-trust.ts';
 
 export type TrustVerdict =
@@ -470,8 +471,9 @@ export class PatchTrust implements PatchTrustStore {
   }
 
   // The patch's hash with its helpers'. Cached until anything it was made
-  // from changes: a file's inode, size, mtime, ctime or mode (ctime can't
-  // be set back, so a write that restores the mtime still shows), a
+  // from changes: a file's inode, size, mtime, ctime or mode (on macOS and
+  // Linux ctime can't be set back, so a write that restores the mtime still
+  // shows; on NTFS it can, so Windows reads the bytes again as well), a
   // symlink on the way to one retargeted, or a missing one turning up (a
   // stat and a realpath each; patches are read every 15 seconds).
   private hashOf(file: string): HashEntry {
@@ -632,6 +634,11 @@ export function patchHash(file: string): PatchHash {
         deps.push({ path: f });
       }
       for (const m of reach.missing) if (unnamed.size < 2000) unnamed.add(m);
+      // A Windows network or device path could be a file of the repo's
+      // under another name, and can't be hashed: the patch can't be trusted
+      // (an action's command that can't be followed is let go, but this one
+      // may hide the very file that runs).
+      if (reach.refused) incomplete ??= `patch trust won't follow ${reach.refused}: it could be a file in the repo under another name, so trusting the patch couldn't cover it.`;
     }
   }
   const missing = [...unnamed];
@@ -908,7 +915,7 @@ export function unhashedFiles(command: string, folder: string, files: string[]):
   const real = realpath(folder);
   const top = repoTop(real);
   const reach = reachOfCommand(command, 'the action', { folder: real, top, scanJs: scriptScan, resolveImport: resolveHelper, namedPaths });
-  return reach.files.filter((f) => !files.includes(f) && !PICTURES.includes(path.extname(f).toLowerCase())).map((f) => path.relative(real, f));
+  return reach.files.filter((f) => !files.includes(f) && !PICTURES.includes(path.extname(f).toLowerCase())).map((f) => slashes(path.relative(real, f)));
 }
 
 // The files a shell command run in `folder` reaches, as patch trust
@@ -938,9 +945,9 @@ export function liveCommandProblem(command: string, folder: string, files: strin
   const top = repoTop(real);
   const reach = reachOfCommand(command, `\`${command.length > 80 ? command.slice(0, 80) + '...' : command}\``, { folder: real, top, scanJs: scriptScan, resolveImport: resolveHelper, namedPaths });
   const missed = reach.files.find((f) => !files.includes(f) && !PICTURES.includes(path.extname(f).toLowerCase()));
-  if (missed) return `runs ${path.relative(real, missed)}, which patch trust didn't hash: write the command in the patch as plain text, so trusting the patch covers what it runs.`;
+  if (missed) return `runs ${slashes(path.relative(real, missed))}, which patch trust didn't hash: write the command in the patch as plain text, so trusting the patch covers what it runs.`;
   const stuck = reach.files.find((f) => Object.hasOwn(blocked, f) && blocked[f]);
-  if (stuck) return `runs ${path.relative(real, stuck)}, and patch trust can't follow everything that runs: ${blocked[stuck]}`;
+  if (stuck) return `runs ${slashes(path.relative(real, stuck))}, and patch trust can't follow everything that runs: ${blocked[stuck]}`;
   if (reach.problem) return reach.problem;
   return undefined;
 }
@@ -1027,12 +1034,10 @@ export function folderKeyOfDir(dir: string): string {
   return main ? path.join(realpath(main), path.relative(top, folder)) : folder;
 }
 
+// The real form of a path, as it is when it isn't there (platform.ts): the
+// one every path here is compared by.
 function realpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
+  return realPath(p);
 }
 
 // The nearest folder from `dir` up with a `.git`, when that `.git` is a
@@ -1071,14 +1076,14 @@ export function worktreeOf(dir: string): { top: string; main: string } | undefin
 // symlinked .git as the worktree it points at (Gautam's scan, 6 Nov).
 export function mainCheckoutOf(top: string): string | undefined {
   try {
-    const realTop = fs.realpathSync(top);
+    const realTop = realPathSync(top);
     const dotGit = path.join(realTop, '.git');
     if (!fs.lstatSync(dotGit).isFile()) return undefined;
     const named = gitdirLine(readHead(dotGit));
     if (!named) return undefined;
     const gitdir = path.resolve(realTop, named);
     const back = path.resolve(gitdir, readHead(path.join(gitdir, 'gitdir')).trim());
-    if (path.basename(back) !== '.git' || fs.realpathSync(path.dirname(back)) !== realTop) return undefined;
+    if (path.basename(back) !== '.git' || realPathSync(path.dirname(back)) !== realTop) return undefined;
     const common = path.resolve(gitdir, readHead(path.join(gitdir, 'commondir')).trim());
     const name = path.relative(path.join(common, 'worktrees'), gitdir);
     if (path.basename(common) !== '.git' || !name || name.startsWith('..') || name.includes(path.sep)) return undefined;

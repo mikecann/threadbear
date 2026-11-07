@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { makeHarness, tmpDir, type Harness } from '../helpers/fakes.ts';
 import { checkSequence, checkSummary } from '../helpers/protocol-check.ts';
 import { findWorktreePatch, readPatchModule } from '../../src/patches.ts';
@@ -16,6 +16,7 @@ import { readToken } from '../../src/config.ts';
 import { nullLogger } from '../../src/log.ts';
 import { PATIENCE_MS } from '../helpers/patience.ts';
 import { PatchTrust } from '../../src/patch-trust.ts';
+import { SHELL, escapeRegExp, sh, shPath } from '../helpers/platform.ts';
 
 // Commits need a name, and Mike's own git config (signing, hooks) mustn't
 // reach the temp repos. Each test file runs in its own process.
@@ -29,10 +30,6 @@ Object.assign(process.env, {
 });
 
 const TB = path.join(import.meta.dirname, '..', '..', 'bin', 'tb');
-
-function sh(cwd: string, cmd: string): string {
-  return execFileSync('/bin/sh', ['-c', cmd], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-}
 
 function write(dir: string, files: Record<string, string>): void {
   for (const [name, text] of Object.entries(files)) {
@@ -62,13 +59,20 @@ function makeRepo(patch = PATCH(`{ setup: "echo setting up in $PWD; touch .setup
 // A thread/ worktree of `main` by hand, for the landing tests.
 function makeBranch(main: string, id8 = 'abcd1234'): LandTarget {
   const wt = path.join(path.dirname(main), 'proj-threads', id8);
-  sh(main, `git worktree add -q -b thread/${id8} ${wt} main`);
+  sh(main, `git worktree add -q -b thread/${id8} "${shPath(wt)}" main`);
   return { path: wt, branch: `thread/${id8}`, mainCheckout: main };
 }
 
 function commit(dir: string, files: Record<string, string>, message: string): void {
   write(dir, files);
   sh(dir, `git add -A && git commit -qm "${message}"`);
+}
+
+// Executable on disk and in git's index. A Windows checkout has no modes, so
+// chmod alone changes nothing git can see.
+function markExecutable(dir: string, files: string[]): void {
+  for (const f of files) fs.chmodSync(path.join(dir, f), 0o755);
+  sh(dir, `git add -A && git update-index --chmod=+x ${files.join(' ')} && git commit -qm modes`);
 }
 
 function capture() {
@@ -86,7 +90,7 @@ async function until(check: () => boolean, what: string, ms = PATIENCE_MS): Prom
 }
 
 function harness(): Harness {
-  return makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 10_000 });
+  return makeHarness(undefined, {}, { actionShell: SHELL, actionTimeoutMs: 10_000 });
 }
 
 // --------------------------------------------------------------- patches
@@ -146,7 +150,7 @@ test('a new thread in an opted-in repo gets its own worktree, cwd, setup run, br
   await until(() => h.adapter.sessions.length === 1, 'the CLI to start');
   const s = h.adapter.last;
   assert.equal(s.opts.cwd, path.join(wt, 'runner'), 'the same subfolder of the worktree');
-  assert.match(s.opts.instructions ?? '', new RegExp(`own git worktree of proj at ${wt}, on the branch thread/${id8}, made from main`));
+  assert.match(s.opts.instructions ?? '', new RegExp(`own git worktree of proj at ${escapeRegExp(wt)}, on the branch thread/${id8}, made from main`));
   assert.match(s.opts.instructions ?? '', /run `tb land` in the worktree/);
   assert.equal(sh(wt, 'git rev-parse --abbrev-ref HEAD'), `thread/${id8}`);
   assert.equal(sh(wt, 'git rev-parse HEAD'), sh(main, 'git rev-parse main'));
@@ -162,7 +166,7 @@ test('a new thread in an opted-in repo gets its own worktree, cwd, setup run, br
   assert.equal(setup.title, 'Set up the worktree');
   assert.equal(setup.patch, 'checks');
   assert.equal(setup.ok, true);
-  assert.match(setup.text, new RegExp(`setting up in ${wt}\n`));
+  assert.match(setup.text, new RegExp(`setting up in ${escapeRegExp(sh(wt, 'pwd'))}\n`));
 
   const summary = h.runner.get(thread.id);
   assert.deepEqual(checkSummary(summary), []);
@@ -174,7 +178,7 @@ test('a new thread in an opted-in repo gets its own worktree, cwd, setup run, br
   assert.equal(land.title, 'Land');
   // The path is shell-quoted when it has a space, as the updater's own clone
   // under Application Support does, so allow a closing quote before ` land`.
-  assert.match(land.command ?? '', /\/bin\/tb'? land$/);
+  assert.match(land.command ?? '', new RegExp(`${escapeRegExp(path.sep)}bin${escapeRegExp(path.sep)}tb'? land$`));
   assert.ok(h.runner.get(thread.id).patches?.some((p) => p.id === 'worktree' && p.source === 'builtin'));
   const rec = h.store.load(thread.id);
   assert.deepEqual(rec?.worktree, { repo: 'proj', mainCheckout: main, path: wt, branch: `thread/${id8}`, base: sh(main, 'git rev-parse main') });
@@ -239,7 +243,7 @@ test('a failing setup is shown and the turn starts anyway', async () => {
 // script changed on main): it's the worktree's own copy of the patch, and
 // the scripts it names there, that must be trusted (Daybreak, 5 Nov).
 test("setup runs only when the worktree's own copy of the patch is trusted, and it's that copy's setup", async () => {
-  const opts = { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 10_000 };
+  const opts = { actionShell: SHELL, actionTimeoutMs: 10_000 };
   const file = (main: string) => path.join(main, '.threadbear/patches/checks.ts');
 
   // Committed: a setup script that does harm. In the main checkout, not
@@ -266,9 +270,7 @@ test("setup runs only when the worktree's own copy of the patch is trusted, and 
   // by the absolute path of the worktree's script.
   const good = makeRepo(PATCH(`{ setup: "./committed.sh" }`));
   commit(good.main, { 'committed.sh': '#!/bin/sh\ntouch .committed-ran\n', 'main.sh': '#!/bin/sh\ntouch .main-ran\n' }, 'scripts');
-  fs.chmodSync(path.join(good.main, 'committed.sh'), 0o755);
-  fs.chmodSync(path.join(good.main, 'main.sh'), 0o755);
-  sh(good.main, 'git add -A && git commit -qm modes');
+  markExecutable(good.main, ['committed.sh', 'main.sh']);
   const t2 = new PatchTrust();
   t2.trustCurrent([file(good.main)]);
   fs.writeFileSync(file(good.main), PATCH(`{ setup: "./main.sh" }`));
@@ -288,12 +290,12 @@ test("setup runs only when the worktree's own copy of the patch is trusted, and 
 // the setup names it. `cd scripts && ./setup.sh` kept its trust while
 // scripts/setup.sh changed, as the hash only saw ./setup.sh.
 test('changing only the setup script needs trusting again before a thread runs it; a setup that cds first never runs', async () => {
-  const opts = { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 10_000 };
+  const opts = { actionShell: SHELL, actionTimeoutMs: 10_000 };
   const file = (main: string) => path.join(main, '.threadbear/patches/checks.ts');
 
   const cd = makeRepo(PATCH(`{ setup: "cd scripts && ./setup.sh" }`));
   commit(cd.main, { 'scripts/setup.sh': 'touch ../.setup-ran\n' }, 'setup');
-  sh(cd.main, 'chmod +x scripts/setup.sh && git add -A && git commit -qm mode');
+  markExecutable(cd.main, ['scripts/setup.sh']);
   const trust = new PatchTrust();
   trust.trustCurrent([file(cd.main)]);
   // A commit changes only the script the trusted command reaches.
@@ -314,7 +316,7 @@ test('changing only the setup script needs trusting again before a thread runs i
   // Named as one script: trusted, then a commit changes only the script.
   const one = makeRepo(PATCH(`{ setup: "./scripts/setup.sh" }`));
   commit(one.main, { 'scripts/setup.sh': '#!/bin/sh\ntouch .setup-ran\n' }, 'setup');
-  sh(one.main, 'chmod +x scripts/setup.sh && git add -A && git commit -qm mode');
+  markExecutable(one.main, ['scripts/setup.sh']);
   const t2 = new PatchTrust();
   t2.trustCurrent([file(one.main)]);
   commit(one.main, { 'scripts/setup.sh': '#!/bin/sh\ntouch .evil-ran\n' }, 'evil');
@@ -340,13 +342,13 @@ test('changing only the setup script needs trusting again before a thread runs i
 // hashed the same when only a script its setup runs had changed, so the
 // changed helper ran before the first turn. Now the helper is in the hash.
 test("a worktree whose setup script is unchanged but whose helper changed doesn't run the setup; trusting that version does", async () => {
-  const opts = { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 10_000 };
+  const opts = { actionShell: SHELL, actionTimeoutMs: 10_000 };
   const file = (main: string) => path.join(main, '.threadbear/patches/checks.ts');
   const r = makeRepo(PATCH(`{ setup: "./setup.sh" }`));
   // Committed: an unchanged setup.sh that runs a harmful helper. In the main
   // checkout, not committed: a harmless helper, and that's what was trusted.
   commit(r.main, { 'setup.sh': '#!/bin/sh\n"$(dirname "$0")/scripts/helper.sh"\n', 'scripts/helper.sh': '#!/bin/sh\ntouch .evil-ran\n' }, 'setup');
-  sh(r.main, 'chmod +x setup.sh scripts/helper.sh && git add -A && git commit -qm modes');
+  markExecutable(r.main, ['setup.sh', 'scripts/helper.sh']);
   fs.writeFileSync(path.join(r.main, 'scripts/helper.sh'), '#!/bin/sh\ntouch .setup-ran\n');
   const trust = new PatchTrust();
   trust.trustCurrent([file(r.main)]);
@@ -391,7 +393,7 @@ test('threads.create takes worktree: false over RPC, and refuses a worktree that
 // --------------------------------------------------------------- landing
 
 test('the Land chip can wait beyond the ordinary command timeout', async () => {
-  const h = makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 20 });
+  const h = makeHarness(undefined, {}, { actionShell: SHELL, actionTimeoutMs: 20 });
   const { thread } = h.runner.create({ text: 'Go', accountId: 'claude-3', cwd: tmpDir() });
   const action = { id: 'worktree.land', title: 'Land', kind: 'command' as const, patch: 'worktree', command: 'sleep 0.1; echo checked' };
   h.runner.worktreeAction = () => action;
@@ -411,7 +413,8 @@ if test -f first.txt && ! test -f second.txt; then
 fi
 if test -f second.txt; then test -f first.txt && test "$1" = --latest; fi
 ` }, 'Add check');
-  sh(main, 'chmod +x check.sh && git add check.sh && git commit -qm executable');
+  // --chmod, not chmod: NTFS has no executable bit for git to see.
+  sh(main, 'git add --chmod=+x check.sh && git commit -qm executable');
   const a = makeBranch(main, 'first');
   const b = makeBranch(main, 'second');
   commit(a.path, { 'first.txt': 'first\n', '.threadbear/patches/checks.ts': PATCH(`{ check: "./check.sh --latest" }`) }, 'First');
@@ -549,7 +552,7 @@ test('land refuses with uncommitted changes in the worktree, and says which file
   const c = capture();
   assert.equal(await land({ ...t, check: 'touch ran-check' }, c.opts), 1);
   const text = c.err.join('\n');
-  assert.match(text, new RegExp(`^There are uncommitted changes in ${t.path}, so nothing landed:\n  M README.md\n  \\?\\? new.txt\nCommit them`));
+  assert.match(text, new RegExp(`^There are uncommitted changes in ${escapeRegExp(t.path)}, so nothing landed:\n  M README.md\n  \\?\\? new.txt\nCommit them`));
   assert.equal(sh(main, 'git rev-parse main'), before);
   assert.ok(!fs.existsSync(path.join(t.path, 'ran-check')), 'the check never ran');
 });
@@ -676,7 +679,7 @@ test('tb land outside a thread goes by git: the thread/ branch, main\'s checkout
   const dry = await runTb(['land', '--dry-run'], path.join(t.path, 'runner'), env);
   assert.equal(dry.code, 0, dry.out);
   assert.match(dry.out, /^Running the check: echo checking in \$PWD\nThe check passed/);
-  assert.match(dry.out, new RegExp(`Would land on main in ${main}:\n[0-9a-f]+ Add b\n$`));
+  assert.match(dry.out, new RegExp(`Would land on main in ${escapeRegExp(main)}:\n[0-9a-f]+ Add b\n$`));
   assert.equal(sh(main, 'git log -1 --format=%s'), 'init');
 
   const elsewhere = await runTb(['land'], main, env);
@@ -699,7 +702,7 @@ test('tb land inside a thread asks the runner where its worktree is, wherever it
     commit(wt, { 'runner/b.ts': '2\n' }, 'Thread work');
     const r = await runTb(['land'], fs.realpathSync(tmpDir()), { THREADBEAR_THREAD_ID: thread.id, THREADBEAR_HOME: h.home, THREADBEAR_URL: `ws://127.0.0.1:${port}/rpc` });
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, new RegExp(`Landed on main in ${main}:\n[0-9a-f]+ Thread work\n$`));
+    assert.match(r.out, new RegExp(`Landed on main in ${escapeRegExp(main)}:\n[0-9a-f]+ Thread work\n$`));
     assert.equal(sh(main, 'git log -1 --format=%s'), 'Thread work');
   } finally {
     await server.close();
@@ -748,7 +751,7 @@ test('archiving a thread whose branch is all on main removes its worktree and br
   assert.ok(notes(h, id).includes(`This thread's worktree was removed when it was archived, so it carries on in the main checkout, ${path.join(main, 'runner')}.`));
   const sent = h.adapter.last.sent.at(-1)!.text;
   // After the handoff note (the test harness can't carry the transcript).
-  assert.match(sent, new RegExp(`\n\n\\[Threadbear\\] Your worktree at ${w.path} was removed after its work landed on main\\. You're now in the main checkout`));
+  assert.match(sent, new RegExp(`\n\n\\[Threadbear\\] Your worktree at ${escapeRegExp(w.path)} was removed after its work landed on main\\. You're now in the main checkout`));
   assert.match(sent, /More please$/);
   assert.doesNotMatch(h.adapter.last.opts.instructions ?? '', /own git worktree/, 'a fresh session is no longer told about it');
 });
@@ -796,7 +799,7 @@ test('deleting a thread removes a landed worktree; an unlanded one stays, with a
   h.runner.delete(b.id);
   await until(() => h.notes.some((n) => n.method === 'runner.notice'), 'the notice');
   const notice = h.notes.find((n) => n.method === 'runner.notice') as { params: { message: string } };
-  assert.match(notice.params.message, new RegExp(`^"Go" was deleted, but its worktree at ${b.w.path} and branch ${b.w.branch} stay: ${b.w.branch.replace('/', '\\/')} has commits that aren't on main\\. To land it, run tb land in ${b.w.path}\\. To drop it`));
+  assert.match(notice.params.message, new RegExp(`^"Go" was deleted, but its worktree at ${escapeRegExp(b.w.path)} and branch ${b.w.branch} stay: ${b.w.branch.replace('/', '\\/')} has commits that aren't on main\\. To land it, run tb land in ${escapeRegExp(b.w.path)}\\. To drop it`));
   assert.ok(fs.existsSync(b.w.path));
 });
 
@@ -804,7 +807,7 @@ test('deleting a thread removes a landed worktree; an unlanded one stays, with a
 
 const KEEP = PATCH(`{ setup: "touch .setup-ran", keep: ["app/.build"] }`);
 
-const isLocked = (main: string, wt: string) => sh(main, 'git worktree list --porcelain').split('\n\n').some((b) => b.includes(`worktree ${wt}\n`) && b.includes('locked threadbear spare'));
+const isLocked = (main: string, wt: string) => sh(main, 'git worktree list --porcelain').split('\n\n').some((b) => b.split('\n').some((l) => l.startsWith('worktree ') && path.normalize(l.slice('worktree '.length)) === wt) && b.includes('locked threadbear spare'));
 
 test('with keep, an archived landed worktree is kept as a spare, and the next thread takes it, build cache and all', async () => {
   const { root, main } = makeRepo(KEEP);
@@ -840,7 +843,7 @@ test('with keep, an archived landed worktree is kept as a spare, and the next th
   h.runner.send(a.id, 'More please');
   await until(() => h.adapter.last.opts.cwd === path.join(main, 'runner'), "a's new CLI in the main checkout");
   assert.ok(notes(h, a.id).includes(`This thread's worktree was handed on to other threads when it was archived, so it carries on in the main checkout, ${path.join(main, 'runner')}.`));
-  assert.match(h.adapter.last.sent.at(-1)!.text, new RegExp(`Your worktree at ${slot} was handed on to other threads after its work landed on main`));
+  assert.match(h.adapter.last.sent.at(-1)!.text, new RegExp(`Your worktree at ${escapeRegExp(slot)} was handed on to other threads after its work landed on main`));
 });
 
 test('with keep, two threads at once never share a spare, and an unlanded worktree is never kept', async () => {
@@ -907,8 +910,8 @@ test('cleanUpWorktree leaves a folder that is now another thread\'s worktree, fr
   const old = makeBranch(main, 'old00000');
   const rec = { repo: 'proj', mainCheckout: main, path: old.path, branch: old.branch, base: sh(main, 'git rev-parse main') };
   // Removed, but the record never heard; then a new thread took the folder.
-  sh(main, `git worktree remove ${old.path} && git branch -D ${old.branch}`);
-  sh(main, `git worktree add -q -b thread/new00000 ${old.path} main`);
+  sh(main, `git worktree remove ${shPath(old.path)} && git branch -D ${old.branch}`);
+  sh(main, `git worktree add -q -b thread/new00000 ${shPath(old.path)} main`);
   write(old.path, { 'scratch.txt': 'the new thread\'s untracked work\n' });
   assert.deepEqual(await cleanUpWorktree(rec), { removed: true, taken: true });
   assert.equal(fs.readFileSync(path.join(old.path, 'scratch.txt'), 'utf8'), 'the new thread\'s untracked work\n');
@@ -930,8 +933,8 @@ test('a thread brought back whose worktree folder is now another\'s carries on i
   const { id, w } = await threadWithWorktree(h, main);
   // As THREADBEAR-16 left it: worktree and branch gone, record not told,
   // and then another thread took the folder.
-  sh(main, `git worktree remove --force ${w.path} && git branch -D ${w.branch}`);
-  sh(main, `git worktree add -q -b thread/zzzz0000 ${w.path} main`);
+  sh(main, `git worktree remove --force ${shPath(w.path)} && git branch -D ${w.branch}`);
+  sh(main, `git worktree add -q -b thread/zzzz0000 ${shPath(w.path)} main`);
   h.runner.update({ threadId: id, archived: true });
   await until(() => notes(h, id).some((n) => n.includes('another')), 'the cleanup');
   assert.ok(fs.existsSync(w.path), "the other thread's worktree stays");
@@ -945,7 +948,7 @@ test("at start, an archived thread whose worktree and branch went unrecorded is 
   const h = harness();
   const lost = await threadWithWorktree(h, main);
   const kept = await threadWithWorktree(h, main);
-  sh(main, `git worktree remove --force ${lost.w.path} && git branch -D ${lost.w.branch}`);
+  sh(main, `git worktree remove --force ${shPath(lost.w.path)} && git branch -D ${lost.w.branch}`);
   const threads = (h.runner as any).threads;
   for (const id of [lost.id, kept.id]) threads.get(id).rec.archivedAt = new Date(h.clock.now()).toISOString();
   await h.runner.settleLostCleanups();
@@ -1007,8 +1010,8 @@ test('at start, an archived thread whose slot folder another thread has since ta
   const { main } = makeRepo();
   const h = harness();
   const { id, w } = await threadWithWorktree(h, main);
-  sh(main, `git worktree remove --force ${w.path} && git branch -D ${w.branch}`);
-  sh(main, `git worktree add -q -b thread/yyyy0000 ${w.path} main`);
+  sh(main, `git worktree remove --force ${shPath(w.path)} && git branch -D ${w.branch}`);
+  sh(main, `git worktree add -q -b thread/yyyy0000 ${shPath(w.path)} main`);
   const rec = (h.runner as any).threads.get(id).rec;
   rec.archivedAt = new Date(h.clock.now()).toISOString();
   await h.runner.settleLostCleanups();
@@ -1021,8 +1024,8 @@ test('a message sent to a stale archived thread while the start check runs waits
   const { main } = makeRepo();
   const h = harness();
   const { id, w } = await threadWithWorktree(h, main);
-  sh(main, `git worktree remove --force ${w.path} && git branch -D ${w.branch}`);
-  sh(main, `git worktree add -q -b thread/xxxx0000 ${w.path} main`);
+  sh(main, `git worktree remove --force ${shPath(w.path)} && git branch -D ${w.branch}`);
+  sh(main, `git worktree add -q -b thread/xxxx0000 ${shPath(w.path)} main`);
   // As at a start: no CLI, archived.
   const st = (h.runner as any).threads.get(id);
   (h.runner as any).releaseSession(st);

@@ -1750,7 +1750,7 @@ test('pasted pictures: go up as they are sent, each named for its marker, never 
   await settle(sync);
   // The runner copies a message's pictures into the thread's own media folder.
   assert.deepEqual(added().map((a) => [a.threadId, a.src, a.width]), [[before.id, 'picture:1', 400], [before.id, 'picture:2', 400]]);
-  assert.ok(added().every((a) => String(a.path).includes('/media/')));
+  assert.ok(added().every((a) => String(a.path).includes(`${path.sep}media${path.sep}`)));
   assert.equal(added()[0]!.seq, added()[1]!.seq);
   await sync.stop();
 });

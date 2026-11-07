@@ -1945,7 +1945,7 @@ function bruceFile(file) {
 // files.read as the runner answers it (runner/src/files.ts): bruce's made-up
 // files for bruce's clients, real ones on this Mac for this runner's.
 function readFile(client, p) {
-  if (typeof p.path !== 'string' || !p.path.startsWith('/')) throw rpcError(-32602, `path must be absolute: ${p.path}`);
+  if (typeof p.path !== 'string' || !path.isAbsolute(p.path)) throw rpcError(-32602, `path must be absolute: ${p.path}`);
   let bytes;
   let modifiedAt;
   if (client.as === BRUCE) {
@@ -1977,7 +1977,7 @@ function readFile(client, p) {
 // folder for bruce's clients (each of bruce's files' folders holds it),
 // the real one on this Mac for this runner's.
 function listFolder(client, p) {
-  if (typeof p.path !== 'string' || !p.path.startsWith('/')) throw rpcError(-32602, `path must be absolute: ${p.path}`);
+  if (typeof p.path !== 'string' || !path.isAbsolute(p.path)) throw rpcError(-32602, `path must be absolute: ${p.path}`);
   if (client.as === BRUCE) {
     const files = Object.values(BRUCE_FILES);
     const within = files.filter((f) => f.startsWith(`${p.path.replace(/\/$/, '')}/`)).map((f) => f.slice(p.path.replace(/\/$/, '').length + 1));

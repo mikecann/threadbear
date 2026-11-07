@@ -5,6 +5,7 @@ import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
 import type { BackgroundTask } from './adapters/types.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
+import { IS_WINDOWS } from './platform.ts';
 
 // Background jobs that look stuck (docs/protocol.md, "Stuck background
 // jobs"). A thread whose turn has ended stays in Running while its CLI
@@ -135,13 +136,18 @@ export class StuckJobs {
   // When a job waiting on Mike (waitsOnUserMs) stops being left alone, by thread/task.
   private waitDeadline = new Map<string, number>();
 
+  // Windows has no ps or lsof to look at a CLI's shells with, so without a
+  // probe of its own there is nothing to do there: it never arms.
+  private readonly off: boolean;
+
   constructor(deps: Deps) {
     this.deps = deps;
+    this.off = IS_WINDOWS && !deps.probe;
     this.probe = deps.probe ?? realProbe();
   }
 
   start(): void {
-    this.arm();
+    if (!this.off) this.arm();
   }
 
   stop(): void {
@@ -156,7 +162,7 @@ export class StuckJobs {
   }
 
   async sweep(): Promise<void> {
-    if (this.sweeping) return;
+    if (this.off || this.sweeping) return;
     this.sweeping = true;
     try {
       await this.look();

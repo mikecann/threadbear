@@ -91,7 +91,8 @@ function setup(o: { now?: number; limits?: string } = {}) {
   const home = path.join(root, 'home');
   const write = (text: string) => {
     const tmp = limitsFile + '.tmp';
-    fs.writeFileSync(tmp, text.replaceAll('/Users/example', home));
+    // Into JSON text, so as JSON would write the path (backslashes escaped).
+    fs.writeFileSync(tmp, text.replaceAll('/Users/example', JSON.stringify(home).slice(1, -1)));
     fs.renameSync(tmp, limitsFile);
   };
   write(o.limits ?? LIMITS_FIXTURE);

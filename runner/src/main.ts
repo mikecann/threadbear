@@ -1,6 +1,7 @@
 // Runner entry point: `node src/main.ts`. launchd runs this (see
 // scripts/install-runner.sh); tests run it with THREADBEAR_HOME and
 // THREADBEAR_PORT pointing at temp places.
+import './win32-hide.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION } from './config.ts';
@@ -31,7 +32,7 @@ import { hidIdleMs, isAtMac } from './presence.ts';
 import { ThreadStore } from './store.ts';
 import { AccountRegistry } from './accounts.ts';
 import { ClaudeAdapter } from './adapters/claude/adapter.ts';
-import { ProcessRegistry } from './proc.ts';
+import { ProcessRegistry, killGroup } from './proc.ts';
 import { Runner } from './runner.ts';
 import { CodexAdapter } from './adapters/codex/adapter.ts';
 import { resolveCodexBinary } from './adapters/codex/appserver.ts';
@@ -70,8 +71,9 @@ export const REPORTS_LISTENING = true;
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
-  ensureHome(cfg.home);
+  const homeWarning = ensureHome(cfg.home);
   const log = createLogger(cfg.logFile, { echo: process.env.THREADBEAR_LOG_STDERR === '1', debug: process.env.THREADBEAR_DEBUG === '1', onError: reportLoggedError, onWarn: reportLoggedWarning });
+  if (homeWarning) log.warn(homeWarning);
   // Only the installed runner reports to Sentry (sentry.ts says why).
   const reporting = await startSentry(cfg.home);
   log.info('runner starting', { version: RUNNER_VERSION, home: cfg.home, port: cfg.port, pid: process.pid, sentry: reporting });
@@ -443,6 +445,7 @@ async function main(): Promise<void> {
     });
   }
   if (swept) runner.startupNotice('info', `Stopped ${swept === 1 ? 'a process group' : `${swept} process groups`} left running by the previous runner.`);
+  if (homeWarning) runner.startupNotice('warning', homeWarning);
 
   // launch.mjs went back to this release because a newer one kept crashing
   // at startup. Every client that says hello hears about it, not just the
@@ -890,19 +893,14 @@ async function main(): Promise<void> {
   // Last resort if the process exits some other way: kill the CLI groups
   // synchronously so they never outlive the runner.
   process.on('exit', () => {
-    for (const pid of registry.pids()) {
-      try {
-        process.kill(-pid, 'SIGKILL');
-      } catch {
-        // gone
-      }
-    }
+    for (const pid of registry.pids()) killGroup(pid, 'SIGKILL');
   });
 }
 
 // A warning when the Codex binary new sessions would start isn't there, or
 // undefined. Threadbear's own copy may still be on its way.
 function missingCodex(start: string, cfg: ReturnType<typeof loadConfig>): string | undefined {
+  if (process.platform === 'win32') return undefined; // no Codex on Windows
   const bin = resolveCodexBinary(start);
   if (fs.existsSync(bin.command)) return undefined;
   if (cfg.codexPath) return `The codex CLI isn't at ${cfg.codexPath} (codexPath in runner.json), so Codex threads can't start.`;

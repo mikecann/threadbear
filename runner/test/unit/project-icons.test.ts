@@ -11,6 +11,9 @@ import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import { FakeClock } from '../../src/clock.ts';
 import { nullLogger } from '../../src/log.ts';
 import type { GenerateParams, ModelResult } from '../../src/models/index.ts';
+import { skipOnWindows } from '../helpers/platform.ts';
+
+const NO_RESIZE = "Pictures are resized with sips or ImageMagick, which the Windows port doesn't use yet";
 
 // A real PNG of one colour, so sips can read it.
 function png(w: number, h: number, rgb: [number, number, number] = [200, 80, 40]): Buffer {
@@ -116,7 +119,7 @@ function setup(models?: (p: GenerateParams) => ModelResult<string>) {
   return { h, root, home, clock, projects, librarian, asked, settle };
 }
 
-test('the librarian copies a project icon in, follows the file when it changes, and takes it away with the project', async () => {
+test('the librarian copies a project icon in, follows the file when it changes, and takes it away with the project', skipOnWindows(NO_RESIZE), async () => {
   const s = setup();
   const app = folder(s.root, 'walkies', { 'Walkies/Assets.xcassets/AppIcon.appiconset/AppIcon.png': png(1024, 1024) });
   const p = s.projects.create({ title: 'Walkies', folders: [app], by: 'mike' });
@@ -200,7 +203,7 @@ test("Mike's and agents' choices stay until set back to automatic", async () => 
   s.librarian.stop();
 });
 
-test('the phone gets a PNG as it is and an SVG drawn to a 256 px PNG', async () => {
+test('the phone gets a PNG as it is and an SVG drawn to a 256 px PNG', skipOnWindows(NO_RESIZE), async () => {
   const dir = tmpDir();
   const pngPath = path.join(dir, 'p1-aaa.png');
   fs.writeFileSync(pngPath, png(8, 8));

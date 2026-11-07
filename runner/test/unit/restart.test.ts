@@ -12,6 +12,7 @@ import { nullLogger } from '../../src/log.ts';
 import { RpcError } from '../../src/protocol.ts';
 import { checkSequence } from '../helpers/protocol-check.ts';
 import { tmpDir } from '../helpers/fakes.ts';
+import { NO_LINKS_ON_WINDOWS } from '../helpers/platform.ts';
 
 const MIN = 60_000;
 
@@ -646,7 +647,7 @@ test('a pending restart can be cancelled until it begins', async () => {
   assert.throws(() => r.request({ cancel: true }), (e: RpcError) => e.code === -32020);
 });
 
-test("cancelling a deploy's restart points current back at the running release", () => {
+test("cancelling a deploy's restart points current back at the running release", NO_LINKS_ON_WINDOWS, () => {
   const h = makeHarness();
   // A data dir with releases A (running) and B (a deploy made current).
   const dir = path.join(h.home, 'runner');
@@ -962,9 +963,9 @@ test('every CLI gets THREADBEAR_THREAD_ID, THREADBEAR_HOME and THREADBEAR_RUNNER
   assert.equal(env.THREADBEAR_MEDIA_DIR, path.join(h.home, 'threads', thread.id, 'media'));
   assert.match(env.THREADBEAR_RUNNER_VERSION, /^\d+\.\d+\.\d+\+/);
   // This runner's bin/ first, so a bare `tb` in the thread is its tb.
-  assert.equal(env.PATH.split(':')[0], path.resolve(import.meta.dirname, '..', '..', 'bin'));
-  assert.ok(fs.existsSync(path.join(env.PATH.split(':')[0], 'tb')));
-  assert.equal(env.PATH.split(':').slice(1).join(':'), process.env.PATH);
+  assert.equal(env.PATH.split(path.delimiter)[0], path.resolve(import.meta.dirname, '..', '..', 'bin'));
+  assert.ok(fs.existsSync(path.join(env.PATH.split(path.delimiter)[0], 'tb')));
+  assert.equal(env.PATH.split(path.delimiter).slice(1).join(path.delimiter), process.env.PATH);
 
   // The Claude adapter puts them in the CLI's environment, over anything
   // inherited (a runner started from inside a thread has its own).

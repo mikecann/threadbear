@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { atomicWriteFileSync } from './fsutil.ts';
+import { chmodSafe, claudeBinaryFor, codexOnPath, dataDirFor, dataDirWarning, logFileFor, tokenStatsDirFor } from './platform.ts';
 import { RELEASE } from './release.ts';
 import { findGateway, gatewayBase } from './connectors.ts';
 import { findGatewayClient } from './notion-tasks.ts';
@@ -36,7 +37,8 @@ export type CliUpdatesConfig = {
   checkMinutes: number;
   keepCodexVersions: number; // Codex copies kept under <home>/tools/codex
 };
-export const DEFAULT_CLI_UPDATES: CliUpdatesConfig = { claude: 'auto', codex: 'auto', checkMinutes: 60, keepCodexVersions: 2 };
+// Threadbear doesn't install or update Codex on Windows (it uses a codex.exe on the PATH), so its updates are off there.
+export const DEFAULT_CLI_UPDATES: CliUpdatesConfig = { claude: 'auto', codex: process.platform === 'win32' ? 'off' : 'auto', checkMinutes: 60, keepCodexVersions: 2 };
 
 // Everything that differs between the real install and a test lives here, so
 // tests can point THREADBEAR_HOME and THREADBEAR_PORT somewhere harmless and
@@ -182,12 +184,12 @@ export type RunnerJson = {
 };
 
 export function defaultHome(): string {
-  return path.join(os.homedir(), 'Library', 'Application Support', 'Threadbear');
+  return dataDirFor();
 }
 
 export function expandHome(p: string): string {
   if (p === '~') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  if (p.startsWith('~/') || (process.platform === 'win32' && p.startsWith('~\\'))) return path.join(os.homedir(), p.slice(2));
   return p;
 }
 
@@ -237,7 +239,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ? Number(env.THREADBEAR_IDLE_MS)
     : (json.idleMinutes ?? 30) * 60_000;
   const maxLive = Number(env.THREADBEAR_MAX_LIVE || json.maxLiveCLIs || DEFAULT_MAX_LIVE);
-  const codexPath = nonEmpty(env.THREADBEAR_CODEX_PATH) ?? nonEmpty(json.codexPath);
+  // On Windows there is no codex next to Node (npm's is a .cmd), so a native
+  // install's codex.exe on the PATH is the default; with none, Codex stays off.
+  const codexPath = nonEmpty(env.THREADBEAR_CODEX_PATH) ?? nonEmpty(json.codexPath) ?? (process.platform === 'win32' ? codexOnPath({ env }) : undefined);
   const models = providerMap(json.defaults?.models, nonEmpty);
   const efforts = providerMap(json.defaults?.efforts, (v) => (isEffortLevel(v) ? v : undefined));
   return {
@@ -245,8 +249,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     host: '127.0.0.1',
     maxLive: Number.isFinite(maxLive) && maxLive >= 1 ? Math.floor(maxLive) : DEFAULT_MAX_LIVE,
-    logFile: expandHome(env.THREADBEAR_LOG || path.join(os.homedir(), 'Library', 'Logs', 'threadbear-runner.log')),
-    claudePath: expandHome(env.THREADBEAR_CLAUDE_PATH || json.claudePath || '~/.local/bin/claude'),
+    logFile: expandHome(env.THREADBEAR_LOG || logFileFor()),
+    claudePath: expandHome(env.THREADBEAR_CLAUDE_PATH || json.claudePath || claudeBinaryFor()),
     idleMs,
     defaults: {
       cwd: expandHome(json.defaults?.cwd || DEFAULT_CWD),
@@ -259,7 +263,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     claudeMainDir: expandHome(env.THREADBEAR_CLAUDE_MAIN_DIR || '~/.claude'),
     claudeMainJson: expandHome(env.THREADBEAR_CLAUDE_MAIN_JSON || '~/.claude.json'),
     tokenStatsAccountsDir: expandHome(
-      env.THREADBEAR_ACCOUNTS_DIR || '~/Library/Application Support/Token Stats/Accounts',
+      env.THREADBEAR_ACCOUNTS_DIR || path.join(tokenStatsDirFor(), 'Accounts'),
     ),
     accountsDir: path.join(home, 'accounts'),
     followMain: env.THREADBEAR_FOLLOW_MAIN ? env.THREADBEAR_FOLLOW_MAIN !== '0' : json.followMain !== false,
@@ -273,7 +277,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     codexArgs: Array.isArray(json.codexArgs) ? json.codexArgs.filter((a): a is string => typeof a === 'string') : [],
     codexMainDir: expandHome(env.THREADBEAR_CODEX_MAIN_DIR || '~/.codex'),
     tokenStatsLimitsFile: expandHome(
-      env.THREADBEAR_TOKEN_STATS_LIMITS || '~/Library/Application Support/Token Stats/limits.json',
+      env.THREADBEAR_TOKEN_STATS_LIMITS || path.join(tokenStatsDirFor(), 'limits.json'),
     ),
     cliUpdates: cliUpdatesConfig(json.cliUpdates, env.THREADBEAR_CLI_UPDATES),
     tokenTally: env.THREADBEAR_TOKEN_TALLY !== 'off',
@@ -395,19 +399,23 @@ export const paths = {
   run: (home: string) => path.join(home, 'run'),
 };
 
-// Creates the data dir layout and the bearer token (0600) if missing.
-export function ensureHome(home: string): void {
+// Creates the data dir layout and the bearer token (0600) if missing. Returns
+// a warning to log when, on Windows, the data dir is outside the user's
+// profile, where file modes can't keep the token and secrets private
+// (platform.ts's dataDirWarning); undefined otherwise.
+export function ensureHome(home: string): string | undefined {
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(paths.threads(home), { recursive: true });
   fs.mkdirSync(paths.inbox(home), { recursive: true });
   fs.mkdirSync(paths.run(home), { recursive: true });
   fs.mkdirSync(paths.secrets(home), { recursive: true, mode: 0o700 });
-  fs.chmodSync(paths.secrets(home), 0o700);
+  chmodSafe(paths.secrets(home), 0o700);
   const tokenPath = paths.token(home);
   if (!fs.existsSync(tokenPath)) {
     fs.writeFileSync(tokenPath, crypto.randomBytes(32).toString('base64url') + '\n', { mode: 0o600 });
   }
-  fs.chmodSync(tokenPath, 0o600);
+  chmodSafe(tokenPath, 0o600);
+  return dataDirWarning(home);
 }
 
 export function readToken(home: string): string {

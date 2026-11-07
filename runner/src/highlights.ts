@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { PersistedEvent } from './protocol.ts';
 import { replaceLinks, trimEndOf } from './linear-text.ts';
+import { isLocalPath } from './platform.ts';
 
 export type HighlightKind = 'file' | 'link' | 'pr' | 'commit';
 export type HighlightHow = 'pinned' | 'written' | 'opened' | 'mentioned' | 'created' | 'committed';
@@ -283,6 +284,10 @@ export function linksIn(text: string, ctx: { cwd: string; home: string; isFile: 
     const p = stripFileUrl(raw.trim().replace(/:\d+(:\d+)?$/, '')); // file.ts:12 → file.ts
     if (!p.startsWith('/') && !p.startsWith('~/')) return;
     const abs = absolute(p, ctx.cwd, ctx.home);
+    // On Windows `//host/share/x.png` in the agent's text is a network path:
+    // looking for the file would open a connection to that host, so such a
+    // path isn't looked at (platform.ts's isLocalPath).
+    if (!isLocalPath(abs)) return;
     const id = `file:${abs}`;
     if (seen.has(id) || !ctx.isFile(abs)) return;
     seen.add(id);

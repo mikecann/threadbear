@@ -9,6 +9,8 @@
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { IS_WINDOWS, realPath } from './platform.ts';
+import { plainShell } from './system-tools.ts';
 import type { WorktreePatch } from './patches.ts';
 import { inBackground } from './background.ts';
 
@@ -54,6 +56,13 @@ async function gitOut(cwd: string, args: string[]): Promise<string | undefined> 
   return r.ok ? r.stdout.trim() : undefined;
 }
 
+// A checkout's top folder in the platform's own separators (git prints
+// forward slashes on Windows, and the rest of the runner compares paths).
+async function toplevel(cwd: string): Promise<string | undefined> {
+  const top = await gitOut(cwd, ['rev-parse', '--show-toplevel']);
+  return top ? path.normalize(top) : undefined;
+}
+
 function firstLine(text: string): string {
   return (
     text
@@ -73,7 +82,7 @@ export async function listCheckouts(cwd: string): Promise<Checkout[] | undefined
   for (const block of out.split(/\n\s*\n/)) {
     const c: Checkout = { path: '' };
     for (const line of block.split('\n')) {
-      if (line.startsWith('worktree ')) c.path = line.slice('worktree '.length);
+      if (line.startsWith('worktree ')) c.path = path.normalize(line.slice('worktree '.length));
       else if (line.startsWith('branch ')) c.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '');
       else if (line.startsWith('HEAD ')) c.head = line.slice('HEAD '.length);
       else if (line === 'locked' || line.startsWith('locked ')) c.locked = line.slice('locked '.length);
@@ -87,12 +96,10 @@ export async function mainCheckoutOf(cwd: string): Promise<string | undefined> {
   return (await listCheckouts(cwd))?.find((c) => c.branch === MAIN)?.path;
 }
 
+// The real form of a path, to compare two by (platform.ts: on Windows git's
+// long names and a cwd's 8.3 short ones are one folder).
 export function realpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
+  return realPath(path.resolve(p));
 }
 
 function isDir(p: string): boolean {
@@ -141,7 +148,7 @@ export function makeWorktree(opts: { cwd: string; threadId: string; patch: Workt
 let making: Promise<void> = Promise.resolve();
 
 async function makeWorktreeNow(opts: { cwd: string; threadId: string; patch: WorktreePatch }): Promise<MadeWorktree> {
-  const top = await gitOut(opts.patch.folder, ['rev-parse', '--show-toplevel']);
+  const top = await toplevel(opts.patch.folder);
   if (!top) return { ok: false, reason: `the ${opts.patch.patch} patch asks for one, but ${opts.patch.folder} isn't in a git repo` };
   const mainCheckout = await mainCheckoutOf(top);
   if (!mainCheckout) return { ok: false, reason: `no checkout of ${path.basename(top)} has ${MAIN} checked out` };
@@ -281,6 +288,24 @@ export async function land(t: LandTarget, opts: LandOptions = {}): Promise<numbe
   }
 }
 
+// The Windows holder: open the lock file with no sharing (a sharing violation,
+// error 32 or 33, is somebody else holding it; any other failure is an error),
+// say "locked", and wait until tb closes the pipe.
+const WINDOWS_LOCK_HOLDER = [
+  "$ErrorActionPreference = 'Stop'",
+  '$stream = $null',
+  'while ($true) {',
+  '  try { $stream = [IO.File]::Open($env:TB_LOCK_FILE, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None); break }',
+  '  catch [IO.IOException] {',
+  '    if (-not (($_.Exception.HResult -band 0xFFFF) -in 32, 33)) { throw }',
+  "    if ($env:TB_LOCK_WAIT -ne '1') { exit 75 }",
+  '    Start-Sleep -Milliseconds 200',
+  '  }',
+  '}',
+  "[Console]::Out.Write('locked'); [Console]::Out.Flush()",
+  '[void][Console]::In.ReadToEnd()',
+].join('\n');
+
 // Advisory locks are released by the OS, including when tb crashes. The
 // holder exits when its parent's pipe closes; no PID files to go stale or
 // delete under another waiter. Keep the lock file itself between runs.
@@ -291,9 +316,17 @@ async function lockLanding(file: string, out: (line: string) => void): Promise<(
     // 75 is EX_TEMPFAIL for lockf, and explicitly chosen for flock. A
     // nonblocking try distinguishes contention from a slow Node startup.
     const args = mac ? ['-k', ...(wait ? [] : ['-t', '0'])] : ['-x', '-E', '75', ...(wait ? [] : ['-n'])];
-    const child = spawn(mac ? '/usr/bin/lockf' : 'flock', [...args, file, process.execPath, '-e', holder], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    // Windows has neither program. A PowerShell process holds the lock the same
+    // way, by opening the file with no sharing, and the OS lets go of it when
+    // that process ends, however it ends. Exit 75 is contention, as above.
+    const child = IS_WINDOWS
+      ? spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_LOCK_HOLDER], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env, TB_LOCK_FILE: file, TB_LOCK_WAIT: wait ? '1' : '0' },
+        })
+      : spawn(mac ? '/usr/bin/lockf' : 'flock', [...args, file, process.execPath, '-e', holder], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
     const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
     let errors = '';
     child.stderr.on('data', (d) => { errors += d; });
@@ -466,7 +499,7 @@ export function overwrittenFiles(text: string): string[] {
 
 // Runs the check through a shell, keeping the end of its output (that's
 // where a test runner says what failed).
-function runCheck(command: string, cwd: string, shell = ['/bin/sh', '-c']): Promise<{ ok: boolean; code?: number; text: string; durationMs: number }> {
+function runCheck(command: string, cwd: string, shell = plainShell()): Promise<{ ok: boolean; code?: number; text: string; durationMs: number }> {
   const started = Date.now();
   // At background priority: a land's check is the full quick suite.
   const [bin, args] = inBackground(shell[0], [...shell.slice(1), command]);
@@ -488,7 +521,7 @@ function runCheck(command: string, cwd: string, shell = ['/bin/sh', '-c']): Prom
 // For `tb land` outside a thread (or in a thread without one of its own):
 // the folder's checkout, if it's on a thread/ branch, and where main is.
 export async function landTargetFromGit(cwd: string): Promise<{ target?: Omit<LandTarget, 'check'>; reason?: string }> {
-  const top = await gitOut(cwd, ['rev-parse', '--show-toplevel']);
+  const top = await toplevel(cwd);
   if (!top) return { reason: `${cwd} isn't in a git checkout. Run tb land in a thread's worktree.` };
   const branch = await gitOut(top, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (!branch?.startsWith('thread/')) {

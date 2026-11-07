@@ -1212,10 +1212,10 @@ test('only a thread that has the pocket tool is told to use it, Claude or Codex'
 // folder prompts. Every thread, Claude or Codex, is now pointed at the guide.
 test('the guide is in the checkout a release was built from, or two folders up from a source runner', async () => {
   const { guidePath } = await import('../../src/threadbear-mcp.ts');
-  assert.equal(guidePath({ checkout: '/Users/someone/threadbear' }, '/ignored'), '/Users/someone/threadbear/docs/guide.md');
-  assert.equal(guidePath(undefined, '/src/repo'), '/src/repo/docs/guide.md');
+  assert.equal(guidePath({ checkout: '/Users/someone/threadbear' }, '/ignored'), path.join('/Users/someone/threadbear', 'docs', 'guide.md'));
+  assert.equal(guidePath(undefined, '/src/repo'), path.join('/src/repo', 'docs', 'guide.md'));
   // A release from before releases recorded their checkout.
-  assert.equal(guidePath({}, '/src/repo'), '/src/repo/docs/guide.md');
+  assert.equal(guidePath({}, '/src/repo'), path.join('/src/repo', 'docs', 'guide.md'));
   // This test runs from a checkout, whose repo has the guide.
   assert.ok(fs.existsSync(guidePath(undefined)), guidePath(undefined));
 });
@@ -1233,7 +1233,7 @@ test('the patches line sends button and panel asks to a patch file, by the proto
   const { patchesLine } = await import('../../src/threadbear-mcp.ts');
   const line = patchesLine('/Users/someone/threadbear/docs/guide.md', () => true);
   assert.match(line, /\.threadbear\/patches\/<name>\.ts/);
-  assert.match(line, /\/Users\/someone\/threadbear\/docs\/protocol\.md/);
+  assert.ok(line.includes(path.join('/Users/someone/threadbear', 'docs', 'protocol.md')), line);
   assert.match(line, /Edit or Write/);
   assert.match(line, /not a pin/);
   assert.equal(patchesLine('/nowhere/docs/guide.md', () => false), '');

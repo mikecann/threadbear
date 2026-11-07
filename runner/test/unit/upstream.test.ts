@@ -8,6 +8,7 @@ import { FakeClock } from '../../src/clock.ts';
 import { nullLogger } from '../../src/log.ts';
 import { type CiRun, ciVerdict, FETCH_INTERVAL_MS, FIRST_LOOK_MS, SETTLE_MS, Upstream, cleanNotes, parseImportant, parseNotes, repoKey, signersPath, splitSignedTag, tagFor } from '../../src/upstream.ts';
 import { PATIENCE_MS } from '../helpers/patience.ts';
+import { IS_WINDOWS } from '../helpers/platform.ts';
 
 // Commits and tags in the throwaway repos need a name, and must not pick
 // up a signing setup from whoever runs the tests.
@@ -558,11 +559,16 @@ test('with no ssh-keygen to ask, the check fails and keeps the releases it verif
   const w = world();
   const up = upstreamFor(w.theirs, w.home);
   assert.equal((await up.check()).release?.tag, 'release/2026-10-01');
+  // A PATH with git on it and nothing else. On Windows git.exe can't be linked
+  // into a folder alone (it finds its parts beside itself), but Git's own
+  // cmd folder holds git and no ssh-keygen.
   const bin = path.join(w.root, 'bin');
   fs.mkdirSync(bin);
-  fs.symlinkSync(spawnSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).stdout.trim(), path.join(bin, 'git'));
+  let only = bin;
+  if (IS_WINDOWS) only = path.dirname(spawnSync('where', ['git'], { encoding: 'utf8' }).stdout.split(/\r?\n/)[0]!.trim());
+  else fs.symlinkSync(spawnSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).stdout.trim(), path.join(bin, 'git'));
   const before = process.env.PATH;
-  process.env.PATH = bin;
+  process.env.PATH = only;
   let s;
   try {
     // A runner just started: nothing it remembers.

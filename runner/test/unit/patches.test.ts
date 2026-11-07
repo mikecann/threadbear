@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from '../helpers/fakes.ts';
+import { SHELL, escapeRegExp, sh as shell, sleepCommand } from '../helpers/platform.ts';
 import { makePng } from '../helpers/png.ts';
 import { checkPanel } from '../helpers/protocol-check.ts';
 import { CONVEX_DASHBOARD, CONVEX_LOCAL_DASHBOARD, convexDashboardUrl, parseEnvValue, projectPanels, renderPanel } from '../../src/patches.ts';
@@ -223,19 +224,19 @@ test('readPatchModule: the shapes it refuses', () => {
 
 test('runCommand: output, exit codes, the time limit and the size cap', async () => {
   const cwd = tmpDir();
-  const sh = ['/bin/sh', '-c'];
+  const sh = SHELL;
   const env = { PATH: '/usr/bin:/bin', TB_TEST: 'yes' };
   const ok = await runCommand('echo "in $PWD $TB_TEST"; echo err >&2', { cwd, env, shell: sh });
   assert.equal(ok.ok, true);
   assert.equal(ok.exitCode, 0);
   assert.equal(ok.truncated, false);
-  assert.match(ok.text, new RegExp(`in ${fs.realpathSync(cwd)} yes`));
+  assert.match(ok.text, new RegExp(`in ${escapeRegExp(shell(cwd, "pwd"))} yes`));
   assert.match(ok.text, /err/);
   const failed = await runCommand('echo nope; exit 3', { cwd, env, shell: sh });
   assert.equal(failed.ok, false);
   assert.equal(failed.exitCode, 3);
   assert.equal(failed.text.trim(), 'nope');
-  const slow = await runCommand('echo start; sleep 5; echo never', { cwd, env, shell: sh, timeoutMs: 300 });
+  const slow = await runCommand(`echo start; ${sleepCommand(5)}; echo never`, { cwd, env, shell: sh, timeoutMs: 300 });
   assert.equal(slow.ok, false);
   assert.equal(slow.text, 'start\nStopped after 0.3 s.');
   assert.ok(slow.durationMs < 3000);

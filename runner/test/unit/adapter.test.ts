@@ -325,7 +325,13 @@ test('pictures go to the CLI where their [Picture N] markers are, the rest befor
 // Without this the CLI nudged the model after every end_turn ("[Your
 // previous response had no visible output...]") and a throwaway line
 // landed under the real answer (28 Oct 2026).
-test('end_turn is a terminal MCP tool for the CLI, so its result ends the turn without a nudge', () => {
+test('end_turn is a terminal MCP tool for the CLI, so its result ends the turn without a nudge', (t) => {
+  // A run from inside Claude Code's desktop app inherits its own list.
+  const inherited = process.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS;
+  delete process.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS;
+  t.after(() => {
+    if (inherited !== undefined) process.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS = inherited;
+  });
   const { state } = start();
   assert.equal(state.options.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS, 'mcp__threadbear__end_turn');
   assert.equal(terminalMcpTools(undefined), 'mcp__threadbear__end_turn');

@@ -7,9 +7,11 @@ import { tmpDir } from '../helpers/fakes.ts';
 import { FakeClock } from '../../src/clock.ts';
 import type { UpdateFailure } from '../../src/fix-update.ts';
 import { nullLogger } from '../../src/log.ts';
-import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, SOON_MS, RunnerUpdater, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, type UpdateDeps } from '../../src/update.ts';
+import { cloneArgs, CHECK_INTERVAL_MS, FIRST_CHECK_MS, SOON_MS, RunnerUpdater, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, type UpdateDeps } from '../../src/update.ts';
 import type { ReleaseJson } from '../../src/release.ts';
 import { patiently } from '../helpers/patience.ts';
+import { IS_WINDOWS, SHELL, shPath, skipOnWindows } from '../helpers/platform.ts';
+import { linkDir } from '../../src/platform.ts';
 
 const running = { id: 'r1', tree: 'a+b+c+d' };
 const none = { pendingRestart: false, crashedTrees: new Set<string>() };
@@ -111,6 +113,17 @@ test('syncClone brings a clone to main and reports its release tree; docs and te
   assert.equal(releaseTreeAt(repo, 'runner/', 'nonsense'), undefined);
 });
 
+test('the update clone is made as upstream makes it on a Mac and Linux, and with CRLF conversion off and long paths on for Windows', async () => {
+  assert.deepEqual(cloneArgs('/src', '/dst'), IS_WINDOWS ? ['clone', '-q', '--no-checkout', '-c', 'core.autocrlf=false', '-c', 'core.longpaths=true', '/src', '/dst'] : ['clone', '-q', '--no-checkout', '/src', '/dst']);
+  // And it is what git ends up configured with.
+  const { repo } = makeRepo();
+  const dir = path.join(tmpDir('tb-update-clone-'), 'src');
+  await syncClone(repo, 'runner/', dir);
+  const get = (key: string) => spawnSync('git', ['-C', dir, 'config', '--local', '--get', key], { encoding: 'utf8' }).stdout.trim();
+  assert.equal(get('core.autocrlf'), IS_WINDOWS ? 'false' : '');
+  assert.equal(get('core.longpaths'), IS_WINDOWS ? 'true' : '');
+});
+
 type Harness = {
   u: RunnerUpdater;
   clock: FakeClock;
@@ -131,7 +144,7 @@ function harness(releaseExtra: Partial<ReleaseJson> = {}, depsExtra: Partial<Upd
   const checkout = tmpDir('tb-update-checkout-');
   fs.mkdirSync(path.join(checkout, '.git'));
   fs.mkdirSync(path.join(home, 'runner', 'releases', 'r1'), { recursive: true });
-  fs.symlinkSync(path.join('releases', 'r1'), path.join(home, 'runner', 'current'));
+  linkDir(path.join('releases', 'r1'), path.join(home, 'runner', 'current'));
   fs.writeFileSync(path.join(home, 'runner', 'state.json'), JSON.stringify({ current: 'r1', previous: null, lastGood: 'r1', boots: [] }));
   const release: ReleaseJson = { id: 'r1', commit: 'c1', dirty: false, builtAt: '2026-10-27T00:00:00Z', node: '24', checkout, prefix: 'runner/', tree: 'a+b+c+d', ...releaseExtra };
   const h: Omit<Harness, 'u'> = {
@@ -174,8 +187,8 @@ function harness(releaseExtra: Partial<ReleaseJson> = {}, depsExtra: Partial<Upd
       if (h.deployResult.ok) {
         // As deploy.mjs would: a new release, current pointing at it.
         fs.mkdirSync(path.join(home, 'runner', 'releases', h.deployResult.id), { recursive: true });
-        fs.rmSync(path.join(home, 'runner', 'current'));
-        fs.symlinkSync(path.join('releases', h.deployResult.id), path.join(home, 'runner', 'current'));
+        fs.rmSync(path.join(home, 'runner', 'current'), { recursive: true }); // the link, not what it points at
+        linkDir(path.join('releases', h.deployResult.id), path.join(home, 'runner', 'current'));
       }
       return h.deployResult;
     },
@@ -405,11 +418,15 @@ test('launcherDiffers: only when both files are there and differ', () => {
   assert.equal(launcherDiffers(a, b), true);
 });
 
-test('launcherSourcesHash matches what build-launcher.sh records', () => {
+test('launcherSourcesHash matches what build-launcher.sh records', skipOnWindows("build-launcher.sh builds the Mac launcher app and hashes with shasum, which Git Bash has on some installs (this machine's) and not on others (GitHub's runner image)"), () => {
   const launcher = path.join(import.meta.dirname, '..', '..', 'launcher');
-  const r = spawnSync('bash', [path.join(launcher, 'build-launcher.sh'), '--hash'], { encoding: 'utf8' });
+  // On Windows the product's own bash (Git Bash): a bare "bash" may be WSL's.
+  const r = spawnSync(IS_WINDOWS ? SHELL[0] : 'bash', [shPath(path.join(launcher, 'build-launcher.sh')), '--hash'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(launcherSourcesHash(launcher), r.stdout.trim());
+});
+
+test('launcherSourcesHash is undefined where the launcher sources are not all there', () => {
   assert.equal(launcherSourcesHash(tmpDir('tb-no-launcher-')), undefined);
 });
 

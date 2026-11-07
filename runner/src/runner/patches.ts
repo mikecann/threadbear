@@ -14,6 +14,7 @@ import { commandFiles, isPatchFile, namedPaths, patchHash, scanModule, type Clau
 import type { AgentWrite } from '../adapters/types.ts';
 import { CLAUDE_PATCH_ID, claudeCommands, claudeOptions, settingsCommands, settingsNamedPaths, type ClaudeOptions } from '../claude-trust.ts';
 import { canonicalPath, runsAsCodeByName } from '../code-writes.ts';
+import { IS_WINDOWS } from '../platform.ts';
 import type { PatchInfo } from '../protocol.ts';
 import { automaticTrust, EMPTY_PATCH_SET, PATCH_EXTENSIONS, patchDirs, hookApplies, loadPatchSet, applyLive, hasLive, projectPanels, renderListPanel, renderPanel, runCommand, type CommandOutcome, type PanelRender, type PatchSet, type ProjectFolder, projectPatchFiles } from '../patches.ts';
 import fs from 'node:fs';
@@ -53,10 +54,12 @@ function codeOfUnhashedPatch(file: string, cwd: string, now: number): CodeScan {
       if (reach.problem) all = true;
       reach.files.forEach(add);
     }
-    // Absolute and `~/` paths, there yet or not.
+    // Absolute and `~/` paths, there yet or not (on Windows a drive's too,
+    // C:/x/y.sh or the C:\\x\\y.sh a string in the patch's code spells it).
     for (const word of text.split(/[\s'"`;&|()<>=,[\]{}]+/)) {
       if (word.startsWith('/') && word.length > 1) add(word);
       else if (word.startsWith('~/')) add(path.join(os.homedir(), word.slice(2)));
+      else if (IS_WINDOWS && /^[A-Za-z]:[\\/]/.test(word)) add(word);
     }
   }
   const scan = { at: now, h, all, files };

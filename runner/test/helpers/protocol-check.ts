@@ -1,6 +1,7 @@
 // Checks events and summaries against docs/protocol.md. Used by the unit
 // tests and the real end-to-end suite, so both hold the runner to the same
 // contract the app is built against.
+import path from 'node:path';
 
 type Obj = Record<string, any>;
 
@@ -26,7 +27,7 @@ function isTokenCounts(v: unknown): boolean {
   return Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.values(v as Obj).every(isNum);
 }
 function isImageRef(v: Obj): boolean {
-  return v && isStr(v.path) && v.path.startsWith('/') && isStr(v.mediaType) && (v.width === undefined || isNum(v.width)) && (v.height === undefined || isNum(v.height));
+  return v && isStr(v.path) && path.isAbsolute(v.path) && isStr(v.mediaType) && (v.width === undefined || isNum(v.width)) && (v.height === undefined || isNum(v.height));
 }
 
 const PERSISTED: Record<string, (e: Obj) => string | null> = {

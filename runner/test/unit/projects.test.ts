@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
+import { SHELL, sh, shPath } from '../helpers/platform.ts';
 import { checkSummary } from '../helpers/protocol-check.ts';
 import { Projects, drainProjectMethods, projectMethods, BRIEF_MAX, NOTES_LONG, type ProjectHost } from '../../src/projects.ts';
 import { projectRouter, type PrimaryLink } from '../../src/handover.ts';
@@ -41,7 +42,7 @@ function setup(opts: { pocket?: () => LibrarianPocket | undefined; models?: (p: 
         isPrivateFolder: opts.privateFolder,
       }
     : undefined;
-  const h = makeHarness(home, {}, { projects, panelsRoot: root, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const h = makeHarness(home, {}, { projects, panelsRoot: root, actionShell: SHELL, actionTimeoutMs: 5000 });
   projects.start(h.runner);
   const librarian = new Librarian({ host: h.runner, projects, models, clock: h.clock, log: opts.log ?? nullLogger, home, userHome: root, pocket: opts.pocket });
   librarian.start();
@@ -322,7 +323,7 @@ test("a thread in a project gets its folders' patches, and their actions run in 
   const r = await h.runner.runAction(thread.id, 'tools.where');
   assert.equal(r.ok, true);
   const run = h.events(thread.id).find((e) => e.type === 'action.run');
-  assert.equal(run.text.trim(), fs.realpathSync(app));
+  assert.equal(run.text.trim(), sh(fs.realpathSync(app), 'pwd'), 'the folder, as the shell names it');
 });
 
 // ----------------------------------------------------------- the librarian
@@ -365,13 +366,15 @@ test('the librarian looks after the first turn: makes a project and files the th
 });
 
 test('commandFolders: where cd, pushd and git -C point, a later relative cd following an earlier one', () => {
-  const home = '/Users/me';
-  const cwd = '/Users/me/dev/misc';
-  assert.deepEqual(commandFolders('cd ~/dev/me/sammy-cam && npm test', cwd, home), ['/Users/me/dev/me/sammy-cam']);
-  assert.deepEqual(commandFolders('cd "$HOME/dev/my app"; cd web && ls', cwd, home), ['/Users/me/dev/my app', '/Users/me/dev/my app/web']);
-  assert.deepEqual(commandFolders('git -C ../blog log -3; pushd /tmp/x', cwd, home), ['/Users/me/dev/blog', '/tmp/x']);
+  // Absolute on this platform (a drive letter on Windows), the same paths on a Mac.
+  const P = (p: string) => path.resolve(p);
+  const home = P('/Users/me');
+  const cwd = P('/Users/me/dev/misc');
+  assert.deepEqual(commandFolders('cd ~/dev/me/sammy-cam && npm test', cwd, home), [P('/Users/me/dev/me/sammy-cam')]);
+  assert.deepEqual(commandFolders('cd "$HOME/dev/my app"; cd web && ls', cwd, home), [P('/Users/me/dev/my app'), P('/Users/me/dev/my app/web')]);
+  assert.deepEqual(commandFolders('git -C ../blog log -3; pushd /tmp/x', cwd, home), [P('/Users/me/dev/blog'), P('/tmp/x')]);
   // A git -C doesn't move later relative cds.
-  assert.deepEqual(commandFolders('git -C /a status && cd b', cwd, home), ['/a', '/Users/me/dev/misc/b']);
+  assert.deepEqual(commandFolders('git -C /a status && cd b', cwd, home), [P('/a'), P('/Users/me/dev/misc/b')]);
   // Guesses are skipped: other variables, substitutions, globs, cd -.
   assert.deepEqual(commandFolders('cd $DIR; cd "$(git rev-parse --show-toplevel)"; cd src/*; cd -; echo abcd x', cwd, home), []);
   // Words that only end in cd aren't cd.
@@ -390,7 +393,7 @@ test('the librarian sees the repo a catch-all thread works in through shell comm
   // look in the catch-all folder it's in, which isn't news).
   answer = { projects: [], new: { title: 'Sammy Cam', folders: ['~/dev/sammy-cam'], goals: 'Watches Sammy', state: 'Fixed a false visit' } };
   const { thread } = create('Sammy Cam saw him on the sofa when he was not');
-  await finish(thread.id, [], [`cd ${cam} && npm test`, `cd ${s.misc} && ls`]);
+  await finish(thread.id, [], [`cd ${shPath(cam)} && npm test`, `cd ${shPath(s.misc)} && ls`]);
   h.clock.advance(SETTLE_MS);
   await tick(6);
   const [p] = projects.list();
@@ -402,7 +405,7 @@ test('the librarian sees the repo a catch-all thread works in through shell comm
   answer = { projects: [p.id], addFolders: { [p.id]: ['~/dev/sammy-cam'] } };
   h.runner.send(thread.id, 'ok');
   await tick();
-  await finish(thread.id, [], [`git -C ${cam} log -1`]);
+  await finish(thread.id, [], [`git -C ${shPath(cam)} log -1`]);
   h.clock.advance(CATCH_UP_MS + SETTLE_MS);
   await tick(8);
   assert.equal(librarian.status().recent[0].text, 'Added ~/dev/sammy-cam to Sammy Cam');
@@ -967,7 +970,7 @@ test('links: checked, titled from the host, added and retitled by url, merged, a
   const other = projects.create({ title: 'Other', links: [{ title: 'Dash', url: 'https://dash.example' }, { url: 'https://www.lights.example/' }], by: 'mike' });
   assert.deepEqual(projects.merge(other.id, p.id).links.map((l) => l.title), ['Live site', 'Dash']);
   // Saved and read back.
-  const again = new Projects({ home: (projects as any).file.replace(/\/projects\.json$/, ''), clock: new FakeClock(), log: nullLogger });
+  const again = new Projects({ home: path.dirname((projects as any).file), clock: new FakeClock(), log: nullLogger });
   again.start((projects as any).host);
   assert.deepEqual(again.record(p.id)?.links.map((l) => l.title), ['Live site', 'Dash']);
 });

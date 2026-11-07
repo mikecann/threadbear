@@ -13,6 +13,7 @@ import path from 'node:path';
 import type { CommandOutcome } from './patches.ts';
 import { convexCloudUrl, convexDeploymentName, findUp, isConvexProject, parseEnvValue, readEnvValue } from './patches.ts';
 import { ErrorCode, RpcError } from './protocol.ts';
+import { chmodSafe } from './platform.ts';
 
 export type ConvexKey = { deployment: string; deploymentUrl: string; adminKey: string };
 export type ConvexDeploymentChoice = { deployment: string; deploymentUrl: string; label: string };
@@ -224,7 +225,7 @@ export class ConvexKeys {
 
   private async make(deployment: string, folder: string, file: string, oldName: string | undefined, team?: string): Promise<string> {
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.dir, 0o700);
+    chmodSafe(this.dir, 0o700);
     // A new key replaces one that stopped working (or was revoked): take
     // the old one off Convex too, if it's still there. Its failure is fine.
     if (oldName) await this.run(`${CONVEX_CLI} deployment token delete ${oldName} --deployment ${deployment}`, folder);
@@ -243,7 +244,7 @@ export class ConvexKeys {
       // Recorded by name, so tb runner rotate-owner knows this key is this
       // Mac's own when Convex lists it (runner-keys.ts madeDeployKeys).
       recordMadeKey(path.dirname(this.dir), name);
-      fs.chmodSync(file, 0o600);
+      chmodSafe(file, 0o600);
       return adminKey;
     } finally {
       fs.rmSync(scratch, { force: true });
