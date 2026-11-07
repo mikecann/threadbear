@@ -157,3 +157,34 @@ Hetzner cloud server with 8 GB. Do this as an ordinary user with sudo, not root.
 What's left out on Linux: everything that needs a Mac, such as the iOS
 simulator, Xcode, BrowserBear, ComputerCub and noticing dialogs on the screen.
 Threads that need those belong on the Mac.
+
+## 7. A runner on Windows (optional)
+
+The runner runs on Windows 11 (Windows 10 is out of support and is not
+tested). It is newer than the Mac and Linux setups, runs from a checkout, and
+has no app of its own: the website is the way in, and `tb` works in a
+terminal. It runs Claude Code, and Codex when its `codex.exe` is on the PATH.
+docs/on-your-mac.md, "On Windows", lists what it does differently and what it
+leaves out.
+
+1. **Tools:** Node 24 (nvm-windows works), Git for Windows (patch commands and
+   project checks run in its bash; without it those say so and do nothing,
+   and `CLAUDE_CODE_GIT_BASH_PATH` points the runner at a bash in an unusual
+   place) and Claude Code with its native installer. Then **ask** them to run
+   `claude auth login` in a terminal and sign in: a runner started by a task
+   has no other login to use. A git identity, as on any machine that commits.
+2. **The code:** clone it anywhere, then `npm ci` in `runner/`.
+3. **Install:** `node runner/scripts/install-windows.mjs --dry-run`, show
+   them what it prints, and run it without `--dry-run` once they agree. It
+   registers a Task Scheduler task, "Threadbear Runner (<their Windows user
+   name>)", that starts at logon (this user, no admin rights), writes `tb.cmd`
+   to `%LOCALAPPDATA%\Threadbear\bin` and adds that folder to their PATH.
+   `--status`, `--start`, `--stop` and `--uninstall` do what they say (`--start`
+   runs the task only if it is registered and not already running). An
+   unknown flag is refused.
+4. **Updates:** there are no releases or handovers on Windows. Keep the
+   checkout pulling theirs (`git pull`), then `node runner/scripts/install-windows.mjs --stop`
+   and `--start`.
+
+Run the runner's tests with `node scripts/test-windows.mjs` in `runner/`; it
+is what the `windows` workflow runs.

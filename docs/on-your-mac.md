@@ -298,3 +298,67 @@ priority, it passes a sample of tool output and pictures to Apple's on-device
 model, and Apple's on-device text recognition for a picture. Nothing leaves the
 Mac and it changes nothing that uploads. It keeps counts, and the thread and
 sequence number of what it flagged, in `<data>/secret-check.json`. Never the text.
+
+## On Windows
+
+A Windows runner (INSTALL.md, section 7) does the same things as the Mac one,
+with these differences. All of it is in `runner/src/platform.ts`,
+`win32-hide.ts`, `proc.ts`, `system-tools.ts` and `runner/scripts/` unless
+said otherwise.
+
+- **Installed by `runner/scripts/install-windows.mjs`:** a Task Scheduler task,
+  "Threadbear Runner (<your Windows user name>)", for the current user at logon
+  (no admin rights, hidden, restarted if it fails, which stops when a runner
+  says another is already using the data folder), which runs
+  `conhost.exe --headless node scripts/windows-run.mjs`. That script keeps the
+  runner running from the checkout, waits longer between tries when the runner
+  keeps failing, and keeps its own log to about 2 MB. The task is made from an
+  XML file that sits in `%TEMP%` as `threadbear-task-<pid>.xml` for a moment. It
+  also writes `tb.cmd` to `%LOCALAPPDATA%\Threadbear\bin` (spelling the path
+  with `%LOCALAPPDATA%` or `%APPDATA%` where it can, so an accented profile
+  name isn't in the file, and switching the console's code page for the length
+  of the run where it can't) and adds the folder to the user's PATH. The PATH is
+  read from the registry unexpanded, through PowerShell, and written back as an
+  expandable string, so the rest of it is left as it was, and it is only
+  written when the folder has to be added or taken off; to make Windows tell
+  open programs, it sets and clears the user variable `THREADBEAR_PATH_CHANGED`
+  for an instant. `--dry-run` says what it would do first; `--uninstall`
+  removes the task, the file and the PATH entry; `--stop` ends the task but
+  leaves it registered; `--start` runs it if it is registered and not already
+  running; `--installed` says whether it is.
+- **Where things are:** the data folder is `%APPDATA%\Threadbear` (the Mac's
+  layout inside it), the runner's log is
+  `%LOCALAPPDATA%\Threadbear\Logs\threadbear-runner.log`, and the supervisor's
+  is `runner-supervisor.log` beside it, with `runner-supervisor.log.1` once it
+  has passed 2 MB. `%APPDATA%` is the roaming folder: on a PC with a roaming
+  profile or folder redirection it may be copied to a server, and the runner's
+  token and secrets are in it. NTFS gives these files the profile's own
+  permissions, so the 0600 and 0700 modes are not set; when `THREADBEAR_HOME`
+  is outside the profile the runner says so at startup, as another user of the
+  PC may be able to read a folder on another drive.
+- **Programs it runs:** `claude.exe` (from `~\.local\bin`; `claude update` on the
+  same hourly schedule as on a Mac, which `cliUpdates` in `runner.json` can
+  change or turn off), `git`, Git for Windows' `bash.exe` for patch commands and
+  checks (found through `CLAUDE_CODE_GIT_BASH_PATH`, the places Git installs
+  to, the Git folder of a `git.exe` on the PATH, or Git's `InstallPath` in the
+  registry, which it only reads with `reg.exe query`; with none, those commands
+  print that Git for Windows is needed and run nothing), `schtasks.exe` and
+  `conhost.exe` for the task, `cmd.exe` for `tb.cmd`, `taskkill /T /F` on a
+  process it started and still has recorded (only when its recorded start time
+  matches, or the child it started hasn't exited, so a reused number is not
+  stopped), `powershell.exe` to read a process's start time and the PATH, and
+  `rundll32.exe url.dll,FileProtocolHandler` to open a web page. Every child is
+  started with its console window hidden.
+- **`tb land`'s lock:** Windows has neither `lockf` nor `flock`, so `tb land`
+  starts a PowerShell process that opens `<repo>/.git/threadbear-land.lock` with
+  no sharing and keeps it until `tb` closes the pipe. Windows lets go of it when
+  that process ends, however it ends, as `flock` does.
+- **Not on Windows:** Threadbear installing or updating Codex (a `codex.exe` on
+  the PATH is used if there is one), runner releases and handovers (there is no
+  `current` link or `launch.mjs` supervision), `lsof` and `ps` checks (so a CLI
+  stuck in a file call isn't spotted, and idle threads whose quiet background
+  shells are stuck aren't nudged), the idle check, the screen-dialog and secret
+  checks, docker sandboxes, stopping a crashed CLI's leftover tool commands
+  (`taskkill /T` needs the parent alive), BrowserBear and ComputerCub, remote
+  checks (`check-remote.sh` needs ssh, rsync and `hostname -s`) and the backend
+  deploy lock (`deploy-backend.mjs` needs `lockf` or `flock`).
