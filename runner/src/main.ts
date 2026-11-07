@@ -3,7 +3,7 @@
 // THREADBEAR_PORT pointing at temp places.
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION } from './config.ts';
+import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, profileLine, DEFAULT_CWD, RUNNER_VERSION } from './config.ts';
 import { startHousekeeping } from './housekeeping.ts';
 import { RELEASE, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
 import { PatchTrust } from './patch-trust.ts';
@@ -236,7 +236,8 @@ async function main(): Promise<void> {
   // only come through that mirror.
   let atMac: boolean | undefined;
   runner = new Runner({
-    standingInstructions: () => skills.instructions(),
+    // A profile's runner says which profile it is first (config.ts, profileLine).
+    standingInstructions: () => [profileLine(cfg.profile), skills.instructions()].filter(Boolean).join('\n\n'),
     skillNames: () => skills.names(),
     projects,
     atMac: () => atMac,

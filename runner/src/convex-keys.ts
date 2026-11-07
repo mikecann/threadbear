@@ -25,6 +25,9 @@ type Run = (command: string, cwd: string) => Promise<CommandOutcome>;
 type CheckKey = (deploymentUrl: string, adminKey: string) => Promise<'ok' | 'bad'>;
 export type ConvexKeysOptions = {
   configFile?: string; // the CLI's login, ~/.convex/config.json
+  // A profile's runner: the CLI runs with HOME here, so its login is the
+  // profile's (<home>/.convex/config.json), never the Mac's.
+  cliHome?: string;
   login?: string[]; // the sign-in command, for tests
   checkKey?: CheckKey;
   loginTimeoutMs?: number;
@@ -78,7 +81,7 @@ export class ConvexKeys {
   // Whether the CLI has a login at all, as setup checks it. A login it has
   // can still be expired or revoked: the CLI's own error says so then.
   signedIn(): boolean {
-    const file = this.opts.configFile ?? path.join(os.homedir(), '.convex', 'config.json');
+    const file = this.opts.configFile ?? path.join(this.opts.cliHome ?? os.homedir(), '.convex', 'config.json');
     try {
       return !!JSON.parse(fs.readFileSync(file, 'utf8'))?.accessToken;
     } catch {
@@ -115,7 +118,8 @@ export class ConvexKeys {
     this.signIn = { status, started };
     const [cmd, ...args] = this.opts.login ?? [process.execPath, convexBin, 'login', '--no-open', '--login-flow', 'poll',
       '--device-name', this.shortHost, ...(force ? ['--force'] : [])];
-    const child = spawn(cmd, args, { cwd: os.homedir(), env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (this.opts.cliHome) fs.mkdirSync(this.opts.cliHome, { recursive: true, mode: 0o700 });
+    const child = spawn(cmd, args, { cwd: this.opts.cliHome ?? os.homedir(), env: { ...process.env, ...(this.opts.cliHome ? { HOME: this.opts.cliHome } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     const seen = (chunk: Buffer) => {
       out += chunk.toString();

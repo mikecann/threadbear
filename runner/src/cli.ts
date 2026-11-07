@@ -16,8 +16,13 @@ import { land, landTargetFromGit, type LandTarget } from './worktrees.ts';
 import { activityCommand } from './activity.ts';
 import { pairCommand } from './pair.ts';
 import { runnerKeysCommand } from './runner-keys.ts';
+import { addProfile, checkoutOf, findProfile, installProfile, listProfiles, removeProfile } from './profiles.ts';
 
 const OPTIONS = {
+  // Any command, on another profile's runner (profiles.ts): --profile work.
+  profile: { type: 'string' },
+  'delete-files': { type: 'boolean' },
+  'no-install': { type: 'boolean' },
   cwd: { type: 'string' },
   account: { type: 'string' },
   pool: { type: 'string' },
@@ -142,6 +147,12 @@ const HELP = `tb: talk to the Threadbear runner
   tb runner logins [<runnerId> <provider:email>... | none]
                                   on the main Mac: which logins a runner key's Mac gets this Mac's
                                   usage readings of (only your word counts, not what that Mac says)
+  tb profile list [--json]        this Mac's Threadbear profiles (Personal, Work...): each one's
+                                  runner, data folder and port
+  tb profile add "Name" [--no-install]  a new profile with its own runner, data folder,
+                                  Convex and logins; installs and starts its runner
+  tb profile remove <id> [--delete-files]  stops its runner and takes it off the list
+  tb <command> --profile <name>   any command on that profile's runner
   tb runner check [--ssh <host>]  whether a Mac with a runner key also has a deploy key or
                                   Convex login (either can do anything to the deployment)
   tb runner rotate-owner [--finish] [--lock-out <runnerId,...>]
@@ -166,6 +177,7 @@ ${DEV_HELP}`;
 // The flags each command reads. Any other is refused rather than ignored:
 // `tb events <id> --from 3` used to print every event as if it had worked.
 const COMMAND_FLAGS: Record<string, string[]> = {
+  profile: ['json', 'delete-files', 'no-install'],
   new: ['cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'plan', 'image', 'wait', 'json', 'from', 'why', 'icon'],
   send: ['image', 'wait', 'json'],
   list: ['snoozed', 'archived', 'all', 'json'],
@@ -237,6 +249,16 @@ async function main(argv: string[]): Promise<number> {
     console.log((cmd && commandHelp(cmd)) || HELP);
     return cmd ? 0 : 1;
   }
+  // --profile <name>: this command on that profile's runner and data folder.
+  if (typeof values.profile === 'string') {
+    const found = findProfile(values.profile);
+    if (!found) {
+      console.error(`No profile ${values.profile}. tb profile list shows them.`);
+      return 2;
+    }
+    process.env.THREADBEAR_HOME = found.home;
+    delete (values as Record<string, unknown>).profile;
+  }
   const allowed = COMMAND_FLAGS[cmd];
   if (allowed) {
     const wrong = Object.keys(values).filter((k) => values[k as keyof typeof values] !== undefined && !allowed.includes(k));
@@ -248,6 +270,8 @@ async function main(argv: string[]): Promise<number> {
     }
   }
   const cfg = loadConfig();
+  // Profiles are files and LaunchAgents on this Mac: no runner needed.
+  if (cmd === 'profile') return profileCommand(args, { json: Boolean(values.json), deleteFiles: Boolean(values['delete-files']), noInstall: Boolean(values['no-install']) });
   if (cmd === 'logs') return logsCommand(cfg, values);
   // The app's activity log is files on this Mac: no runner needed.
   if (cmd === 'activity') return activityCommand(cfg, values);
@@ -1045,4 +1069,65 @@ function printLibrarian(l: LibrarianStatus): void {
 function tildePath(p: string): string {
   const home = process.env.HOME ?? '';
   return home && p.startsWith(home + '/') ? '~' + p.slice(home.length) : p;
+}
+
+async function profileCommand(args: string[], flags: { json: boolean; deleteFiles: boolean; noInstall: boolean }): Promise<number> {
+  const [sub, ...rest] = args;
+  if (!sub || sub === 'list') {
+    const all = listProfiles();
+    if (flags.json) console.log(JSON.stringify(all, null, 2));
+    else for (const p of all) console.log(`${p.id.padEnd(14)} ${p.name.padEnd(16)} port ${p.port}  ${p.home}`);
+    return 0;
+  }
+  if (sub === 'add') {
+    const name = rest.join(' ').trim();
+    if (!name) {
+      console.error('tb profile add "Name"');
+      return 2;
+    }
+    let entry;
+    try {
+      entry = addProfile(name);
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      return 1;
+    }
+    console.log(`Made ${entry.name} (${entry.id}) in ${entry.home}, on port ${entry.port}.`);
+    if (flags.noInstall) return 0;
+    const checkout = checkoutOf();
+    if (!checkout) {
+      console.error("Couldn't find the checkout to install its runner from. Run runner/scripts/install-runner.sh --home, --label and --port from it.");
+      return 1;
+    }
+    console.log(`Installing its runner (${entry.label}). The first time builds a release, which takes a few minutes.`);
+    const r = installProfile(entry, { checkout });
+    if (!r.ok) {
+      console.error(r.output.split('\n').slice(-15).join('\n'));
+      return 1;
+    }
+    console.log(`${entry.name}'s runner is up. Connect its Convex in Settings > Profiles, or tb --profile ${entry.id} status.`);
+    return 0;
+  }
+  if (sub === 'remove') {
+    const found = rest[0] ? findProfile(rest[0]) : undefined;
+    if (!found) {
+      console.error('tb profile remove <id>: tb profile list shows them.');
+      return 2;
+    }
+    const checkout = checkoutOf();
+    if (checkout && found.id !== 'personal') {
+      const r = installProfile(found, { checkout, uninstall: true });
+      if (!r.ok) console.error(`Its runner didn't stop cleanly:\n${r.output.split('\n').slice(-8).join('\n')}`);
+    }
+    try {
+      removeProfile(found.id, { deleteFiles: flags.deleteFiles });
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      return 1;
+    }
+    console.log(flags.deleteFiles ? `Removed ${found.name} and its folder.` : `Removed ${found.name}. Its folder stays: ${found.home}`);
+    return 0;
+  }
+  console.error('tb profile list | add "Name" | remove <id>');
+  return 2;
 }

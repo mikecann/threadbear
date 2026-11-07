@@ -114,6 +114,21 @@ memory for that folder in `~/.claude/projects/`, as it does for any folder.
 notes what Voice did (which microphone, whether echo cancellation
 started, errors), never what was said, and is started afresh past 256 KB.
 
+### Profiles (a Work setup beside your Personal one)
+
+`tb profile add "Work"` makes a second, whole Threadbear setup on this Mac:
+its own folder (`~/Library/Application Support/Threadbear Profiles/work/`),
+its own runner (LaunchAgent `com.mikerosoft.threadbear.runner.work`, its
+own port and `Threadbear Runner.app` in its folder), and its own logins in
+`<folder>/logins/`: Claude and Codex (never your `~/.claude` or
+`~/.codex`) and the Convex CLI (run with `HOME` there, so its login is
+never your `~/.convex`). Its agents are told which profile they're in and
+to keep its work inside it. `profiles.json` in your usual folder lists the
+profiles (names, folders, ports, labels; no secrets). `tb profile list`
+shows them, `tb <command> --profile work` runs any command on that
+profile's runner, and `tb profile remove work` stops its runner and takes
+it off the list (`--delete-files` deletes its folder too).
+
 ## What runs in the background
 
 - **The runner** listens on `127.0.0.1:8797` only, and needs a token

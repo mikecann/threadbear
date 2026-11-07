@@ -679,9 +679,9 @@ export class Runner {
     this.openUrl = deps.openUrl ?? openInBrowser;
     this.convexKeys = new ConvexKeys(
       path.join(paths.secrets(deps.config.home), 'convex-panels'),
-      deps.convexKeyRun ?? ((command, cwd) => runCommand(command, { cwd, env: { ...process.env }, shell: this.actionShell, timeoutMs: 120_000 })),
+      deps.convexKeyRun ?? ((command, cwd) => runCommand(command, { cwd, env: { ...process.env, ...(deps.config.convexCliHome ? { HOME: deps.config.convexCliHome } : {}) }, shell: this.actionShell, timeoutMs: 120_000 })),
       undefined,
-      deps.convexKeyOptions,
+      { ...(deps.config.convexCliHome ? { cliHome: deps.config.convexCliHome } : {}), ...deps.convexKeyOptions },
     );
     this.secrets = new SecretStore(paths.secrets(deps.config.home), () => this.clock.now());
     this.models = deps.models;
