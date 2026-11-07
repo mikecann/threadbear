@@ -1205,10 +1205,12 @@ line numbers down the side, a fixed-width font, and basic Markdown
 coloured as you type (headings, **bold**, *italics*, `code`, lists,
 links and quotes). Notes save as you type.
 
-Your notes stay on this Mac and are yours alone: each is encrypted with a
-key Threadbear keeps in your Keychain, so the files on disk can't be read
-without your Mac login, and they're never sent to the runner, an agent,
-your phone or the website. To hide Notes, turn off Show Notes in Settings >
+Your notes stay on this Mac and are yours alone: each is encrypted, with
+a key Threadbear keeps beside its other secrets (readable only by you), so
+a copy of the notes folder on its own can't be read, and they're never
+sent to the runner, an agent, your phone or the website. Opening Notes
+never asks for your Mac password. Notes are for ideas and to-dos, not
+passwords: keep those in a password manager. To hide Notes, turn off Show Notes in Settings >
 General; the notes are kept.
 
 ## Patches: your own buttons and panels

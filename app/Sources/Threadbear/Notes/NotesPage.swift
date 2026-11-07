@@ -21,7 +21,7 @@ struct NotesPage: View {
                 Image(systemName: "lock.fill")
                     .font(.system(size: zoomed(10)))
                     .foregroundStyle(.tertiary)
-                    .tip("Encrypted on this Mac with a key in your Keychain. Never sent anywhere, and agents can't read them")
+                    .tip("Encrypted on this Mac. Never sent anywhere, and agents can't read them")
                 Spacer()
                 Button {
                     newNote()
