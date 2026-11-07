@@ -46,13 +46,18 @@ const named = args.filter((a) => !a.startsWith('--'));
 const files = named.length ? named : all.filter((f) => known.has(f) === wantKnown);
 
 const perTest = Number(process.env.THREADBEAR_TEST_TIMEOUT_MS) || (process.env.CI ? 60_000 : 30_000);
+// Files run side by side (Node's default is one fewer than the cores). On a
+// 4-core GitHub runner that left the tests that wait on a hook or a git process a
+// few times slower than they expect, and a different one failed in about one run
+// in five (8 Nov), so CI runs two at a time. THREADBEAR_TEST_CONCURRENCY sets it anywhere.
+const concurrency = Number(process.env.THREADBEAR_TEST_CONCURRENCY) || (process.env.CI ? 2 : 0);
 
-console.log(`${wantKnown ? 'known-failing' : 'expected-to-pass'}: ${files.length} files, ${perTest / 1000} s a test`);
+console.log(`${wantKnown ? 'known-failing' : 'expected-to-pass'}: ${files.length} files, ${perTest / 1000} s a test${concurrency ? `, ${concurrency} files at a time` : ''}`);
 // node --test with no files would run whatever it finds in the folder.
 if (!files.length) process.exit(0);
 const r = spawnSync(
   process.execPath,
-  ['--test', '--test-reporter=spec', `--test-timeout=${perTest}`, '--test-force-exit', ...files.map((f) => path.join(unit, f))],
+  ['--test', '--test-reporter=spec', `--test-timeout=${perTest}`, '--test-force-exit', ...(concurrency ? [`--test-concurrency=${concurrency}`] : []), ...files.map((f) => path.join(unit, f))],
   { cwd: root, stdio: 'inherit' },
 );
 // The known list is a report: it never fails the run.
