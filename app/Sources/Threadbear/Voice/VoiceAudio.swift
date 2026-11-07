@@ -39,7 +39,10 @@ final class VoiceAudio {
 
     // MARK: Listening
 
-    func start(locale: Locale, microphone: AudioDeviceID?) async throws {
+    /// `echoCancellation` off for listening alone (dictating a note):
+    /// nothing is spoken, so the Mac's voice processing would only duck
+    /// other audio and change how the microphone sounds.
+    func start(locale: Locale, microphone: AudioDeviceID?, echoCancellation: Bool = true) async throws {
         try await Self.askForAccess()
         guard let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
             throw VoiceError("Speech recognition doesn't support \(locale.identifier) on this Mac.")
@@ -70,12 +73,17 @@ final class VoiceAudio {
         }
         try await analyzer.start(inputSequence: stream)
 
-        do {
-            try startEngine(voiceProcessing: true, microphone: microphone, analyzerFormat: analyzerFormat, feed: continuation)
-            echoCancels = true
-        } catch {
-            VoiceLog.write("echo cancellation wouldn't start (\(Self.describe(error))); trying without it")
-            resetEngine()
+        echoCancels = false
+        if echoCancellation {
+            do {
+                try startEngine(voiceProcessing: true, microphone: microphone, analyzerFormat: analyzerFormat, feed: continuation)
+                echoCancels = true
+            } catch {
+                VoiceLog.write("echo cancellation wouldn't start (\(Self.describe(error))); trying without it")
+                resetEngine()
+            }
+        }
+        if !echoCancels {
             do {
                 try startEngine(voiceProcessing: false, microphone: microphone, analyzerFormat: analyzerFormat, feed: continuation)
             } catch {
@@ -83,7 +91,6 @@ final class VoiceAudio {
                 resetEngine()
                 throw VoiceError("The microphone wouldn't start (Core Audio error \((error as NSError).code)). Try another microphone in Settings > Voice & Audio.")
             }
-            echoCancels = false
         }
         VoiceLog.write("listening on \(Self.describeInput(engine)), echo cancellation \(echoCancels ? "on" : "off")\(Self.outputIsHeadphones() ? ", headphones" : "")")
     }

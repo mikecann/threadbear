@@ -52,7 +52,7 @@ struct NoteEditor: NSViewRepresentable {
         if context.coordinator.noteId != noteId { context.coordinator.load(text, noteId: noteId) }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
         var onChange: (String) -> Void
         weak var view: NSTextView?
         var noteId: String?
@@ -62,6 +62,8 @@ struct NoteEditor: NSViewRepresentable {
         func load(_ text: String, noteId: String) {
             self.noteId = noteId
             guard let view else { return }
+            // Before its text changes, so talking into the last note stops there.
+            NoteDictation.shared.attach(view, noteId: noteId)
             view.string = text
             NoteStyle.apply(to: view)
             view.setSelectedRange(NSRange(location: 0, length: 0))

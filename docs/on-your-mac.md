@@ -82,7 +82,11 @@ with its log `serve.log` beside it. pocket-tts then downloads its English
 model and voices from Hugging Face into `~/.cache/huggingface` (about
 240 MB; another language is another model). macOS asks once for the
 microphone, and may download its own speech recognition files for the
-language (`app/Sources/Threadbear/Voice/`). Skills (the bar's Skills page) live in `~/Library/Application Support/Threadbear/skills/`:
+language (`app/Sources/Threadbear/Voice/`). Talking into a note (Settings >
+Voice & Audio > Use with Notes, off by default) uses only the microphone and that
+on-device recognition: pocket-tts isn't started or downloaded for it, and
+the words go straight into the note (`Voice/NoteDictation.swift`).
+Skills (the bar's Skills page) live in `~/Library/Application Support/Threadbear/skills/`:
 `instructions.md` (the page's Instructions, given to every session),
 `skills.json`, each skill's files in `<name>@<commit>/` as fetched from
 GitHub (`api.github.com` to find the commit, `codeload.github.com` for the

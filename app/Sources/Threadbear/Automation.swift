@@ -1073,6 +1073,30 @@ enum Automation {
             }
             try? await Task.sleep(for: .milliseconds(300))
             return "ok"
+        case "dictation-stage":
+            // Opens Notes on its newest note (making one if there's none)
+            // and shows talking into it in a phase, with no microphone;
+            // "off" puts it away.
+            UserDefaults.standard.set(true, forKey: NoteDictation.enabledKey)
+            NotesStore.shared.load()
+            if NotesStore.shared.notes.isEmpty, let note = NotesStore.shared.create() {
+                NotesStore.shared.setBody(note.id, "# Groceries\n\n- Milk\n- Eggs")
+            }
+            app.showNotes()
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let id = NotesStore.shared.sorted.first?.id else { return "error no note could be made" }
+            let words = c["text"] as? String ?? ""
+            let level = Float(number(c["level"]) ?? 0)
+            switch c["phase"] as? String {
+            case "listening": NoteDictation.shared.stage(.listening, noteId: id, level: level)
+            case "hearing": NoteDictation.shared.stage(.hearing(words), noteId: id, level: level)
+            case "starting": NoteDictation.shared.stage(.starting(words.isEmpty ? "Asking for the microphone…" : words), noteId: id, level: level)
+            case "failed": NoteDictation.shared.stage(.failed(words.isEmpty ? "Threadbear isn't allowed to use the microphone." : words), noteId: id, level: 0)
+            case "off": NoteDictation.shared.stage(.off, noteId: nil, level: 0)
+            default: return "error phase is listening, hearing, starting, failed or off"
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            return "ok"
         case "zoom":
             // What ⌘=, ⌘- and ⌘0 do, or a percent from TextZoom.steps.
             let zoom = TextZoom.shared

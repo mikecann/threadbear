@@ -77,6 +77,8 @@ final class VoiceMode {
 
     func start(threadId: String) {
         stop()
+        // The microphone is one thing at a time.
+        if NoteDictation.shared.isOn { NoteDictation.shared.stop() }
         self.threadId = threadId
         startedAt = Date()
         phase = .starting("Getting ready…")

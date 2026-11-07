@@ -143,3 +143,29 @@ final class SpokenAnswerTests: XCTestCase {
         }
     }
 }
+
+final class DictatedTextTests: XCTestCase {
+    func testWordsAreSpacedFromTheTextAroundThem() {
+        XCTAssertEqual(DictatedText.insertion("Buy milk.", before: nil, after: nil), "Buy milk.")
+        XCTAssertEqual(DictatedText.insertion("and eggs", before: "k", after: nil), " and eggs")
+        XCTAssertEqual(DictatedText.insertion("and eggs", before: " ", after: nil), "and eggs")
+        XCTAssertEqual(DictatedText.insertion("fresh", before: " ", after: "m"), "fresh ")
+        XCTAssertEqual(DictatedText.insertion("today", before: " ", after: "."), "today")
+    }
+
+    func testALineStartsWithACapital() {
+        XCTAssertEqual(DictatedText.insertion("call mum", before: "\n", after: nil), "Call mum")
+        XCTAssertEqual(DictatedText.insertion("call mum", before: nil, after: nil), "Call mum")
+        XCTAssertEqual(DictatedText.insertion("call mum", before: " ", after: nil), "call mum")
+    }
+
+    func testNewLineOnItsOwnIsALineBreak() {
+        XCTAssertEqual(DictatedText.insertion("New line.", before: "k", after: nil), "\n")
+        XCTAssertEqual(DictatedText.insertion("new paragraph", before: "k", after: nil), "\n\n")
+        XCTAssertEqual(DictatedText.insertion("Start a new line here", before: nil, after: nil), "Start a new line here")
+    }
+
+    func testNothingSaidIsNothingInserted() {
+        XCTAssertNil(DictatedText.insertion("  ", before: "a", after: nil))
+    }
+}

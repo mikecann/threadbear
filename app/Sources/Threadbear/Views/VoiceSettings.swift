@@ -11,6 +11,7 @@ struct VoiceSettings: View {
     @AppStorage(VoiceCatalog.languageKey) private var language = "english"
     @AppStorage(VoiceCatalog.microphoneKey) private var microphone = ""
     @AppStorage(VoiceMode.enabledKey) private var enabled = true
+    @AppStorage(NoteDictation.enabledKey) private var inNotes = false
     @State private var microphones: [VoiceAudio.Microphone] = []
     @State private var voice = VoiceMode.shared
     @AppStorage(CompletionSound.enabledKey) private var dingOn = false
@@ -20,11 +21,15 @@ struct VoiceSettings: View {
     var body: some View {
         Form {
             SettingsSection("Voice",
-                            about: "Press the waveform button beside Send to talk with a thread out loud. What you say goes to the thread as your message, even while it's working, and its replies are read out. Talk over it and it stops to listen. It's the same thread, with the same memory, tools and approvals. Speech is turned into text on this Mac by macOS, and replies are spoken by Kyutai's pocket-tts, which Threadbear downloads the first time you use Voice.",
+                            about: "Press the waveform button beside Send to talk with a thread out loud. What you say goes to the thread as your message, even while it's working, and its replies are read out. Talk over it and it stops to listen. It's the same thread, with the same memory, tools and approvals. Use with Notes adds a microphone to Notes, so you can talk and have it typed into the note. Speech is turned into text on this Mac by macOS, and replies are spoken by Kyutai's pocket-tts, which Threadbear downloads the first time you use Voice.",
                             ask: "change how Voice sounds, or check on it if it isn't working.") {
                 Toggle("Use Voice", isOn: $enabled)
                     .tip("Show the waveform button beside Send to talk with threads out loud")
-                    .onChange(of: enabled) { _, on in if !on { VoiceMode.shared.stop() } }
+                    .onChange(of: enabled) { _, on in if !on { VoiceMode.shared.stop(); NoteDictation.shared.stop() } }
+                Toggle("Use with Notes", isOn: $inNotes)
+                    .disabled(!enabled)
+                    .tip("Show a microphone button in Notes, to talk and have what you say typed into the note on this Mac")
+                    .onChange(of: inNotes) { _, on in if !on { NoteDictation.shared.stop() } }
                 Picker("Voice", selection: $voiceId) {
                     ForEach(VoiceCatalog.voices) { Text($0.name).tag($0.id) }
                 }

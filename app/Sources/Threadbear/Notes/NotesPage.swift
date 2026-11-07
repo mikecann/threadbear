@@ -11,6 +11,9 @@ struct NotesPage: View {
     @State private var selection: String?
     @State private var title = ""
     @State private var deleting: Note?
+    @State private var dictation = NoteDictation.shared
+    @AppStorage(NoteDictation.enabledKey) private var dictationWanted = false
+    @AppStorage(VoiceMode.enabledKey) private var voiceEnabled = true
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -62,12 +65,16 @@ struct NotesPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onExitCommand { close() }
+        // Esc ends talking into the note first, then closes Notes.
+        .onExitCommand { if dictation.isOn { dictation.stop() } else { close() } }
         .onAppear {
             store.load()
             if selection == nil { pick(store.sorted.first?.id) }
         }
-        .onDisappear { store.flush() }
+        .onDisappear {
+            dictation.stop()
+            store.flush()
+        }
         .confirmationDialog("Delete “\(deleting?.title ?? "")”?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Delete", role: .destructive) {
                 if let note = deleting { delete(note) }
@@ -125,6 +132,9 @@ struct NotesPage: View {
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .fixedSize()
+                    if canDictate {
+                        NoteDictationButton(noteId: id, size: zoomed(24))
+                    }
                     Button {
                         deleting = note
                     } label: {
@@ -137,6 +147,10 @@ struct NotesPage: View {
                 .padding(.vertical, zoomed(10))
                 Divider()
                 NoteEditor(noteId: id, text: note.body) { store.setBody(id, $0) }
+                if dictation.noteId == id, dictation.phase != .off {
+                    Divider()
+                    NoteDictationStrip()
+                }
             }
         } else {
             VStack(spacing: zoomed(10)) {
@@ -152,7 +166,12 @@ struct NotesPage: View {
         }
     }
 
+    /// Settings > Voice & Audio's Use with Notes, with Voice itself on.
+    private var canDictate: Bool { dictationWanted && voiceEnabled }
+
     private func pick(_ id: String?) {
+        // What he's saying goes in the note he said it in.
+        if selection != nil, id != selection { dictation.stop() }
         if let current = selection, titleFocused { store.rename(current, to: title) }
         store.flush()
         selection = id
@@ -165,6 +184,7 @@ struct NotesPage: View {
     }
 
     private func delete(_ note: Note) {
+        if dictation.noteId == note.id { dictation.stop(typing: false) }
         let next = store.sorted.first { $0.id != note.id }?.id
         store.delete(note.id)
         if selection == note.id { pick(next) }
@@ -172,6 +192,7 @@ struct NotesPage: View {
     }
 
     private func close() {
+        dictation.stop()
         if let id = selection, titleFocused { store.rename(id, to: title) }
         store.flush()
         app.showsNotesPage = false
