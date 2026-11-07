@@ -4,6 +4,7 @@ import type { Hunk, PlanEntry, ToolKind } from './protocol.ts';
 import { MAYBE_RUNS_AS_CODE, RUNS_AS_CODE } from './code-writes.ts';
 import { LIMITS } from './protocol.ts';
 import { applyReplace, diffLines } from './diff.ts';
+import { realPathSync } from './platform.ts';
 import { firstLineSafely, safeEnd } from './safe-cut.ts';
 
 const KINDS: Record<string, ToolKind> = {
@@ -81,7 +82,7 @@ function realCwd(cwd: string): string {
   let r = realpaths.get(cwd);
   if (r === undefined) {
     try {
-      r = fs.realpathSync(cwd);
+      r = realPathSync(cwd);
     } catch {
       r = cwd;
     }

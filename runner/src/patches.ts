@@ -53,6 +53,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { loginShell } from './system-tools.ts';
+import { IS_WINDOWS, realPathSync } from './platform.ts';
 import type { Action, Hook, ImageRef, Panel, PanelItem, PatchInfo } from './protocol.ts';
 import { LIMITS } from './protocol.ts';
 import { imageRefFor } from './media.ts';
@@ -229,14 +230,14 @@ export function projectRoots(cwd: string, projectFolders: ProjectFolder[]): Proj
 function inWorktree(folder: string, worktree: { top: string; main: string }, own: string): string {
   let real: string;
   try {
-    real = fs.realpathSync(folder);
+    real = realPathSync(folder);
   } catch {
     return folder;
   }
   if (!isInside(real, worktree.main)) return folder;
   let ownReal: string;
   try {
-    ownReal = fs.realpathSync(own);
+    ownReal = realPathSync(own);
   } catch {
     return folder;
   }
@@ -492,7 +493,7 @@ function bindAutomatic(loaded: LoadedPatch, file: string, files: string[], block
   const folder = path.dirname(path.dirname(path.dirname(file)));
   // Without a hash there's nothing to check a command against, so a live
   // function's sh refuses everything (liveSh).
-  liveBindings.set(file, { folder: fs.realpathSync(folder), files: [file, fs.realpathSync(file), ...files], ...(blocked ? { blocked } : {}), hash: hash ?? '', tool: loaded.appliesTo !== undefined });
+  liveBindings.set(file, { folder: realPathSync(folder), files: [file, realPathSync(file), ...files], ...(blocked ? { blocked } : {}), hash: hash ?? '', tool: loaded.appliesTo !== undefined });
   const refuse = (what: string, problem: string): LoadedPatch => ({ info: { ...loaded.info, error: `Not run: its ${what} ${problem}` }, panels: [], actions: [], hooks: [] });
   const hooks: Hook[] = [];
   for (const hook of loaded.hooks) {
@@ -507,9 +508,9 @@ function bindAutomatic(loaded: LoadedPatch, file: string, files: string[], block
   const actions: BoundAction[] = [];
   for (const action of loaded.actions) {
     if (action.kind === 'command' && action.command) {
-      const problem = actionCommandProblem(action.command, folder, [file, fs.realpathSync(file), ...files], blocked);
+      const problem = actionCommandProblem(action.command, folder, [file, realPathSync(file), ...files], blocked);
       if (problem) return refuse(`action "${action.title}"`, problem);
-      actions.push({ ...action, folder: action.folder ?? fs.realpathSync(folder), ...(hash ? { [ACTION_TRUST]: { file, hash } } : {}) });
+      actions.push({ ...action, folder: action.folder ?? realPathSync(folder), ...(hash ? { [ACTION_TRUST]: { file, hash } } : {}) });
     } else actions.push(action);
   }
   let worktree = loaded.worktree;
@@ -1293,7 +1294,7 @@ export function runCommand(
     };
     let child;
     try {
-      child = spawn(bin, args, { cwd: opts.cwd, env: opts.env as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      child = spawn(bin, args, { cwd: opts.cwd, env: (IS_WINDOWS ? { ...opts.env, CHERE_INVOKING: '1' } : opts.env) as NodeJS.ProcessEnv, stdio: ['ignore', 'pipe', 'pipe'], detached: !IS_WINDOWS });
     } catch (e) {
       resolve({ ok: false, text: String((e as Error).message ?? e), truncated: false, durationMs: Date.now() - started });
       return;

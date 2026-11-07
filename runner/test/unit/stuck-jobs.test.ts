@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeHarness } from '../helpers/fakes.ts';
+import { onlyOnWindows } from '../helpers/platform.ts';
 import { nullLogger } from '../../src/log.ts';
 import {
   StuckJobs,
@@ -281,4 +282,34 @@ test('a loop that keeps starting handoffs is judged once the first one would hav
     await look();
   }
   assert.equal(nudges(h, thread.id).length, 1);
+});
+
+// ps and lsof are how it looks at a CLI's shells, and Windows has neither. Each
+// due sweep used to try them and log a warning that it failed.
+test('on Windows, with no probe given, the check is off: nothing is armed and a sweep logs nothing', onlyOnWindows('Only Windows has no ps and lsof to look with'), async () => {
+  const h = makeHarness();
+  const warnings: string[] = [];
+  const log = { ...nullLogger, warn: (m: string) => void warnings.push(m) };
+  const jobs = new StuckJobs({ host: h.runner, clock: h.clock, log, home: h.home });
+  h.runner.create({ text: 'Cut the interview', accountId: 'claude-3' });
+  const s = h.adapter.last;
+  s.init();
+  s.out({ kind: 'tasks', tasks: [waiter] });
+  s.result('completed');
+  const timers = h.clock.pending();
+  jobs.start();
+  assert.equal(h.clock.pending(), timers, 'no timer to wake it');
+  h.clock.advance(60 * MIN);
+  await jobs.sweep();
+  assert.deepEqual(warnings, []);
+  jobs.stop();
+});
+
+test('a probe given to it is used on every platform', async () => {
+  const h = makeHarness();
+  const jobs = new StuckJobs({ host: h.runner, clock: h.clock, log: nullLogger, home: h.home, probe: new FakeProbe() });
+  const timers = h.clock.pending();
+  jobs.start();
+  assert.equal(h.clock.pending(), timers + 1);
+  jobs.stop();
 });

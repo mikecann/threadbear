@@ -26,6 +26,7 @@ import { LINKS_MAX, NOTES_LONG, WHY_MAX } from './projects.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { findUp, isInside } from './patches.ts';
 import { SYMBOLS, fileHash, findIcon, storeIcon } from './project-icons.ts';
+import { tildePath } from './platform.ts';
 import { userLine } from './user-name.ts';
 import type { PocketCardInput, PocketCardSummary } from './sync.ts';
 import { POCKET_ICONS, type PocketIconName } from './pocket-icons.ts';
@@ -1168,7 +1169,7 @@ export class Librarian {
   }
 
   private tilde(p: string): string {
-    return p === this.home || p.startsWith(this.home + path.sep) ? '~' + p.slice(this.home.length) : p;
+    return tildePath(p, this.home);
   }
 }
 

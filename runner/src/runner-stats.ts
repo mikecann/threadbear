@@ -102,6 +102,7 @@ async function memory(): Promise<{ used: number; total: number }> {
 async function osName(): Promise<string | undefined> {
   try {
     if (os.platform() === 'darwin') return `macOS ${(await run('/usr/bin/sw_vers', ['-productVersion'])).trim()}`;
+    if (os.platform() === 'win32') return `${os.version()} (${os.release()})`;
     if (os.platform() === 'linux') return (await fs.promises.readFile('/etc/os-release', 'utf8')).match(/^PRETTY_NAME="?([^"\n]+)"?/m)?.[1];
   } catch {
     // Only a label.

@@ -10,6 +10,7 @@ import { AccountRegistry, discoverAccounts, resolveDefaultModel } from '../../sr
 import { cliEnv } from '../../src/adapters/claude/adapter.ts';
 import { loadConfig, recordListening, readRunnerJson } from '../../src/config.ts';
 import { tmpDir } from '../helpers/fakes.ts';
+import { skipOnWindows } from '../helpers/platform.ts';
 import { makePng } from '../helpers/png.ts';
 
 test('diffLines matches the CLI patch shape', () => {
@@ -47,7 +48,7 @@ test('computeEditDiff uses file line numbers when the file is known', () => {
 
 test('displayPath shows paths relative to the thread folder, real path included', () => {
   const dir = tmpDir();
-  assert.equal(displayPath(path.join(dir, 'src', 'a.ts'), dir), 'src/a.ts');
+  assert.equal(displayPath(path.join(dir, 'src', 'a.ts'), dir), path.join('src', 'a.ts'));
   assert.equal(displayPath(path.join(fs.realpathSync(dir), 'b.ts'), dir), 'b.ts');
   assert.equal(displayPath('/elsewhere/c.ts', dir), '/elsewhere/c.ts');
 });
@@ -84,6 +85,11 @@ test('copyImageInto says why a file could not be read', () => {
   fs.writeFileSync(empty, '');
   assert.throws(() => copyImageInto(inbox, empty), /empty\.png is empty/);
   assert.throws(() => copyImageInto(inbox, dir), /Not a file/);
+});
+
+test('copyImageInto says when a file is not allowed to be read', skipOnWindows('chmod 000 does not stop a file being read on Windows'), () => {
+  const dir = tmpDir();
+  const inbox = path.join(dir, 'inbox');
   if (process.getuid?.() !== 0) {
     const locked = path.join(dir, 'locked.png');
     fs.writeFileSync(locked, makePng(4, 4));

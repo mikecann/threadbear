@@ -56,6 +56,7 @@ import { fileURLToPath } from 'node:url';
 import { parseSync } from 'oxc-parser';
 import { atomicWriteFileSync } from './fsutil.ts';
 import { claudeCommands, type ClaudeOptions } from './claude-trust.ts';
+import { realPath, realPathSync, slashes } from './platform.ts';
 import { isBinary, looksRunnable, MAX_READ_BYTES, reachOf, reachOfCommand, Reads, type FollowOptions, type ScriptReach } from './script-trust.ts';
 import { bareImport } from './tracked-packages.ts';
 import { allowCommand } from './shell-allowlist.ts';
@@ -511,8 +512,9 @@ export class PatchTrust implements PatchTrustStore {
   }
 
   // The patch's hash with its helpers'. Cached until anything it was made
-  // from changes: a file's inode, size, mtime, ctime or mode (ctime can't
-  // be set back, so a write that restores the mtime still shows), a
+  // from changes: a file's inode, size, mtime, ctime or mode (on macOS and
+  // Linux ctime can't be set back, so a write that restores the mtime still
+  // shows; on NTFS it can, so Windows reads the bytes again as well), a
   // symlink on the way to one retargeted, or a missing one turning up (a
   // stat and a realpath each; patches are read every 15 seconds).
   private hashOf(file: string): HashEntry {
@@ -617,7 +619,7 @@ export function patchHash(file: string): PatchHash {
       const bare = bareImport(path.dirname(from), spec, top, reads);
       if (!bare) continue;
       if ('problem' in bare) {
-        incomplete ??= `${from === root ? path.basename(root) : path.relative(path.dirname(root), from)} imports ${spec}, and ${bare.problem}`;
+        incomplete ??= `${from === root ? path.basename(root) : slashes(path.relative(path.dirname(root), from))} imports ${spec}, and ${bare.problem}`;
         continue;
       }
       for (const f of bare.files) {
@@ -631,7 +633,7 @@ export function patchHash(file: string): PatchHash {
       }
     }
     if (problem && !incomplete) {
-      const name = from === root ? path.basename(root) : path.relative(path.dirname(root), from);
+      const name = from === root ? path.basename(root) : slashes(path.relative(path.dirname(root), from));
       incomplete =
         problem.kind === 'parse'
           ? `patch trust can't read ${name} (${problem.code}, line ${problem.line}), so it can't check what it loads.`
@@ -706,6 +708,11 @@ export function patchHash(file: string): PatchHash {
         deps.push({ path: f });
       }
       for (const m of reach.missing) if (unnamed.size < 2000) unnamed.add(m);
+      // A Windows network or device path could be a file of the repo's
+      // under another name, and can't be hashed: the patch can't be trusted
+      // (an action's command that can't be followed is let go, but this one
+      // may hide the very file that runs).
+      if (reach.refused) incomplete ??= `patch trust won't follow ${reach.refused}: it could be a file in the repo under another name, so trusting the patch couldn't cover it.`;
     }
   }
   const missing = [...unnamed];
@@ -716,7 +723,7 @@ export function patchHash(file: string): PatchHash {
       const bytes = isFile(d.path) ? reads.read(d.path) : undefined;
       const h = bytes ? sha256(bytes) : 'missing';
       if (bytes) d.sha256 = h;
-      return [path.relative(dir, d.path), h];
+      return [slashes(path.relative(dir, d.path)), h];
     })
     .sort(([a, x], [b, y]) => (a < b ? -1 : a > b ? 1 : x < y ? -1 : x > y ? 1 : 0));
   // A path with a newline or another control character in it is refused,
@@ -727,7 +734,7 @@ export function patchHash(file: string): PatchHash {
   // A file too big to read can't be hashed, so nothing that reaches it can
   // be trusted.
   const huge = [...reads.tooBig][0];
-  if (huge) incomplete ??= `patch trust can't read ${path.relative(path.dirname(root), huge)}: it's over ${MAX_READ_BYTES / 1024 / 1024} MB.`;
+  if (huge) incomplete ??= `patch trust can't read ${slashes(path.relative(path.dirname(root), huge))}: it's over ${MAX_READ_BYTES / 1024 / 1024} MB.`;
   const extra = { ...(incomplete ? { incomplete } : {}), ...(blocked ? { blocked } : {}) };
   const hash = sha256(Buffer.from(JSON.stringify([HASH_TAG, own, pairs])));
   // Kept to tell whether a cached hash still holds; the bytes only for
@@ -1058,9 +1065,9 @@ export function actionCommandProblem(command: string, folder: string, files: str
   const real = realpath(folder);
   const reach = reachOfCommand(command, 'the action', { folder: real, top: repoTop(real), scanJs: scriptScan, resolveImport: resolveHelper, namedPaths });
   const missed = reach.files.find((f) => !files.includes(f));
-  if (missed) return `runs ${path.relative(real, missed)}, which patch trust didn't hash: write the command in the patch as plain text, so trusting the patch covers what it runs.`;
+  if (missed) return `runs ${slashes(path.relative(real, missed))}, which patch trust didn't hash: write the command in the patch as plain text, so trusting the patch covers what it runs.`;
   const stuck = reach.files.find((f) => Object.hasOwn(blocked, f) && blocked[f]);
-  if (stuck) return `runs ${path.relative(real, stuck)}, and patch trust can't follow everything that runs: ${blocked[stuck]}`;
+  if (stuck) return `runs ${slashes(path.relative(real, stuck))}, and patch trust can't follow everything that runs: ${blocked[stuck]}`;
   if (reach.problem) return `can't be checked, so trusting the patch couldn't cover what it runs: ${reach.problem}`;
   return undefined;
 }
@@ -1117,7 +1124,7 @@ export function checkDigest(command: string, cwd: string, commandOnly = false): 
   }
   // From the folder inside its repo, so a worktree and its main checkout
   // agree; by the whole path outside it.
-  const name = (f: string) => (isInside(f, start.top) ? path.relative(start.folder, f) : f);
+  const name = (f: string) => (isInside(f, start.top) ? slashes(path.relative(start.folder, f)) : f);
   const pairs = [...files]
     .map((f): [string, string] => {
       const bytes = isFile(f) ? reads.read(f) : undefined;
@@ -1169,9 +1176,9 @@ export function liveCommandProblem(command: string, folder: string, files: strin
   // A file named by a string may be a picture, but one that's run isn't,
   // whatever it's called (`node scripts/report.svg`; Muse's review, 7 Nov).
   const missed = allowed.ran.find((f) => !files.includes(f)) ?? reached.find((f) => !files.includes(f) && !PICTURES.includes(path.extname(f).toLowerCase()));
-  if (missed) return `runs ${path.relative(real, missed)}, which patch trust didn't hash: write the command in the patch as plain text, so trusting the patch covers what it runs.`;
+  if (missed) return `runs ${slashes(path.relative(real, missed))}, which patch trust didn't hash: write the command in the patch as plain text, so trusting the patch covers what it runs.`;
   const stuck = reached.find((f) => Object.hasOwn(blocked, f) && blocked[f]);
-  if (stuck) return `runs ${path.relative(real, stuck)}, and patch trust can't follow everything that runs: ${blocked[stuck]}`;
+  if (stuck) return `runs ${slashes(path.relative(real, stuck))}, and patch trust can't follow everything that runs: ${blocked[stuck]}`;
   return allowed.problem ?? reach.problem;
 }
 
@@ -1257,12 +1264,10 @@ export function folderKeyOfDir(dir: string): string {
   return main ? path.join(realpath(main), path.relative(top, folder)) : folder;
 }
 
+// The real form of a path, as it is when it isn't there (platform.ts): the
+// one every path here is compared by.
 function realpath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return p;
-  }
+  return realPath(p);
 }
 
 // The nearest folder from `dir` up with a `.git`, when that `.git` is a
@@ -1301,14 +1306,14 @@ export function worktreeOf(dir: string): { top: string; main: string } | undefin
 // symlinked .git as the worktree it points at (Gautam's scan, 6 Nov).
 export function mainCheckoutOf(top: string): string | undefined {
   try {
-    const realTop = fs.realpathSync(top);
+    const realTop = realPathSync(top);
     const dotGit = path.join(realTop, '.git');
     if (!fs.lstatSync(dotGit).isFile()) return undefined;
     const named = gitdirLine(readHead(dotGit));
     if (!named) return undefined;
     const gitdir = path.resolve(realTop, named);
     const back = path.resolve(gitdir, readHead(path.join(gitdir, 'gitdir')).trim());
-    if (path.basename(back) !== '.git' || fs.realpathSync(path.dirname(back)) !== realTop) return undefined;
+    if (path.basename(back) !== '.git' || realPathSync(path.dirname(back)) !== realTop) return undefined;
     const common = path.resolve(gitdir, readHead(path.join(gitdir, 'commondir')).trim());
     const name = path.relative(path.join(common, 'worktrees'), gitdir);
     if (path.basename(common) !== '.git' || !name || name.startsWith('..') || name.includes(path.sep)) return undefined;

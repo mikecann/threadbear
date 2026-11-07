@@ -41,6 +41,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
+import { IS_WINDOWS } from './platform.ts';
+import { killGroup } from './proc.ts';
 
 export const FETCH_INTERVAL_MS = 6 * 60 * 60_000;
 export const PUBLISH_INTERVAL_MS = 60 * 60_000;
@@ -237,7 +239,8 @@ function runGit(cwd: string, args: string[], opts: GitOptions): Promise<Buffer> 
   return new Promise((resolve, reject) => {
     const child = spawn('git', ['-C', cwd, ...args], {
       stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-      detached: true,
+      detached: !IS_WINDOWS,
+      windowsHide: true,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...opts.env },
     });
     const out: Buffer[] = [];
@@ -247,11 +250,9 @@ function runGit(cwd: string, args: string[], opts: GitOptions): Promise<Buffer> 
     const stop = (reason: string) => {
       if (why) return;
       why = reason;
-      try {
-        process.kill(-child.pid!, 'SIGKILL');
-      } catch {
-        child.kill('SIGKILL');
-      }
+      // The group, or on Windows the process tree (proc.ts killGroup), so a
+      // git helper that hangs goes with git; git alone if that can't be done.
+      if (!killGroup(child.pid!, 'SIGKILL')) child.kill('SIGKILL');
     };
     const timeoutMs = opts.timeoutMs ?? GIT_TIMEOUT_MS;
     const timer = setTimeout(() => stop(`timed out after ${Math.round(timeoutMs / 1000)} s`), timeoutMs);

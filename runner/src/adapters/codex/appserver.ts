@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import type { ChildProcess } from 'node:child_process';
 import type { Account } from '../../protocol.ts';
 import type { Logger } from '../../log.ts';
-import { groupSpawner, groupAlive, killGroup, type ProcessRegistry } from '../../proc.ts';
+import { groupSpawner, followUpKillDue, hasExited, killGroup, type ProcessRegistry } from '../../proc.ts';
 import { RUNNER_VERSION } from '../../config.ts';
 import { cliEnv } from '../claude/adapter.ts';
 import { refusal } from './approvals.ts';
@@ -581,9 +581,10 @@ export class AppServerProcess {
     if (this.exited) return;
     if (this.pid) {
       const pid = this.pid;
+      const child = this.child;
       killGroup(pid, 'SIGTERM');
       setTimeout(() => {
-        if (groupAlive(pid)) killGroup(pid, 'SIGKILL');
+        if (followUpKillDue(pid, !child || hasExited(child))) killGroup(pid, 'SIGKILL');
       }, 3000).unref();
     } else {
       this.abort?.abort();

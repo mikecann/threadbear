@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { experimentOn } from './experiments.ts';
 import { atomicWriteFileSync } from './fsutil.ts';
+import { IS_WINDOWS } from './platform.ts';
 import { ErrorCode, RpcError } from './protocol.ts';
 import type { Notification } from './runner.ts';
 
@@ -145,6 +146,15 @@ export class InstructionsStore {
 // this runs on every send. Anything else that isn't a small plain file is
 // 'unusable', which reads as changed outside.
 function readPlain(file: string): Buffer | 'missing' | 'unusable' {
+  // O_NOFOLLOW is a Mac and Linux flag; Windows has none, so a link (or a
+  // junction, which Node reads as one) there is looked for by name first.
+  if (IS_WINDOWS) {
+    try {
+      if (fs.lstatSync(file).isSymbolicLink()) return 'unusable';
+    } catch {
+      // not there: the open below says so
+    }
+  }
   let fd: number;
   try {
     fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);

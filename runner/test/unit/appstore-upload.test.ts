@@ -7,8 +7,10 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { after, test } from 'node:test';
+import { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
+// The upload script is the Mac's (xcodebuild, uids, file modes): skipped on Windows.
+import { macOnlyTest as test } from '../helpers/platform.ts';
 // @ts-expect-error plain .mjs without types
 import { aclAllows, checkPrivateDir, checkPrivateTree } from '../../../ios/scripts/private-dir.mjs';
 
@@ -22,7 +24,7 @@ const fresh = () => {
   mkdirSync(d, { mode: 0o700 });
   return d;
 };
-const uid = process.getuid!();
+const uid = process.getuid?.() ?? 0;
 
 test('makes a missing folder for this account only', () => {
   const dir = join(fresh(), 'a/b');

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { pairText } from '../../src/pair.ts';
+import { escapeRegExp } from '../helpers/platform.ts';
 
 // tb pair: the other Mac's app takes the host only from here (RunnerHostPin
 // in the app), so what it prints has to carry the .host line.
@@ -9,9 +11,10 @@ test('tb pair prints the token file and the .host line, not the token', () => {
   const r = pairText({ home, sync: { enabled: true, name: 'bruce', runnerId: 'cb921b2447ea', rpcUrl: 'wss://Bruce.tail9ef766.ts.net.:8798/rpc' } }, 'bruce');
   assert.equal(r.ok, true);
   assert.match(r.text, /cb921b2447ea\.host {3}this one line: bruce\.tail9ef766\.ts\.net$/m, 'host only, lowercased, no trailing dot');
-  assert.match(r.text, /cb921b2447ea\.token {2}a copy of \/Users\/bruce\/Library\/Application Support\/Threadbear\/secrets\/runner-token/);
+  const token = path.join(home, 'secrets', 'runner-token');
+  assert.match(r.text, new RegExp(`cb921b2447ea\\.token {2}a copy of ${escapeRegExp(token)}`));
   assert.match(r.text, /printf '%s\\n' bruce\.tail9ef766\.ts\.net > "\$d\/cb921b2447ea\.host"/);
-  assert.match(r.text, /scp 'bruce@bruce\.tail9ef766\.ts\.net:\/Users\/bruce\/Library\/Application Support\/Threadbear\/secrets\/runner-token'/);
+  assert.match(r.text, new RegExp(`scp 'bruce@bruce\\.tail9ef766\\.ts\\.net:${escapeRegExp(token)}'`));
 });
 
 test('tb pair says what is missing without an id or an rpcUrl', () => {

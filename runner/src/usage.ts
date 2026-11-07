@@ -10,6 +10,7 @@ import type { Account, AccountUsage, Provider, UsageWindow, UsageWindowKind } fr
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
+import { realPathSync } from './platform.ts';
 import type { UsageHistory } from './usage-history.ts';
 
 // blockedUntil (ms) says when a block ends when no window does: the runner
@@ -79,7 +80,7 @@ export function samePathKey(p: string): string {
   const known = realpaths.get(abs);
   if (known) return known;
   try {
-    const real = fs.realpathSync(abs);
+    const real = realPathSync(abs);
     if (realpaths.size > 200) realpaths.clear();
     realpaths.set(abs, real);
     return real;

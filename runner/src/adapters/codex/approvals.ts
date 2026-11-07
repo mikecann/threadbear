@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { codeWriteNote, type CodeWrite } from '../../code-writes.ts';
+import { IS_WINDOWS } from '../../platform.ts';
 import type { Question } from '../../protocol.ts';
 import type { Logger } from '../../log.ts';
 import { cardInput, displayPath, tooLongForCard } from '../../tools.ts';
@@ -140,6 +141,9 @@ function programFile(program: string, searchPath: string): string | undefined {
 // that leads elsewhere later stops matching (Codex review, 7 Nov 2026: a
 // `grep` or `/usr/local/bin/ls` that's a link into the repo).
 export function ruleMayCover(argv: string[], searchPath: string = process.env.PATH ?? ''): boolean {
+  // Windows has no folders only the system writes to and no zsh to wrap
+  // Codex's commands, so no program can be vouched for there: it asks every time.
+  if (IS_WINDOWS) return false;
   const program = argv[0] ?? '';
   const name = (program.split('/').pop() ?? '').toLowerCase();
   if (!PLAIN_PROGRAMS.has(name)) return false;

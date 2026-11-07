@@ -13,6 +13,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
+import { IS_WINDOWS, NO_SIGNALS_ON_WINDOWS, SHELL, shPath, skipOnWindows } from '../helpers/platform.ts';
+import { realPathSync } from '../../src/platform.ts';
 import { runCommand } from '../../src/patches.ts';
 import { liveCommandProblem, namedPaths, PatchTrust, scanModule } from '../../src/patch-trust.ts';
 import { allowCommand, liveCommandEnv, ownedPathProblem, repoGitConfigProblem } from '../../src/shell-allowlist.ts';
@@ -34,7 +36,8 @@ after(() => {
   for (const d of made) fs.rmSync(d, { recursive: true, force: true });
 });
 function ownTmp(): string {
-  const d = fs.realpathSync(fs.mkdtempSync('/tmp/tb-allow-'));
+  // Windows has no /tmp: its temp folder, in its long-name form.
+  const d = realPathSync(fs.mkdtempSync(IS_WINDOWS ? path.join(os.tmpdir(), 'tb-allow-') : '/tmp/tb-allow-'));
   made.push(d);
   return d;
 }
@@ -106,7 +109,14 @@ function mikesRepo() {
     'node_modules/convex/bin/main.js': '#!/usr/bin/env node\nconsole.log(1);\n',
   });
   fs.mkdirSync(path.join(repo, 'node_modules/.bin'), { recursive: true });
-  fs.symlinkSync('../convex/bin/main.js', path.join(repo, 'node_modules/.bin/convex'));
+  try {
+    fs.symlinkSync('../convex/bin/main.js', path.join(repo, 'node_modules/.bin/convex'));
+  } catch (e) {
+    // Windows makes a link only with a privilege (developer mode, or an
+    // administrator); without one it is a shim, a plain file, as npm leaves it.
+    if ((e as NodeJS.ErrnoException).code !== 'EPERM') throw e;
+    fs.writeFileSync(path.join(repo, 'node_modules/.bin/convex'), '#!/bin/sh\nexec node ../convex/bin/main.js "$@"\n');
+  }
   fs.chmodSync(path.join(repo, 'tools/count.sh'), 0o755);
   write(home, { 'dev/me/poddle/scripts/asc-status.mjs': 'console.log(1);\n', '.config/walkies/dads-pixel-serial': 'abc\n' });
   tidy(home);
@@ -142,6 +152,12 @@ async function trustedFiles(repo: string, commands: string[]): Promise<{ files: 
   return { files: v.files!, blocked: v.trusted ? (v.blocked ?? {}) : {} };
 }
 
+// A program or script outside the repo is refused on Windows before anything
+// about the command is looked at: patch trust only checks who could have
+// written a file on macOS and Linux (ownedPathProblem), and fails closed
+// elsewhere. So a case that names one is refused there for that reason.
+const posixReason = (why: RegExp): RegExp => (IS_WINDOWS ? /this system's permissions aren't ones patch trust checks/ : why);
+
 const refusedLive = (repo: string, cases: [string, RegExp][], extra: Record<string, unknown> = {}) => {
   for (const [command, why] of cases) assert.match(live(repo, command, extra).problem ?? 'accepted', why, command);
 };
@@ -152,7 +168,13 @@ const refusedHook = (repo: string, cases: [string, RegExp][]) => {
 test("every live command in Mike's patches is on the short list", async () => {
   const { repo, home } = mikesRepo();
   for (const [name, command] of Object.entries(MIKES)) assert.equal(live(repo, command, { home }).problem, undefined, name);
-  for (const [name, command] of Object.entries(MIKES_OUTSIDE)) assert.equal(live(repo, command, { home }).problem, undefined, name);
+  for (const [name, command] of Object.entries(MIKES_OUTSIDE)) {
+    const problem = live(repo, command, { home }).problem;
+    // A script outside the repo runs where the permissions can be checked;
+    // Windows refuses it (`test -f` of one runs nothing, so it is still fine).
+    if (IS_WINDOWS && /^node /.test(command)) assert.match(problem ?? 'accepted', posixReason(/./), name);
+    else assert.equal(problem, undefined, name);
+  }
   // And through the gate the runner uses, against what the hash covered.
   const { files, blocked } = await trustedFiles(repo, Object.values(MIKES));
   for (const [name, command] of Object.entries(MIKES)) assert.equal(liveCommandProblem(command, repo, files, blocked), undefined, name);
@@ -434,7 +456,7 @@ test('R1: program names are compared in lower case and by the name a path resolv
   assert.equal(live(repo, 'NPX convex run --prod stats:overview').problem, undefined);
   refusedLive(repo, [
     ['Git -c core.pager=id log', /`git -c`/],
-    ['/usr/bin/git -c core.pager=id log', /`git -c`/],
+    ['/usr/bin/git -c core.pager=id log', posixReason(/`git -c`/)],
     ['SSH -o ProxyCommand=id host', /`ssh -o` with `ProxyCommand=id`/],
     ['NODE -e 1', /`node -e`/],
     ['Perl -e 1', /runs perl/],
@@ -442,9 +464,9 @@ test('R1: program names are compared in lower case and by the name a path resolv
   refusedHook(repo, [
     ['SH -c id', /`sh -c`/],
     ['Bash -c id', /`bash -c`/],
-    ['/bin/bash -c id', /`bash -c`/],
+    ['/bin/bash -c id', posixReason(/`bash -c`/)],
     // /bin/sh is dash on Ubuntu: a shell under a shell's name is still a shell.
-    ['/bin/sh -c id', /`sh -c`/],
+    ['/bin/sh -c id', posixReason(/`sh -c`/)],
     ['FIND . -delete', /find -delete/],
     ['Xargs sh -c id', /runs xargs/],
     ['NPX convex dev', /runs a package by name/],
@@ -457,10 +479,12 @@ test('R1: program names are compared in lower case and by the name a path resolv
     ['EVAL id', /isn't the shell's `eval`/],
     ['IF true', /isn't the shell's `if`/],
     // (Linux has no /usr/bin/cd, so there it isn't there to run.)
-    ['/usr/bin/cd tools && ./count.sh', /a path to `cd`|isn't there/],
+    ['/usr/bin/cd tools && ./count.sh', posixReason(/a path to `cd`|isn't there/)],
     ['Source ./tools/count.sh', /isn't the shell's `source`/],
   ]);
   // A link outside the repo named like an allowed program is what it points to.
+  // (Windows has no /bin/sh to point at, and making a link there needs a privilege.)
+  if (IS_WINDOWS) return;
   const bin = path.join(root, 'bin');
   fs.mkdirSync(bin, { mode: 0o755 });
   fs.symlinkSync('/bin/sh', path.join(bin, 'cat'));
@@ -569,7 +593,7 @@ test("R3: a hashed script a live command runs is held to the same live list, so 
   assert.match(live(repo, './tools/kill.sh').problem ?? '', /tools\/kill\.sh line 3 runs `kill` with `\$p`/);
 });
 
-test("Muse's review: where a hook's script is, and what node_modules/.bin/convex is, are checked rather than assumed", async () => {
+test("Muse's review: where a hook's script is, and what node_modules/.bin/convex is, are checked rather than assumed", skipOnWindows('It is all about symlinks and #! scripts: Windows makes links only with a privilege, and npm puts .cmd shims in node_modules/.bin there'), async () => {
   const { repo, root } = mikesRepo();
   const script = (name: string, body: string) => {
     write(repo, { [name]: `#!/bin/sh\n${body}\n` });
@@ -720,13 +744,14 @@ test('R5: git runs only the read-only subcommands cannvas uses, in a repo whose 
 test("R5: liveCommandEnv's settings beat the repo's own config, so the attacks it could make don't run", () => {
   const { repo, root } = mikesRepo();
   const marker = path.join(root, 'ran');
-  const script = path.join(root, 'evil.sh');
-  fs.writeFileSync(script, `#!/bin/sh\ntouch ${marker}\nexit 1\n`);
+  // As the shell reads them: Git Bash takes D:\x\y for an escaped word.
+  const script = shPath(path.join(root, 'evil.sh'));
+  fs.writeFileSync(script, `#!/bin/sh\ntouch ${shPath(marker)}\nexit 1\n`);
   fs.chmodSync(script, 0o755);
   const env: Record<string, string | undefined> = { ...process.env, GIT_CONFIG_GLOBAL: path.join(root, 'no-global'), GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
   // Nothing of the test host's own that would hide an attack.
   for (const k of ['GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_SSH_COMMAND', 'GIT_SSH', 'GIT_CONFIG_COUNT']) delete env[k];
-  const sh = (cmd: string, withEnv: boolean) => spawnSync('/bin/sh', ['-c', cmd], { cwd: repo, env: (withEnv ? { ...env, ...liveCommandEnv(env) } : env) as NodeJS.ProcessEnv, timeout: 20_000, input: '' });
+  const sh = (cmd: string, withEnv: boolean) => spawnSync(SHELL[0]!, [SHELL[1]!, cmd], { cwd: repo, env: (withEnv ? { ...env, ...liveCommandEnv(env) } : env) as NodeJS.ProcessEnv, timeout: 20_000, input: '' });
   const ran = () => {
     const r = fs.existsSync(marker);
     fs.rmSync(marker, { force: true });
@@ -738,7 +763,7 @@ test("R5: liveCommandEnv's settings beat the repo's own config, so the attacks i
     {
       name: 'hooks',
       setup: () => {
-        write(repo, { '.git/hooks/pre-commit': `#!/bin/sh\ntouch ${marker}\n` });
+        write(repo, { '.git/hooks/pre-commit': `#!/bin/sh\ntouch ${shPath(marker)}\n` });
         fs.chmodSync(path.join(repo, '.git/hooks/pre-commit'), 0o755);
       },
       cmd: 'git -c user.email=t@t -c user.name=t commit -q --allow-empty -m x',
@@ -797,7 +822,7 @@ test("R5: liveCommandEnv's settings beat the repo's own config, so the attacks i
   assert.equal(read('fetch.recurseSubmodules'), 'false');
   assert.equal(read('submodule.recurse'), 'false');
   assert.equal(read('protocol.allow'), 'never');
-  assert.equal(read('core.hooksPath'), '/dev/null');
+  assert.equal(read('core.hooksPath'), IS_WINDOWS ? 'nul' : '/dev/null'); // Git for Windows turns /dev/null into its own null device
   // Your own helpers come back after the reset, in order.
   const global2 = path.join(root, 'global2');
   fs.writeFileSync(global2, '[credential "https://github.com"]\n\thelper =\n\thelper = !gh auth git-credential\n');
@@ -820,7 +845,7 @@ test("R5: a repo's filter drivers don't run: its own are refused, and your own d
   // A global filter (git-lfs, say) a repo's .gitattributes names, with the file stat-dirty.
   const marker = path.join(root, 'filter.ran');
   const global = path.join(root, 'global');
-  fs.writeFileSync(global, `[filter "x"]\n\tclean = touch ${marker}; cat\n`);
+  fs.writeFileSync(global, `[filter "x"]\n\tclean = touch ${shPath(marker)}; cat\n`);
   write(repo, { '.gitattributes': '* filter=x\n', 'a.txt': 'one\n' });
   git(repo, 'add', 'a.txt', '.gitattributes');
   git(repo, 'commit', '-qm', 'two');
@@ -836,12 +861,21 @@ test("R5: a repo's filter drivers don't run: its own are refused, and your own d
   const e = { ...env, ...liveCommandEnv(env) } as NodeJS.ProcessEnv;
   for (const cmd of ['git merge-base --is-ancestor HEAD HEAD', 'git rev-list --count HEAD', "git branch -a --no-merged HEAD --format='%(refname:short)'"]) {
     assert.equal(live(repo, cmd).problem, undefined, cmd);
-    spawnSync('/bin/sh', ['-c', cmd], { cwd: repo, env: e, timeout: 20_000 });
+    spawnSync(SHELL[0]!, [SHELL[1]!, cmd], { cwd: repo, env: e, timeout: 20_000 });
     assert.equal(fs.existsSync(marker), false, cmd);
   }
   // (The same global filter does run for git status, which isn't on the list.)
-  spawnSync('/bin/sh', ['-c', 'git status --porcelain'], { cwd: repo, env: e, timeout: 20_000 });
-  assert.equal(fs.existsSync(marker), true, 'the test plays it right');
+  // Git decides from the file's stat whether to run it, and on a busy Windows
+  // runner it twice didn't (8 Nov), even with the file changed again. So the
+  // set-up is proved with a command that always filters: hash-object runs the
+  // clean filter the .gitattributes names for the path, whatever the stat says.
+  let ran = false;
+  for (const cmd of ['git status --porcelain', 'git hash-object --path=a.txt a.txt']) {
+    spawnSync(SHELL[0]!, [SHELL[1]!, cmd], { cwd: repo, env: e, timeout: 20_000 });
+    ran = fs.existsSync(marker);
+    if (ran) break;
+  }
+  assert.equal(ran, true, 'the test plays it right');
 });
 
 test('R6: gh runs only `gh pr list`, with the options cannvas uses', () => {
@@ -949,7 +983,13 @@ test('R8: output goes only to /dev/null or another descriptor, in the command an
   assert.match(hook(repo, 'npm run log').problem ?? '', /"log" script line 1 writes to out\.txt/);
 });
 
-test("R9: a script outside the repo runs only if it's on the list, and it and every folder on its way are yours or root's, writable by nobody else, and it fully resolves", () => {
+test("R9 on Windows: a script outside the repo is refused, as its permissions can't be checked there", { skip: IS_WINDOWS ? false : 'Windows only' }, () => {
+  const { repo, home } = mikesRepo();
+  assert.match(live(repo, MIKES_OUTSIDE.ascStatus, { home }).problem ?? 'accepted', /this system's permissions aren't ones patch trust checks/);
+  assert.match(ownedPathProblem(path.join(home, 'dev/me/poddle/scripts/asc-status.mjs')) ?? 'accepted', /permissions aren't ones patch trust checks/);
+});
+
+test("R9: a script outside the repo runs only if it's on the list, and it and every folder on its way are yours or root's, writable by nobody else, and it fully resolves", skipOnWindows('Who could have written a file is checked from its owner and mode, which Windows has not (patch trust fails closed there: see the test above)'), () => {
   const { repo, home, root } = mikesRepo();
   fs.chmodSync(root, 0o755);
   const scripts = path.join(home, 'dev/me/poddle/scripts');
@@ -1034,7 +1074,7 @@ test("R9: a script outside the repo runs only if it's on the list, and it and ev
   if (fs.existsSync(real) && os.userInfo().username === 'm5-mike') assert.equal(ownedPathProblem(real), undefined, real);
 });
 
-test("R10: a live command's `&` can't outlive it: its process group gets SIGTERM, then SIGKILL after a short grace", async () => {
+test("R10: a live command's `&` can't outlive it: its process group gets SIGTERM, then SIGKILL after a short grace", NO_SIGNALS_ON_WINDOWS, async () => {
   const dir = tmpDir();
   const gone = async (pid: number, ms: number) => {
     for (const end = Date.now() + ms; Date.now() < end; ) {

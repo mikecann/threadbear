@@ -72,6 +72,7 @@ import {
   type FollowOptions,
   type ScriptReach,
 } from './script-trust.ts';
+import { slashes } from './platform.ts';
 import { inNodeModules, trackedNodeModules } from './tracked-packages.ts';
 
 export type AllowOptions = FollowOptions & {
@@ -798,7 +799,7 @@ class Allow {
 
   private rel(f: string): string {
     const r = path.relative(this.o.top, f);
-    return r && !r.startsWith('..') ? r : f;
+    return r && !r.startsWith('..') ? slashes(r) : f;
   }
 
   refuse(ctx: Ctx, line: number | undefined, what: string): never {
@@ -1313,7 +1314,7 @@ class Allow {
     if (file === undefined || file.startsWith('-')) this.refuse(ctx, line, `runs \`node${file ? ` ${file}` : ''}\`: a live command runs node only as \`node <file> <words>\`, ${OFF}.`);
     const p = this.abs(file, ctx);
     if (p !== undefined && !this.inRepo(p)) {
-      const rel = path.relative(this.home, p);
+      const rel = slashes(path.relative(this.home, p));
       if (!Object.hasOwn(LIVE_OUTSIDE, rel)) this.refuse(ctx, line, `runs node ${file}, a script outside the repo that isn't on the short list a live command may run, ${OFF}.`);
       const bad = vals.slice(1).find((v) => !LIVE_OUTSIDE[rel]!.test(v));
       if (bad !== undefined) this.refuse(ctx, line, `runs node ${file} with \`${bad.slice(0, 60)}\`, ${OFF}.`);
@@ -1654,7 +1655,7 @@ class Allow {
     // the repo (a worktree's linked node_modules) only you may have written it.
     const real = realOr(bin);
     // (pnpm's and yarn's shim is a plain file there, not a link.)
-    if (!isFile(real) || !(real === bin || /\/node_modules\/convex\//.test(real))) this.refuse(ctx, line, `runs \`npx convex\`, whose node_modules/.bin/convex leads to ${real}, not the convex package.`);
+    if (!isFile(real) || !(real === bin || /\/node_modules\/convex\//.test(slashes(real)))) this.refuse(ctx, line, `runs \`npx convex\`, whose node_modules/.bin/convex leads to ${real}, not the convex package.`);
     if (this.inRepo(real) && this.tracked(real, ctx, line)) return this.repoFile(real, name, args.slice(1), ctx, line, 'js');
     if (!this.inRepo(real)) {
       const why = ownedPathProblem(real);

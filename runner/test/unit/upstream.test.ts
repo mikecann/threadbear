@@ -9,6 +9,7 @@ import { FakeClock } from '../../src/clock.ts';
 import { nullLogger } from '../../src/log.ts';
 import { type CiRun, ciVerdict, gitAsync, FETCH_INTERVAL_MS, FIRST_LOOK_MS, SETTLE_MS, Upstream, cleanNotes, parseImportant, parseNotes, repoKey, signersPath, splitSignedTag, tagFor } from '../../src/upstream.ts';
 import { PATIENCE_MS } from '../helpers/patience.ts';
+import { IS_WINDOWS, shPath } from '../helpers/platform.ts';
 
 // Commits and tags in the throwaway repos need a name, and must not pick
 // up a signing setup from whoever runs the tests.
@@ -561,11 +562,16 @@ test('with no ssh-keygen to ask, the check fails and keeps the releases it verif
   const w = world();
   const up = upstreamFor(w.theirs, w.home);
   assert.equal((await up.check()).release?.tag, 'release/2026-10-01');
+  // A PATH with git on it and nothing else. On Windows git.exe can't be linked
+  // into a folder alone (it finds its parts beside itself), but Git's own
+  // cmd folder holds git and no ssh-keygen.
   const bin = path.join(w.root, 'bin');
   fs.mkdirSync(bin);
-  fs.symlinkSync(spawnSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).stdout.trim(), path.join(bin, 'git'));
+  let only = bin;
+  if (IS_WINDOWS) only = path.dirname(spawnSync('where', ['git'], { encoding: 'utf8' }).stdout.split(/\r?\n/)[0]!.trim());
+  else fs.symlinkSync(spawnSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).stdout.trim(), path.join(bin, 'git'));
   const before = process.env.PATH;
-  process.env.PATH = bin;
+  process.env.PATH = only;
   let s;
   try {
     // A runner just started: nothing it remembers.
@@ -770,6 +776,28 @@ test('upstream with thousands of tags: only a bounded few are fetched, and none 
 function hangingUpstream(w: ReturnType<typeof world>, when: 'list' | 'fetch') {
   const script = path.join(w.root, 'hang.sh');
   const count = path.join(w.root, 'calls');
+  if (IS_WINDOWS) {
+    // The same in Node: a Git Bash script's background pids are MSYS's own, not
+    // the Windows pids process.kill and taskkill go by.
+    const js = path.join(w.root, 'hang.cjs');
+    fs.writeFileSync(js, `const fs = require('node:fs');
+const { spawn, spawnSync } = require('node:child_process');
+const count = ${JSON.stringify(count)};
+const pids = ${JSON.stringify(path.join(w.root, 'pids'))};
+const n = (fs.existsSync(count) ? Number(fs.readFileSync(count, 'utf8')) : 0) + 1;
+fs.writeFileSync(count, n + '\\n');
+if (${when === 'list' ? 1 : 2} <= n) {
+  const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  fs.appendFileSync(pids, c.pid + '\\n' + process.pid + '\\n');
+  setInterval(() => {}, 1000);
+} else {
+  process.exit(spawnSync('git', ['upload-pack', ...process.argv.slice(2)], { stdio: 'inherit' }).status ?? 1);
+}
+`);
+    git(w.theirs, 'config', 'remote.upstream.uploadpack', `"${shPath(process.execPath)}" "${shPath(js)}"`);
+    git(w.theirs, 'config', 'protocol.version', '2');
+    return () => fs.readFileSync(path.join(w.root, 'pids'), 'utf8').trim().split('\n').map(Number);
+  }
   fs.writeFileSync(script, `#!/bin/bash
 n=$(( $(cat "${count}" 2>/dev/null || echo 0) + 1 )); echo $n >"${count}"
 if [ ${when === 'list' ? 1 : 2} -le $n ]; then sleep 600 & echo $! >>"${w.root}/pids"; echo $$ >>"${w.root}/pids"; wait; fi
@@ -779,6 +807,23 @@ exec git-upload-pack "$@"
   git(w.theirs, 'config', 'protocol.version', '2');
   return () => fs.readFileSync(path.join(w.root, 'pids'), 'utf8').trim().split('\n').map(Number);
 }
+
+// A git alias that starts a long sleep of its own, writes the sleep's pid to
+// `pidFile` and waits. On Windows the sleep is a Node process (the pid of a
+// Git Bash background job is an MSYS one, which nothing else can look up).
+function hangAlias(dir: string, pidFile: string): string {
+  if (!IS_WINDOWS) return `alias.hang=!sleep 600 & echo $! >${pidFile}; wait`;
+  const js = path.join(dir, 'hang-alias.cjs');
+  fs.writeFileSync(js, `const fs = require('node:fs');
+const { spawn } = require('node:child_process');
+const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+fs.writeFileSync(process.argv[2], String(c.pid));
+setInterval(() => {}, 1000);
+`);
+  return `alias.hang=!"${shPath(process.execPath)}" "${shPath(js)}" "${shPath(pidFile)}"`;
+}
+
+const startedPid = (pidFile: string): number => Number(fs.readFileSync(pidFile, 'utf8'));
 
 function alive(pid: number): boolean {
   try {
@@ -817,10 +862,10 @@ test('gitAsync stops a git command at its deadline, and what it started', async 
   const dir = tmpDir('tb-git-deadline-');
   const pidFile = path.join(dir, 'pid');
   const t0 = Date.now();
-  await assert.rejects(gitAsync(dir, ['-c', `alias.hang=!sleep 600 & echo $! >${pidFile}; wait`, 'hang'], { timeoutMs: 500 }), /timed out/);
+  await assert.rejects(gitAsync(dir, ['-c', hangAlias(dir, pidFile), 'hang'], { timeoutMs: 500 }), /timed out/);
   assert.ok(Date.now() - t0 < 5000);
   await new Promise((r) => setTimeout(r, 200));
-  assert.ok(!alive(Number(fs.readFileSync(pidFile, 'utf8'))), 'the sleep it started is gone');
+  assert.ok(!alive(startedPid(pidFile)), 'the sleep it started is gone');
   assert.equal(await gitAsync(dir, ['--version']).then((v) => v.startsWith('git version')), true);
 });
 
@@ -911,9 +956,9 @@ test("gitAsync's watcher stops a command it says is over its limit, and what it 
   const pidFile = path.join(dir, 'pid');
   let asked = 0;
   await assert.rejects(
-    gitAsync(dir, ['-c', `alias.hang=!sleep 600 & echo $! >${pidFile}; wait`, 'hang'], { timeoutMs: 60_000, over: () => (++asked >= 2 ? 'fetched more than 1 MB' : undefined) }),
+    gitAsync(dir, ['-c', hangAlias(dir, pidFile), 'hang'], { timeoutMs: 60_000, over: () => (++asked >= 2 ? 'fetched more than 1 MB' : undefined) }),
     /fetched more than 1 MB/,
   );
   await new Promise((r) => setTimeout(r, 200));
-  assert.ok(!alive(Number(fs.readFileSync(pidFile, 'utf8'))));
+  assert.ok(!alive(startedPid(pidFile)));
 });

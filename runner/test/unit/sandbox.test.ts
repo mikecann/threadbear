@@ -6,12 +6,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { dockerRun, readSandbox, sandboxFor } from '../../src/sandbox.ts';
 import { tmpDir } from '../helpers/fakes.ts';
+import { skipOnWindows } from '../helpers/platform.ts';
 
 const home = '/home/mike';
 const expand = (p: string) => (p.startsWith('~/') ? path.join(home, p.slice(2)) : p);
 
 test('runner.json sandbox: folders and an image, else nothing', () => {
-  assert.deepEqual(readSandbox({ folders: ['~/sandboxed'], image: 'threadbear-sandbox' }, expand), { folders: ['/home/mike/sandboxed'], image: 'threadbear-sandbox', docker: 'docker' });
+  assert.deepEqual(readSandbox({ folders: ['~/sandboxed'], image: 'threadbear-sandbox' }, expand), { folders: [path.resolve('/home/mike/sandboxed')], image: 'threadbear-sandbox', docker: 'docker' });
   assert.equal(readSandbox({ folders: [], image: 'x' }, expand), undefined);
   assert.equal(readSandbox({ folders: ['~/s'] }, expand), undefined);
   assert.equal(readSandbox(undefined, expand), undefined);
@@ -30,7 +31,7 @@ test('a thread is sandboxed when its folder is under a sandbox folder, and not a
   assert.equal(sandboxFor(undefined, box), undefined);
 });
 
-test('the docker run mounts the folder, the login and the CLI at the same paths, and nothing else of the machine', () => {
+test('the docker run mounts the folder, the login and the CLI at the same paths, and nothing else of the machine', skipOnWindows('Sandboxes mount a path at the same path in a Linux container, which a Windows path cannot be'), () => {
   const there = new Set(['/home/mike/.claude', '/home/mike/.claude.json', '/tmp/settings-abc.json']);
   const run = dockerRun(
     {
@@ -67,7 +68,7 @@ test('the docker run mounts the folder, the login and the CLI at the same paths,
   assert.deepEqual(a.slice(a.indexOf('--user'), a.indexOf('--user') + 2), ['--user', '1000:1000']);
 });
 
-test("another login's config folder goes in instead of ~/.claude, without ~/.claude.json", () => {
+test("another login's config folder goes in instead of ~/.claude, without ~/.claude.json", skipOnWindows('Sandboxes mount a path at the same path in a Linux container, which a Windows path cannot be'), () => {
   const cfg = '/home/mike/Library/Application Support/Threadbear/accounts/claude-1';
   const run = dockerRun(
     { command: '/c', args: [], cwd: '/home/mike/sandboxed/x', env: { CLAUDE_CONFIG_DIR: cfg } },

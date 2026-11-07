@@ -8,6 +8,16 @@ import { CrossRunner, askedHeader, fingerprint, folderHere, type CrossRunnerDeps
 import type { RunnerRequestRow } from '../../src/sync.ts';
 import { ErrorCode, RpcError } from '../../src/protocol.ts';
 import { notSent } from '../../src/relay.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { onlyOnWindows, skipOnWindows } from '../helpers/platform.ts';
+import { realPathSync } from '../../src/platform.ts';
+import { tmpDir } from '../helpers/fakes.ts';
+
+// These fake a Mac's disk as a set of POSIX path strings (/Users/m5-mike/...),
+// which path.resolve turns into drive-letter paths on Windows, where the same
+// mapping is tried against a real folder in the test below.
+const MAC_FOLDERS = skipOnWindows("They fake a Mac's folders as POSIX path strings; see the Windows test of folderHere below");
 
 const RUNNERS: RunnerRef[] = [
   { id: 'm5', name: 'M5', self: true },
@@ -178,7 +188,7 @@ test("the first line the main Mac writes can't be broken out of by the asking ru
   assert.ok(!h.includes('/tmp/x'));
 });
 
-test('answering on the main Mac: starts exactly what was filed, with a header saying where it came from, then marks it and answers', async () => {
+test('answering on the main Mac: starts exactly what was filed, with a header saying where it came from, then marks it and answers', MAC_FOLDERS, async () => {
   const f = fake({ owner: true });
   f.rows.set('req-1', { docId: 'doc1', requestId: 'req-1', runnerId: 'cloud1', runnerName: 'Hetzner Cloud', threadId: 'cloud-thread', target: 'main', text: 'Open both apps.', cwd: '~/dev/me/threadbear', permissionMode: 'full', why: 'see both builds', createdAt: 1, state: 'pending' });
   f.setOpen('req-1');
@@ -265,7 +275,7 @@ test('on a runner key: Plan first is filed as Ask', async () => {
 // guess at the main Mac's home, which is /Users/m5-mike. Start it failed
 // with "Folder not found" and left the card open, with nothing Mike or the
 // agent could do about the folder.
-test("a request's folder: one guessed from another machine's home is read from this Mac's", () => {
+test("a request's folder: one guessed from another machine's home is read from this Mac's", MAC_FOLDERS, () => {
   const isDir = realDir;
   assert.equal(folderHere('/Users/mike/dev/me/threadbear', HOME, isDir), `${HOME}/dev/me/threadbear`);
   assert.equal(folderHere('/home/mike/dev/me/threadbear', HOME, isDir), `${HOME}/dev/me/threadbear`);
@@ -286,7 +296,7 @@ test("a request's folder: one guessed from another machine's home is read from t
   assert.equal(folderHere('relative/path', HOME, isDir), undefined);
 });
 
-test('answering on the main Mac: a folder guessed from another home shows and starts as the one here', async () => {
+test('answering on the main Mac: a folder guessed from another home shows and starts as the one here', MAC_FOLDERS, async () => {
   const f = fake({ owner: true });
   const row: RunnerRequestRow = { docId: 'doc1', requestId: 'req-10', runnerId: 'cloud1', runnerName: 'Hetzner Cloud', threadId: 'c', target: 'main', text: 'x', cwd: '/Users/mike/dev/me/threadbear', createdAt: 1, state: 'pending' };
   f.rows.set('req-10', row);
@@ -337,7 +347,7 @@ test("on a runner key: a no with a reason tells the agent why, not to stop askin
 
 // Codex review, 8 Nov 2026: what Start it uses is what the card showed. A
 // folder appearing between the two changes where it would start.
-test('answering on the main Mac: the folder the card showed is the one that starts, or nothing does', async () => {
+test('answering on the main Mac: the folder the card showed is the one that starts, or nothing does', MAC_FOLDERS, async () => {
   const f = fake({ owner: true });
   const row: RunnerRequestRow = { docId: 'doc1', requestId: 'req-13', runnerId: 'cloud1', runnerName: 'Hetzner Cloud', threadId: 'c', target: 'main', text: 'x', cwd: '/Users/mike/dev/me/threadbear', createdAt: 1, state: 'pending' };
   f.rows.set('req-13', row);
@@ -372,7 +382,7 @@ test("answering on the main Mac: a missing folder's reason that can't be sent le
 });
 
 // Codex's second round, 8 Nov 2026.
-test('answering on the main Mac: a link in a folder named exactly that moves after the card is read starts nothing', async () => {
+test('answering on the main Mac: a link in a folder named exactly that moves after the card is read starts nothing', MAC_FOLDERS, async () => {
   const links = LINKS.slice();
   const f = fake({ owner: true });
   const row: RunnerRequestRow = { docId: 'doc1', requestId: 'req-16', runnerId: 'cloud1', runnerName: 'Hetzner Cloud', threadId: 'c', target: 'main', text: 'x', cwd: `${HOME}/alias/project`, createdAt: 1, state: 'pending' };
@@ -388,7 +398,7 @@ test('answering on the main Mac: a link in a folder named exactly that moves aft
   }
 });
 
-test("answering on the main Mac: Start it on another machine than the card's isn't refused for its folder", async () => {
+test("answering on the main Mac: Start it on another machine than the card's isn't refused for its folder", MAC_FOLDERS, async () => {
   const f = fake({ owner: true });
   const row: RunnerRequestRow = { docId: 'doc1', requestId: 'req-17', runnerId: 'cloud1', runnerName: 'Hetzner Cloud', threadId: 'c', target: 'bruce', text: 'x', cwd: '/opt/work', createdAt: 1, state: 'pending' };
   f.rows.set('req-17', row);
@@ -397,4 +407,25 @@ test("answering on the main Mac: Start it on another machine than the card's isn
   assert.equal(got.target?.id, 'bruce1');
   await f.cross.answer('c', 'req-17', true, 'm5', got.fingerprint);
   assert.equal(JSON.parse(f.log[1]!.slice('here '.length)).cwd, '/opt/work');
+});
+
+test("on Windows a request's folder is read under this PC's home: a Mac's or Linux home guessed, and ~", onlyOnWindows('The tests above run the same mapping on POSIX path strings'), () => {
+  const home = realPathSync(tmpDir());
+  const project = path.join(home, 'dev', 'me', 'threadbear');
+  fs.mkdirSync(project, { recursive: true });
+  const isDir = (p: string): string | undefined => {
+    try {
+      return fs.statSync(p).isDirectory() ? realPathSync(p) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  assert.equal(folderHere('~/dev/me/threadbear', home, isDir), project);
+  assert.equal(folderHere('/Users/mike/dev/me/threadbear', home, isDir), project);
+  assert.equal(folderHere('/home/mike/dev/me/threadbear', home, isDir), project);
+  assert.equal(folderHere('~', home, isDir), home);
+  assert.equal(folderHere(project, home, isDir), project, 'one that is here is left as named');
+  assert.equal(folderHere('/Users/mike/dev/elsewhere', home, isDir), undefined, 'not here');
+  assert.equal(folderHere('/Users/mike/../../x', home, isDir), undefined, 'climbing out of the home');
+  assert.equal(folderHere('relative/path', home, isDir), undefined);
 });

@@ -21,6 +21,7 @@ import { ErrorCode, RpcError } from './protocol.ts';
 import type { ThreadRecord } from './store.ts';
 import type { ProjectFolder } from './patches.ts';
 import { atomicWriteFileSync, isDirectory, readJsonSync } from './fsutil.ts';
+import { tildePath } from './platform.ts';
 import { expandHome } from './config.ts';
 import { fileHash, removeIcons, storeIcon } from './project-icons.ts';
 import { trimEndOf } from './linear-text.ts';
@@ -644,7 +645,7 @@ export class Projects {
   }
 
   private tilde(p: string): string {
-    return p === this.home || p.startsWith(this.home + path.sep) ? '~' + p.slice(this.home.length) : p;
+    return tildePath(p, this.home);
   }
 
   private save(): void {

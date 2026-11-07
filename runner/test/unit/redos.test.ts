@@ -537,7 +537,7 @@ function oldNamedFiles(text: string, base: string, root: string): string[] {
 }
 
 test("a review page's files are found as before", () => {
-  const root = '/r';
+  const root = path.resolve('/r'); // (Windows puts it on a drive)
   const page = `<!doctype html><link rel="stylesheet" href="style.css?v=2"><img src='img/a.png#top' srcset="img/a.png 1x, img/a@2x.png 2x">
 <video poster="poster.jpg" src="clip.mp4"></video><object data="chart.svg"></object><a href="next.html">next</a>
 <div style="background: url( 'bg/one.png' ) , URL(bg/two.png), url(&quot;x&quot;), url(&quot; spaced name.png &quot;)"></div>
@@ -548,8 +548,9 @@ test("a review page's files are found as before", () => {
   assert.deepEqual(namedFiles(page, root, root).sort(), want.sort());
   assert.deepEqual(namedFiles(page, root, root), oldNamedFiles(page, root, root));
   const css = `body{background:url("img/bg.png")} a{b:url( "x y.png" )} c{d:url(z.png) url('w.png')} e{f:url(bad"quote)} @import 'more.css';`;
-  assert.deepEqual(namedFiles(css, '/r/css', root), oldNamedFiles(css, '/r/css', root));
-  assert.deepEqual(namedFiles(css, '/r/css', root), ['/r/css/img/bg.png', '/r/css/x y.png', '/r/css/z.png', '/r/css/w.png', '/r/css/more.css']);
+  const cssDir = path.join(root, 'css');
+  assert.deepEqual(namedFiles(css, cssDir, root), oldNamedFiles(css, cssDir, root));
+  assert.deepEqual(namedFiles(css, cssDir, root), ['img/bg.png', 'x y.png', 'z.png', 'w.png', 'more.css'].map((f) => path.join(cssDir, f)));
 });
 
 test('url() captures and namedFiles give what the regexes they replaced gave', () => {
