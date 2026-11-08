@@ -373,15 +373,15 @@ struct ComposerView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.image]
+        panel.allowedContentTypes = ComposerTextView.attachableTypes
         panel.prompt = "Add"
         let finish = { (response: NSApplication.ModalResponse) in
             guard response == .OK else { return }
-            // Chips where the cursor was, as a paste would put them.
+            // Where the cursor was, as a paste would put them.
             if let textView = handle.textView {
-                textView.insertPictures(panel.urls)
+                textView.insertChosenFiles(panel.urls)
             } else {
-                attach(panel.urls, to: draft)
+                attach(panel.urls.filter { !PreviewRules.isMarkdown($0.path) }, to: draft)
             }
         }
         if let window = NSApp.keyWindow {
@@ -1175,6 +1175,21 @@ final class ComposerTextView: NSTextView {
     /// screen recording) still reads as one path.
     static func pathText(for urls: [URL]) -> String {
         urls.map { "`\($0.standardizedFileURL.path)`" }.joined(separator: " ")
+    }
+
+    /// What Attach Image's picker lets you pick: pictures, and Markdown
+    /// files, which go in as their paths as a dropped one does.
+    static let attachableTypes: [UTType] = [.image]
+        + ["md", "markdown"].compactMap { UTType(filenameExtension: $0) }
+
+    /// Files picked from Attach Image, where the cursor is: pictures as
+    /// chips, anything else as its path, as a drop puts them.
+    func insertChosenFiles(_ urls: [URL]) {
+        let images = urls.filter(isImage)
+        let others = urls.filter { !isImage($0) }
+        var at: NSRange?
+        if !others.isEmpty { at = insertPaths(others, replacing: nil) }
+        if !images.isEmpty { deliver(images, at: at) }
     }
 
     /// `urls` as paths in place of `range` (the selection by default), with
