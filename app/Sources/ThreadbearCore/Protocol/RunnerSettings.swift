@@ -59,6 +59,32 @@ public struct RunnerSettings: Sendable, Hashable, Decodable {
         enum CodingKeys: String, CodingKey { case pool, privateFolders }
     }
 
+    /// One experiment (runner/src/experiments/<id>.md) and its switch.
+    public struct Experiment: Sendable, Hashable, Decodable, Identifiable {
+        public var id: String
+        public var name: String
+        /// The guide's paragraph, as Markdown.
+        public var does: String
+        public var on: Bool
+
+        public init(id: String, name: String, does: String = "", on: Bool = false) {
+            self.id = id
+            self.name = name
+            self.does = does
+            self.on = on
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? id
+            does = (try? c.decodeIfPresent(String.self, forKey: .does)) ?? ""
+            on = (try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? false
+        }
+
+        enum CodingKeys: String, CodingKey { case id, name, does, on }
+    }
+
     public var defaultCwd: String
     public var idleMinutes: Int
     public var maxLiveCLIs: Int
@@ -73,9 +99,13 @@ public struct RunnerSettings: Sendable, Hashable, Decodable {
     /// Whether the runner sends `bringIn` at all. An older one doesn't.
     public var bringInSupported: Bool
     public var models: Models
+    /// Every experiment there is, oldest first. Empty from an older runner,
+    /// and Settings then shows no Experiments section.
+    public var experiments: [Experiment]
 
     public init(defaultCwd: String = "", idleMinutes: Int = 30, maxLiveCLIs: Int = 6, followMain: Bool = true, bulletReplies: Bool = true, oneReply: Bool = false,
-                bringIn: BringIn = .standard, bringInSupported: Bool = false, models: Models = Models()) {
+                bringIn: BringIn = .standard, bringInSupported: Bool = false, models: Models = Models(), experiments: [Experiment] = []) {
+        self.experiments = experiments
         self.defaultCwd = defaultCwd
         self.idleMinutes = idleMinutes
         self.maxLiveCLIs = maxLiveCLIs
@@ -98,9 +128,10 @@ public struct RunnerSettings: Sendable, Hashable, Decodable {
         bringInSupported = c.contains(.bringIn)
         bringIn = BringIn.decode(c) ?? .standard
         models = (try? c.decodeIfPresent(Models.self, forKey: .models)) ?? Models()
+        experiments = c.lossyArray(Experiment.self, forKey: .experiments)
     }
 
-    enum CodingKeys: String, CodingKey { case defaultCwd, idleMinutes, maxLiveCLIs, followMain, bulletReplies, oneReply, bringIn, models }
+    enum CodingKeys: String, CodingKey { case defaultCwd, idleMinutes, maxLiveCLIs, followMain, bulletReplies, oneReply, bringIn, models, experiments }
 }
 
 /// Fields for `settings.update`; nil ones are left out, so an edit to one
@@ -116,9 +147,12 @@ public struct SettingsUpdate: Sendable, Hashable {
     /// `.some(nil)` sends null: no pool, so no small jobs.
     public var pool: String??
     public var privateFolders: [String]?
+    /// Experiment id to on or off.
+    public var experiments: [String: Bool]?
 
     public init(defaultCwd: String? = nil, idleMinutes: Int? = nil, maxLiveCLIs: Int? = nil, followMain: Bool? = nil, bulletReplies: Bool? = nil, oneReply: Bool? = nil,
-                bringIn: RunnerSettings.BringIn? = nil, pool: String?? = nil, privateFolders: [String]? = nil) {
+                bringIn: RunnerSettings.BringIn? = nil, pool: String?? = nil, privateFolders: [String]? = nil, experiments: [String: Bool]? = nil) {
+        self.experiments = experiments
         self.pool = pool
         self.bringIn = bringIn
         self.defaultCwd = defaultCwd
@@ -143,6 +177,7 @@ public struct SettingsUpdate: Sendable, Hashable {
         if let pool { models["pool"] = pool.map { .string($0) } ?? .null }
         if let privateFolders { models["privateFolders"] = .array(privateFolders.map { .string($0) }) }
         if !models.isEmpty { params["models"] = .object(models) }
+        if let experiments, !experiments.isEmpty { params["experiments"] = .object(experiments.mapValues { .bool($0) }) }
         return params
     }
 }
@@ -189,6 +224,14 @@ public enum SettingsText {
         case .important: "Only important ones"
         case .off: "Never"
         }
+    }
+
+    /// An experiment's paragraph as plain text for its ⓘ: the guide writes
+    /// it in Markdown, so code marks and doubled spaces go.
+    public static func experimentAbout(_ does: String) -> String {
+        does.replacingOccurrences(of: "`", with: "")
+            .replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// A folder as Mike would write it: "~/dev/x" for one in his home.

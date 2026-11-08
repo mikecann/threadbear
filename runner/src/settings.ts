@@ -10,6 +10,16 @@ import type { Notification } from './runner.ts';
 import type { Models } from './models/index.ts';
 import type { BringInSetting } from './bring-in.ts';
 import { DEFAULT_BRING_IN_DAYS, parseBringIn } from './bring-in.ts';
+import { EXPERIMENTS, experimentOn, type Experiment } from './experiments.ts';
+
+// One experiment as Settings > General lists it, with its switch.
+export type ExperimentSetting = {
+  id: string;
+  name: string;
+  // The guide's paragraph (experiments/<id>.md, "What it does").
+  does: string;
+  on: boolean;
+};
 
 export type Settings = {
   defaultCwd: string;
@@ -25,6 +35,8 @@ export type Settings = {
     pool: string | null;
     privateFolders: string[];
   };
+  // Every experiment there is, oldest first, and whether it's on here.
+  experiments: ExperimentSetting[];
 };
 
 export type SettingsUpdate = {
@@ -36,6 +48,8 @@ export type SettingsUpdate = {
   oneReply?: boolean;
   bringIn?: BringInSetting;
   models?: { pool?: string | null; privateFolders?: string[] };
+  // Experiment id to on or off, saved under runner.json `experiments`.
+  experiments?: Record<string, boolean>;
 };
 
 export class SettingsService {
@@ -43,9 +57,11 @@ export class SettingsService {
   private publish: (n: Notification) => void;
   // The pools there are, so models.pool can be checked; unchecked without.
   private poolIds?: () => string[];
+  private experimentList: readonly Experiment[];
 
-  constructor(opts: { config: Config; publish: (n: Notification) => void; poolIds?: () => string[] }) {
+  constructor(opts: { config: Config; publish: (n: Notification) => void; poolIds?: () => string[]; experiments?: readonly Experiment[] }) {
     this.cfg = opts.config;
+    this.experimentList = opts.experiments ?? EXPERIMENTS;
     this.poolIds = opts.poolIds;
     this.publish = opts.publish;
   }
@@ -64,6 +80,7 @@ export class SettingsService {
         pool: this.cfg.models.pool,
         privateFolders: [...this.cfg.models.privateFolders],
       },
+      experiments: this.experimentList.map((x) => ({ id: x.id, name: x.name, does: x.does, on: experimentOn(this.cfg.home, x.id, this.experimentList) })),
     };
   }
 
@@ -84,6 +101,10 @@ export class SettingsService {
     if (pool === '') throw bad('pool must be a pool id or null');
     const pools = pool ? this.poolIds?.() : undefined;
     if (pool && pools && !pools.includes(pool)) throw bad(`No pool called ${pool}. Pools: ${pools.join(', ') || 'none'}`);
+    const known = this.experimentList.map((x) => x.id);
+    for (const id of Object.keys(u.experiments ?? {})) {
+      if (!known.includes(id)) throw bad(`No experiment called ${id}. Experiments: ${known.join(', ') || 'none'}`);
+    }
 
     const json = readRunnerJson(this.cfg.home);
     if (cwd !== undefined) {
@@ -109,6 +130,8 @@ export class SettingsService {
       if (pool !== undefined) json.models.pool = this.cfg.models.pool = pool;
       if (folders !== undefined) json.models.privateFolders = this.cfg.models.privateFolders = [...new Set(folders)];
     }
+    // Read at each use (experimentOn), so this takes effect at once.
+    if (u.experiments && Object.keys(u.experiments).length) json.experiments = { ...json.experiments, ...u.experiments };
     writeRunnerJson(this.cfg.home, json);
     return this.changed();
   }
@@ -160,6 +183,13 @@ export function settingsMethods(s: SettingsService): Record<string, (p: Record<s
           }
           u.models.privateFolders = mm.privateFolders as string[];
         }
+      }
+      if (p.experiments !== undefined) {
+        const x = p.experiments;
+        if (!x || typeof x !== 'object' || Array.isArray(x) || Object.values(x).some((v) => typeof v !== 'boolean')) {
+          throw bad('experiments must map each experiment id to true or false');
+        }
+        u.experiments = x as Record<string, boolean>;
       }
       return { settings: s.update(u) };
     },

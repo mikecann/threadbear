@@ -208,6 +208,22 @@ private struct GeneralSettings: View {
                     }
                 }
 
+                // runner.json's `experiments`, so nobody has to edit it by
+                // hand. The list comes from the runner (each
+                // runner/src/experiments/<id>.md), so a new experiment shows
+                // here by itself, and each switch is read at its next use.
+                if !settings.experiments.isEmpty {
+                    SettingsSection("Experiments",
+                                    about: "New features still being tried out. Each starts off; turn one on to try it, and off again whenever you like. Once one has proved itself it becomes a standard part of Threadbear and its switch goes. The ⓘ beside each says what it does.",
+                                    ask: "explain an experiment, or turn one on or off for you.") {
+                        ForEach(settings.experiments) { experiment in
+                            ExperimentRow(experiment: experiment) { on in
+                                app.updateSettings(SettingsUpdate(experiments: [experiment.id: on]))
+                            }
+                        }
+                    }
+                }
+
                 SettingsSection("Runner",
                                 about: "The background program that runs your threads. It updates itself.",
                                 ask: "check on it if something seems wrong. Your agent can read its status and logs.") {
@@ -713,6 +729,23 @@ private struct LoginToggleRow: View {
 /// agent first (Mike, 5 Nov). Taking `ask` as the end of a sentence keeps
 /// that line in every one. Sections with only a message or an error in them
 /// stay plain `Section`s (SettingsInfoTests checks).
+/// One experiment's switch in Settings > General, with what it does behind
+/// its ⓘ.
+private struct ExperimentRow: View {
+    let experiment: RunnerSettings.Experiment
+    let set: (Bool) -> Void
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { experiment.on }, set: set)) {
+            HStack(spacing: 6) {
+                Text(experiment.name)
+                if !experiment.does.isEmpty { InfoTip(SettingsText.experimentAbout(experiment.does)) }
+            }
+        }
+        .tip(experiment.on ? "Turn \(experiment.name) off" : "Try \(experiment.name)")
+    }
+}
+
 struct SettingsSection<Content: View>: View {
     let title: String
     let about: String
