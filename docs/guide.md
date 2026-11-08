@@ -1343,6 +1343,9 @@ quick look. Most settings live in `runner.json` in Threadbear's data folder,
 and an agent can change them or set up anything more involved, so ask one
 first.
 
+Drag the Settings window wider for more room; each tab still sets how tall
+it is.
+
 When something goes wrong, the app says so in an orange bar at the top of
 the thread. Investigate on that bar starts a thread in your Threadbear
 folder with the error, the thread it came up in, what you were doing and

@@ -1077,6 +1077,11 @@ enum Automation {
                 guard let review = app.reviewWindows.values.first(where: { $0.session.review.id == id })?.window else { return "error that review isn't open" }
                 window = review
             }
+            // {"settings": true}: the Settings window (open it with `settings`).
+            if c["settings"] as? Bool == true {
+                guard let settings = SettingsWindow.current, settings.isVisible else { return "error the Settings window isn't open" }
+                window = settings
+            }
             window.setContentSize(NSSize(width: number(c["w"]) ?? 1240, height: number(c["h"]) ?? 820))
             let size = AppDump.contentSize(window)
             return "ok \(Int(size.width))x\(Int(size.height))"

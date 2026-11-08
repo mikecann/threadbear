@@ -32,9 +32,22 @@ struct SettingsView: View {
                 .tabItem { Label("Keyboard", systemImage: "keyboard") }
                 .tag(SettingsTab.keyboard)
         }
-        .frame(width: 540)
+        // Drag the window wider for more room; it opens a little wider than
+        // it was and never goes narrower than every tab's title needs.
+        .frame(minWidth: SettingsLayout.minWidth,
+               idealWidth: SettingsLayout.idealWidth,
+               maxWidth: .infinity)
         .background(SettingsWindowFinder())
     }
+}
+
+/// The Settings window's widths. A grouped Form stops its rows at about 700
+/// points of its own accord (macOS 26), so wider than that adds even sides.
+enum SettingsLayout {
+    /// Narrowest it goes: every tab's title still fits along the top.
+    static let minWidth: CGFloat = 540
+    /// What the window opens at.
+    static let idealWidth: CGFloat = 760
 }
 
 /// What the runner's settings tabs show until there are settings to show.
@@ -730,16 +743,30 @@ struct SettingsSection<Content: View>: View {
 private struct SettingsWindowFinder: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { SettingsWindow.current = view.window }
+        DispatchQueue.main.async {
+            SettingsWindow.current = view.window
+            if let window = view.window { SettingsWindow.makeResizable(window) }
+        }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        if let window = nsView.window { SettingsWindow.current = window }
+        if let window = nsView.window {
+            SettingsWindow.current = window
+            SettingsWindow.makeResizable(window)
+        }
     }
 }
 
 @MainActor
 enum SettingsWindow {
     static weak var current: NSWindow?
+
+    /// A Settings scene's window comes fixed size; this one can be dragged
+    /// wider (each tab still sets its height).
+    static func makeResizable(_ window: NSWindow) {
+        guard !window.styleMask.contains(.resizable) else { return }
+        window.styleMask.insert(.resizable)
+        window.contentMinSize.width = SettingsLayout.minWidth
+    }
 }
