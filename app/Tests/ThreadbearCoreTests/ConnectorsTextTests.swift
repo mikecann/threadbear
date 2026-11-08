@@ -177,4 +177,67 @@ final class ConnectorsTextTests: XCTestCase {
         XCTAssertEqual(H.decode(""), [])
         XCTAssertEqual(H.decode("service:a\n\n  \ncatalog:b"), ["service:a", "catalog:b"])
     }
+
+    // MARK: Local connectors (an experiment)
+
+    func testDecodesLocalEntriesAndServicesAndOlderRunnersUnchanged() throws {
+        let s = try status("""
+        {"state":"ok","url":"http://127.0.0.1:8795","canAddLocal":true,
+         "services":[{"id":"blender","title":"Blender","state":"error","local":true,"stateNote":"Not running. Is uv installed?","message":"Not reachable."},
+                     {"id":"notion","state":"signed_out","connectUrl":"http://127.0.0.1:8795/admin/connect/notion"}],
+         "catalog":[{"id":"blender","title":"Blender","kind":"local","command":"uvx mcp-for-blender@2.2.7","asks":["blender__execute_blender_code"]},
+                    {"id":"linear","title":"Linear"}]}
+        """)
+        XCTAssertTrue(s.canAddLocal)
+        XCTAssertEqual(s.services.map(\.local), [true, false])
+        XCTAssertEqual(s.services[0].stateNote, "Not running. Is uv installed?")
+        XCTAssertTrue(s.catalog[0].isLocal)
+        XCTAssertEqual(s.catalog[0].command, "uvx mcp-for-blender@2.2.7")
+        XCTAssertEqual(s.catalog[0].asks, ["blender__execute_blender_code"])
+        XCTAssertFalse(s.catalog[1].isLocal, "no kind: remote, as older runners send")
+        XCTAssertEqual(s.catalog[1].asks, [])
+        let old = try status(#"{"state":"ok","services":[{"id":"x","state":"error"}],"catalog":[{"id":"y"}]}"#)
+        XCTAssertFalse(old.canAddLocal)
+        XCTAssertFalse(old.services[0].local)
+        XCTAssertNil(old.services[0].stateNote)
+        XCTAssertEqual(old.catalog[0].kind, "remote")
+    }
+
+    func testALocalServiceHasNoConnectButtonAndSaysItRuns() {
+        // Even with a connect URL from the gateway: a command has nothing to sign in to.
+        let broken = ConnectorService(id: "blender", title: "Blender", state: "error", connectUrl: "http://127.0.0.1:8795/admin/connect/blender", local: true, stateNote: "Not running.")
+        XCTAssertNil(ConnectorsText.buttonTitle(broken))
+        XCTAssertEqual(ConnectorsText.stateLine(broken), "Not working")
+        let running = ConnectorService(id: "blender", title: "Blender", state: "connected", local: true)
+        XCTAssertEqual(ConnectorsText.stateLine(running), "Running on this Mac")
+        let remote = ConnectorService(id: "x", title: "X", state: "error", connectUrl: "http://127.0.0.1:8795/admin/connect/x")
+        XCTAssertEqual(ConnectorsText.buttonTitle(remote), "Reconnect")
+        // Its page is still in reach for Retry and Disconnect, and hiding works the same.
+        let status = ConnectorsStatus(url: "http://127.0.0.1:8795", services: [broken])
+        XCTAssertEqual(ConnectorsText.serviceURL(status, broken)?.absoluteString, "http://127.0.0.1:8795/admin/connect/blender")
+        XCTAssertEqual(ConnectorsText.shown(status.services, hiding: [ConnectorsText.Hidden.service("blender")]), [])
+        XCTAssertEqual(ConnectorsText.shown([ConnectorCatalogEntry(id: "blender", title: "Blender", kind: "local")], hiding: [ConnectorsText.Hidden.catalog("blender")]), [])
+    }
+
+    func testOtherLocalServerTakesOnlyOneExactVersion() {
+        typealias L = ConnectorsText.LocalServer
+        XCTAssertTrue(L(launcher: "uvx", package: "mcp-for-blender", version: " 2.2.7 ").isPinned)
+        XCTAssertEqual(L(launcher: "uvx", package: "mcp-for-blender", version: "2.2.7").command, "uvx mcp-for-blender@2.2.7")
+        XCTAssertEqual(L(launcher: "npx", package: "@acme/mcp", version: "1.0.0").command, "npx -y @acme/mcp@1.0.0")
+        XCTAssertTrue(L(launcher: "npx", package: "@acme/mcp", version: "1.0.0-beta.2").isPinned)
+        for v in ["latest", "^1.2.3", "~1.2", ">=1", "1.x", "*", "", "git+https://github.com/x/y", "https://x/y.tgz", "1.2.3; rm -rf ~"] {
+            XCTAssertFalse(L(launcher: "uvx", package: "x", version: v).isPinned, v)
+        }
+        XCTAssertFalse(L(launcher: "npx", package: "x", version: "1.2").isPinned, "npm needs three parts")
+        XCTAssertFalse(L(launcher: "sh", package: "x", version: "1.0.0").isPinned)
+        XCTAssertFalse(L(launcher: "uvx", package: "", version: "1.0.0").isPinned)
+        XCTAssertFalse(L(launcher: "uvx", package: "a b", version: "1.0.0").isPinned)
+    }
+
+    func testTrustLinesSayWhatAsksFirst() {
+        let lines = ConnectorsText.trustLines(command: "uvx mcp-for-blender@2.2.7", asks: ["blender__execute_blender_code"])
+        XCTAssertTrue(lines[0].contains("Runs on this Mac whenever Connectors is running"))
+        XCTAssertTrue(lines[1].contains("blender__execute_blender_code"))
+        XCTAssertTrue(ConnectorsText.trustLines(command: "x", asks: [])[1].hasPrefix("None of its tools ask first"))
+    }
 }

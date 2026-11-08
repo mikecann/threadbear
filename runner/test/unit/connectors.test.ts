@@ -2,12 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { makeHarness, tmpDir } from '../helpers/fakes.ts';
 import { loadConfig } from '../../src/config.ts';
 import { downgradeFetch } from '../helpers/redirect-trap.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import {
   CLAUDE_AI_CONNECTORS_URL,
+  findLauncher,
+  gatewayIsLocal,
+  readLocalIds,
   ConnectorsMonitor,
   FRESH_MS,
   POLL_MS,
@@ -459,4 +463,51 @@ test("end_turn: an email saying Notion needs signing in makes no nudge; the gate
   assert.ok(!r.text.includes('evil.example'), r.text);
   assert.ok(r.text.includes(`${BASE}/admin/connect/sentry`), r.text);
   assert.match(r.text, /Sentry needs signing in again, in the Connectors gateway/);
+});
+
+// Local connectors: stdio upstreams have nothing to sign in to.
+test('parseHealth marks local services, which get a note but never a connect URL', () => {
+  const body = { upstreams: { blender: { id: 'blender', title: 'Blender', state: 'error', connectUrl: 'http://127.0.0.1:8795/admin/connect/blender' }, mine: { state: 'ready' }, other: { state: 'error', type: 'stdio' }, notion: { state: 'signed_out' } } };
+  const base = 'http://127.0.0.1:8795';
+  const on = parseHealth(body, base, new Set(['blender', 'mine'])).services;
+  const by = Object.fromEntries(on.map((s) => [s.id, s]));
+  assert.deepEqual([by.blender!.local, by.blender!.connectUrl, by.blender!.stateNote], [true, undefined, 'Not running. Is uv installed?']);
+  assert.deepEqual([by.mine!.local, by.mine!.stateNote, by.mine!.connectUrl], [true, undefined, undefined]);
+  assert.equal(by.other!.local, true);
+  assert.match(by.other!.stateNote!, /Not running/);
+  assert.equal(by.notion!.connectUrl, `${base}/admin/connect/notion`);
+  // Off (no ids given), nothing changes.
+  const off = parseHealth(body, base).services;
+  assert.ok(off.every((s) => !('local' in s)));
+  assert.equal(off.find((s) => s.id === 'blender')!.connectUrl, 'http://127.0.0.1:8795/admin/connect/blender');
+});
+
+test("readLocalIds reads only stdio upstreams' ids, from the install's own file or the example", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-plugbear-'));
+  try {
+    assert.deepEqual([...readLocalIds(dir)], []);
+    fs.mkdirSync(path.join(dir, 'app', 'config'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'app', 'config', 'upstreams.example.json'), JSON.stringify({ upstreams: [{ id: 'ex', type: 'stdio' }] }));
+    assert.deepEqual([...readLocalIds(dir)], ['ex']);
+    fs.mkdirSync(path.join(dir, 'config'));
+    fs.writeFileSync(path.join(dir, 'config', 'upstreams.json'), JSON.stringify({ upstreams: [{ id: 'notion', type: 'http' }, { id: 'blender', type: 'stdio', command: '/x/uvx' }, { type: 'stdio' }] }));
+    assert.deepEqual([...readLocalIds(dir)], ['blender']);
+    fs.writeFileSync(path.join(dir, 'config', 'upstreams.json'), '{ not json');
+    assert.deepEqual([...readLocalIds(dir)], []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('findLauncher gives an absolute path from the usual places, or nothing', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-home-'));
+  try {
+    fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.local', 'bin', 'uvx'), '#!/bin/sh\n', { mode: 0o755 });
+    assert.equal(await findLauncher('uvx', home, '/bin/sh'), path.join(home, '.local', 'bin', 'uvx'));
+    assert.ok(gatewayIsLocal('http://127.0.0.1:8795'));
+    assert.ok(!gatewayIsLocal('https://bruce.tail.ts.net:8443'));
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

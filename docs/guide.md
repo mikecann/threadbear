@@ -1102,6 +1102,36 @@ address and give it a name. Only public `https` servers are taken. To take a
 service out, its row's arrow opens its page on the gateway, where Disconnect
 is, or ask a thread to remove it from the gateway.
 
+### Local servers (Blender and others)
+
+With the Local connectors experiment on as well (Settings > General >
+Experiments), the gateway can run MCP servers that are a command on this
+Mac, not a site on the web. **Blender** shows under Add a service with an
+**On this Mac** tag, and **Other local server...** takes any `uvx` (PyPI)
+or `npx` (npm) package.
+
+1. Click **Add...**. A sheet shows the exact command that will run (for
+   Blender, `uvx mcp-for-blender@2.2.7`), that it runs on this Mac whenever
+   the gateway is running, and which of its tools wait for your OK first.
+   Blender's `execute_blender_code`, which runs any Python in your Blender,
+   always does. Click **Add** to go ahead.
+2. A short thread adds it to the gateway, pinned to that one version, so
+   what runs can't change under you. If `uv` isn't installed it says so
+   and installs it with Homebrew. For Blender it also copies the MCP for
+   Blender add-on into Blender's add-ons folder.
+3. Open Blender. The add-on connects by itself; if it doesn't, turn on
+   "MCP for Blender" in Preferences > Add-ons, press N in the 3D view and
+   click **Connect to MCP server** in its tab. The gateway's Blender row
+   can be green while Blender is closed: its tools then answer that they
+   can't reach Blender.
+4. Ask any thread, on Claude or Codex, "what's in my Blender scene?".
+
+A local row has no Connect button, as there's nothing to sign in to. When
+it won't start, the row says so, and its arrow opens its page on the
+gateway, where Retry is; `~/Library/Logs/connectors.log` has why. Other
+local server takes only one exact version (like `1.2.3`): not a range,
+`latest`, a git address or a URL.
+
 **Hiding rows you don't use**: hover over a service, a suggestion under
 Add a service, or Connect an agent, and click the **×** at its end. It only
 leaves this panel: a hidden service is still on the gateway and agents can

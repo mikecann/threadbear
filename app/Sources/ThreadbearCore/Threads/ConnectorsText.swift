@@ -165,8 +165,10 @@ public enum ConnectorsText {
         ["https", "http"].contains(url.scheme?.lowercased() ?? "")
     }
 
-    /// A service's state in a word or two.
+    /// A service's state in a word or two. A local one isn't signed in to,
+    /// it runs.
     public static func stateLine(_ service: ConnectorService) -> String {
+        if service.local, service.state == "connected" { return "Running on this Mac" }
         switch service.state {
         case "connected": return "Signed in"
         case "signed_out": return "Signed out"
@@ -179,12 +181,63 @@ public enum ConnectorsText {
 
     /// The button beside a service, or nil when there's nothing to press.
     public static func buttonTitle(_ service: ConnectorService) -> String? {
+        // A command has nothing to sign in to; its page has Retry.
+        if service.local { return nil }
         guard let url = service.connectUrl, !url.isEmpty else { return nil }
         switch service.state {
         case "connected", "disabled": return nil
         case "signed_out": return "Connect"
         default: return "Reconnect"
         }
+    }
+
+    // MARK: Local connectors (an experiment)
+
+    /// A local server as Other local server's fields have it.
+    public struct LocalServer: Equatable, Sendable {
+        public var launcher: String
+        public var package: String
+        public var version: String
+        public var title: String
+
+        public init(launcher: String, package: String, version: String, title: String = "") {
+            self.launcher = launcher
+            self.package = package.trimmingCharacters(in: .whitespaces)
+            self.version = version.trimmingCharacters(in: .whitespaces)
+            self.title = title.trimmingCharacters(in: .whitespaces)
+        }
+
+        /// The command as the runner will run it (connectors-catalog.ts
+        /// localArgs): npx gets -y, as nobody's there to answer its ask.
+        public var command: String {
+            ([launcher] + (launcher == "npx" ? ["-y"] : []) + ["\(package)@\(version)"]).joined(separator: " ")
+        }
+
+        /// Add's key, for its spinner: the runner's own once key.
+        public var key: String { "local:\(launcher):\(package)@\(version)" }
+
+        /// Whether Add can be pressed: a package and one exact version, as
+        /// the runner checks again (localServerProblem). A range, latest, a
+        /// git address or a URL isn't.
+        public var isPinned: Bool {
+            guard launcher == "uvx" || launcher == "npx", !package.isEmpty,
+                  package.range(of: #"^[@A-Za-z0-9][A-Za-z0-9._/-]*$"#, options: .regularExpression) != nil else { return false }
+            let exact = launcher == "npx"
+                ? #"^\d{1,6}\.\d{1,6}\.\d{1,6}(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$"#
+                : #"^\d{1,6}(\.\d{1,6}){0,3}((a|b|rc)\d{1,4})?(\.post\d{1,4})?(\.dev\d{1,4})?$"#
+            return version.range(of: exact, options: .regularExpression) != nil
+        }
+    }
+
+    /// The trust sheet's lines for a local server: what runs, where, and
+    /// what asks first.
+    public static func trustLines(command: String, asks: [String]) -> [String] {
+        var lines = ["Runs on this Mac whenever Connectors is running, as you, with what you can reach. Every login and Codex gets its tools."]
+        lines.append(asks.isEmpty
+            ? "None of its tools ask first, unless the gateway's own rules catch them (sends, posts and deletes)."
+            : "These wait for your OK on the gateway's approval page: \(list(asks)).")
+        lines.append("It stays at this version until you add a newer one.")
+        return lines
     }
 
     // MARK: Hiding rows

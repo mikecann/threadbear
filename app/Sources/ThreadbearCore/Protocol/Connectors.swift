@@ -16,9 +16,12 @@ public struct ConnectorsStatus: Sendable, Hashable, Decodable {
     public var canSetUp: Bool
     /// Connectors setup: services the gateway doesn't have yet, for Add a service.
     public var catalog: [ConnectorCatalogEntry]
+    /// Local connectors (an experiment): Other local server is offered.
+    public var canAddLocal: Bool
 
-    public init(state: String = "ok", url: String? = nil, checkedAt: Date? = nil, error: String? = nil, version: String? = nil, services: [ConnectorService] = [], canSetUp: Bool = false, catalog: [ConnectorCatalogEntry] = []) {
+    public init(state: String = "ok", url: String? = nil, checkedAt: Date? = nil, error: String? = nil, version: String? = nil, services: [ConnectorService] = [], canSetUp: Bool = false, catalog: [ConnectorCatalogEntry] = [], canAddLocal: Bool = false) {
         self.canSetUp = canSetUp
+        self.canAddLocal = canAddLocal
         self.catalog = catalog
         self.state = state
         self.url = url
@@ -38,9 +41,10 @@ public struct ConnectorsStatus: Sendable, Hashable, Decodable {
         services = c.lossyArray(ConnectorService.self, forKey: .services)
         canSetUp = ((try? c.decodeIfPresent(Bool.self, forKey: .canSetUp)) ?? nil) ?? false
         catalog = c.lossyArray(ConnectorCatalogEntry.self, forKey: .catalog)
+        canAddLocal = ((try? c.decodeIfPresent(Bool.self, forKey: .canAddLocal)) ?? nil) ?? false
     }
 
-    enum CodingKeys: String, CodingKey { case state, url, checkedAt, error, version, services, canSetUp, catalog }
+    enum CodingKeys: String, CodingKey { case state, url, checkedAt, error, version, services, canSetUp, catalog, canAddLocal }
 
     static func parseDate(_ s: String) -> Date? {
         let f = ISO8601DateFormatter()
@@ -59,8 +63,14 @@ public struct ConnectorService: Sendable, Hashable, Decodable, Identifiable {
     public var state: String
     public var message: String?
     public var connectUrl: String?
+    /// Local connectors: a command the gateway runs on this Mac, with
+    /// nothing to sign in to, and what to say when it isn't running.
+    public var local: Bool
+    public var stateNote: String?
 
-    public init(id: String, title: String, state: String, message: String? = nil, connectUrl: String? = nil) {
+    public init(id: String, title: String, state: String, message: String? = nil, connectUrl: String? = nil, local: Bool = false, stateNote: String? = nil) {
+        self.local = local
+        self.stateNote = stateNote
         self.id = id
         self.title = title
         self.state = state
@@ -75,9 +85,11 @@ public struct ConnectorService: Sendable, Hashable, Decodable, Identifiable {
         state = ((try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil) ?? "unknown"
         message = (try? c.decodeIfPresent(String.self, forKey: .message)) ?? nil
         connectUrl = (try? c.decodeIfPresent(String.self, forKey: .connectUrl)) ?? nil
+        local = ((try? c.decodeIfPresent(Bool.self, forKey: .local)) ?? nil) ?? false
+        stateNote = (try? c.decodeIfPresent(String.self, forKey: .stateNote)) ?? nil
     }
 
-    enum CodingKeys: String, CodingKey { case id, title, state, message, connectUrl }
+    enum CodingKeys: String, CodingKey { case id, title, state, message, connectUrl, local, stateNote }
 }
 
 public struct ConnectorsResult: Sendable, Decodable {
@@ -91,8 +103,19 @@ public struct ConnectorCatalogEntry: Sendable, Hashable, Decodable, Identifiable
     public var blurb: String
     /// What it needs from you first (Slack's own app), behind the ⓘ.
     public var setupNote: String?
+    /// remote (a hosted server) or local (a command run on this Mac).
+    public var kind: String
+    /// A local entry's command as it will run ("uvx mcp-for-blender@2.2.7").
+    public var command: String?
+    /// A local entry's tools that ask first, as agents see them.
+    public var asks: [String]
 
-    public init(id: String, title: String, blurb: String = "", setupNote: String? = nil) {
+    public var isLocal: Bool { kind == "local" }
+
+    public init(id: String, title: String, blurb: String = "", setupNote: String? = nil, kind: String = "remote", command: String? = nil, asks: [String] = []) {
+        self.kind = kind
+        self.command = command
+        self.asks = asks
         self.id = id
         self.title = title
         self.blurb = blurb
@@ -105,9 +128,12 @@ public struct ConnectorCatalogEntry: Sendable, Hashable, Decodable, Identifiable
         title = ((try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil) ?? id
         blurb = ((try? c.decodeIfPresent(String.self, forKey: .blurb)) ?? nil) ?? ""
         setupNote = (try? c.decodeIfPresent(String.self, forKey: .setupNote)) ?? nil
+        kind = ((try? c.decodeIfPresent(String.self, forKey: .kind)) ?? nil) ?? "remote"
+        command = (try? c.decodeIfPresent(String.self, forKey: .command)) ?? nil
+        asks = ((try? c.decodeIfPresent([String].self, forKey: .asks)) ?? nil) ?? []
     }
 
-    enum CodingKeys: String, CodingKey { case id, title, blurb, setupNote }
+    enum CodingKeys: String, CodingKey { case id, title, blurb, setupNote, kind, command, asks }
 }
 
 /// connectors.setup and connectors.add: the thread doing it, and whether
@@ -197,6 +223,14 @@ public extension RPCClient {
 
     func connectorsAdd(url: String, title: String) async throws -> ConnectorsStarted {
         try await call("connectors.add", .object(["url": .string(url), "title": .string(title)]), as: ConnectorsStarted.self)
+    }
+
+    /// Local connectors: a uvx or npx package at one exact version.
+    func connectorsAdd(local: ConnectorsText.LocalServer) async throws -> ConnectorsStarted {
+        try await call("connectors.add", .object(["local": .object([
+            "launcher": .string(local.launcher), "package": .string(local.package),
+            "version": .string(local.version), "title": .string(local.title),
+        ])]), as: ConnectorsStarted.self)
     }
 
     func agentsList() async throws -> AgentsList {

@@ -86,6 +86,11 @@ extension AppModel {
         addConnector(key: url) { try await $0.connectorsAdd(url: url, title: title) }
     }
 
+    /// Local connectors: a uvx or npx package, after the trust sheet.
+    func addConnector(local: ConnectorsText.LocalServer) {
+        addConnector(key: local.key) { try await $0.connectorsAdd(local: local) }
+    }
+
     private func addConnector(key: String, _ call: @escaping (RPCClient) async throws -> ConnectorsStarted) {
         guard let client else { return }
         whileBusy(BusyKey.addConnector(key)) { [self] in

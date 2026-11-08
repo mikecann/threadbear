@@ -111,6 +111,21 @@ Keychain. The thread also sets `connectors.url` in `runner.json`. Each Add
 in the panel is a thread that edits the gateway's `upstreams.json` and
 restarts it. plugbear's README says how to take it all out.
 
+With Local connectors on as well (`localConnectors`, off by default), an
+Add for a local server (Blender, or a `uvx` or `npx` package you name at
+one exact version) is a thread that writes a `stdio` upstream to the
+gateway's `upstreams.json` and an ask rule to its `policy.json`. From
+then on the gateway runs that command as a child of the
+`local.connectors` LaunchAgent, as you, whenever it's running, and logs
+its output to `~/Library/Logs/connectors.log`; `uvx` and `npx` download
+the pinned package from PyPI or npm the first time. If `uv` isn't
+installed the thread installs it with Homebrew, and Blender's thread
+copies the MCP for Blender add-on into Blender's add-ons folder. The
+runner looks for `uvx` or `npx` in `~/.local/bin`, `/opt/homebrew/bin`,
+`/usr/local/bin` and `~/.cargo/bin`, then asks your login shell, and
+reads the gateway's `upstreams.json` (only each upstream's id and type)
+to know which services are local.
+
 With Outside agents on (`outsideAgents`), the runner keeps which agent key
 started which thread in `runner/agent-threads.json` (0600) in the data
 folder.

@@ -14,7 +14,10 @@ import fs from 'node:fs';
 import type { PersistedEvent } from './protocol.ts';
 import { credentialUrlProblem } from './secure-url.ts';
 import { ErrorCode, RpcError } from './protocol.ts';
-import { addMessage, CATALOG, catalogFor, cleanTitle, customServerProblem, idFor, setupMessage, type CatalogEntry } from './connectors-catalog.ts';
+import path from 'node:path';
+import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { addMessage, CATALOG, catalogFor, cleanTitle, customServerProblem, idFor, localAddMessage, localServerProblem, setupMessage, type Launcher, type PanelEntry } from './connectors-catalog.ts';
 
 // How often /health is asked when nobody's looking. A sign-in that lapses
 // shows within this; the panel opening asks straight away.
@@ -34,6 +37,10 @@ export type ConnectorService = {
   message?: string;
   // Where Mike signs this one in: the gateway's own page for it.
   connectUrl?: string;
+  // Local connectors: a command plugbear runs on this Mac. It has nothing
+  // to sign in to, so no connectUrl, and a note for when it won't start.
+  local?: true;
+  stateNote?: string;
 };
 
 export type ConnectorsStatus = {
@@ -100,7 +107,12 @@ function connectUrlFor(raw: unknown, base: string): string | undefined {
 // { id: state } (the first gateway) or as [{ id, title, state, message,
 // connectUrl }]. A service that isn't connected with no URL of its own
 // gets the gateway's page for it, /admin/connect/<id>.
-export function parseHealth(body: unknown, base: string): Pick<ConnectorsStatus, 'version' | 'release' | 'services'> {
+//
+// `localIds`: with Local connectors on, the gateway's stdio upstreams (its
+// /health doesn't say which they are, readLocalIds does; a `type` it may
+// send one day counts too). Those are marked local, and get no connect
+// URL, as there's nothing to sign in to.
+export function parseHealth(body: unknown, base: string, localIds?: ReadonlySet<string>): Pick<ConnectorsStatus, 'version' | 'release' | 'services'> {
   const o = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
   const out: Pick<ConnectorsStatus, 'version' | 'release' | 'services'> = { services: [] };
   const version = str(o.version, 100);
@@ -122,12 +134,74 @@ export function parseHealth(body: unknown, base: string): Pick<ConnectorsStatus,
     const service: ConnectorService = { id, title: str(item.title, 100) ?? str(item.name, 100) ?? titleFor(id), state };
     const message = str(item.message) ?? str(item.error) ?? str(item.lastError);
     if (message) service.message = message;
+    if (localIds && (localIds.has(id) || item.type === 'stdio')) {
+      service.local = true;
+      if (state === 'error' || state === 'connecting' || state === 'unknown') service.stateNote = localNote(id);
+      out.services.push(service);
+      continue;
+    }
     const url = connectUrlFor(item.connectUrl ?? item.connect_url ?? item.connectURL, base);
     if (url) service.connectUrl = url;
     else if (state !== 'connected' && state !== 'disabled') service.connectUrl = `${base}/admin/connect/${encodeURIComponent(id)}`;
     out.services.push(service);
   }
   return out;
+}
+
+// A local service's line when it isn't running: its catalog entry's, or
+// a plain one.
+function localNote(id: string): string {
+  const e = CATALOG.find((x) => x.id === id);
+  return (e?.kind === 'local' && e.notRunning) || 'Not running. The gateway\'s page for it has why.';
+}
+
+// The ids of the stdio upstreams in plugbear's config on this Mac (its
+// own upstreams.json, else the example it falls back to), for parseHealth.
+// Only `id` and `type` are read; nothing under secrets/.
+export function readLocalIds(dataDir: string): Set<string> {
+  for (const file of [path.join(dataDir, 'config', 'upstreams.json'), path.join(dataDir, 'app', 'config', 'upstreams.example.json')]) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      return new Set();
+    }
+    const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' && Array.isArray((raw as { upstreams?: unknown }).upstreams) ? (raw as { upstreams: unknown[] }).upstreams : [];
+    return new Set(list.filter((u): u is { id: string; type: string } => Boolean(u) && typeof u === 'object' && (u as { type?: unknown }).type === 'stdio' && typeof (u as { id?: unknown }).id === 'string').map((u) => u.id));
+  }
+  return new Set();
+}
+
+// Where uvx or npx is, as an absolute path plugbear can run: its
+// LaunchAgent's PATH has no ~/.local/bin (uv's own installer) or nvm's
+// folders. The usual places first, then the login shell's `command -v`.
+// Undefined when it isn't installed.
+export async function findLauncher(name: Launcher, home = os.homedir(), shell = process.env.SHELL || '/bin/zsh'): Promise<string | undefined> {
+  for (const dir of [path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.cargo', 'bin')]) {
+    const p = path.join(dir, name);
+    try {
+      fs.accessSync(p, fs.constants.X_OK);
+      return p;
+    } catch {
+      // not here
+    }
+  }
+  const found = await new Promise<string>((resolve) => {
+    execFile(shell, ['-lc', `command -v ${name}`], { timeout: 5000, env: { HOME: home, PATH: '/usr/bin:/bin' } }, (err, out) => resolve(err ? '' : String(out).trim().split('\n').pop() ?? ''));
+  });
+  return path.isAbsolute(found) && path.basename(found) === name ? found : undefined;
+}
+
+// Whether the gateway runs on this Mac, so its config is ours to read.
+export function gatewayIsLocal(base: string | undefined): boolean {
+  if (!base) return false;
+  try {
+    const h = new URL(base).hostname;
+    return h === '127.0.0.1' || h === 'localhost' || h === '[::1]';
+  } catch {
+    return false;
+  }
 }
 
 // The gateway's base URL from its MCP URL (https://host:8443/mcp). Only
@@ -177,6 +251,8 @@ export type ConnectorsMonitorOptions = {
   setTimeout?: (fn: () => void, ms: number) => Timer;
   onChange?: (s: ConnectorsStatus) => void;
   log?: { info(msg: string, data?: Record<string, unknown>): void };
+  // Local connectors on: the gateway's stdio upstreams (readLocalIds).
+  localIds?: () => ReadonlySet<string> | undefined;
 };
 
 // Asks /health every POLL_MS and on demand, one ask at a time, and says
@@ -225,6 +301,14 @@ export class ConnectorsMonitor {
     return this.inFlight;
   }
 
+  private localIds(): ReadonlySet<string> | undefined {
+    try {
+      return this.opts.localIds?.();
+    } catch {
+      return undefined;
+    }
+  }
+
   private now(): number {
     return (this.opts.now ?? Date.now)();
   }
@@ -257,7 +341,7 @@ export class ConnectorsMonitor {
       } catch {
         throw new Error("the gateway's answer wasn't JSON");
       }
-      next = { state: 'ok', url: base, ...parseHealth(body, base), checkedAt: new Date(this.now()).toISOString() };
+      next = { state: 'ok', url: base, ...parseHealth(body, base, this.localIds()), checkedAt: new Date(this.now()).toISOString() };
     } catch (e) {
       next = { state: 'unreachable', url: base, error: plainError(e), services: [], checkedAt: new Date(this.now()).toISOString() };
     }
@@ -444,9 +528,13 @@ export type ConnectorsSetupDeps = {
   start: (r: { text: string; title: string; why: string }) => string;
   // Whether a thread is still there and not archived.
   open: (threadId: string) => boolean;
+  // Local connectors (an experiment): whether it's on, and a launcher's
+  // absolute path, or undefined when it isn't installed.
+  local?: () => boolean;
+  findLauncher?: (launcher: Launcher) => Promise<string | undefined>;
 };
 
-export type ConnectorsPanelStatus = ConnectorsStatus & { canSetUp?: boolean; catalog?: CatalogEntry[] };
+export type ConnectorsPanelStatus = ConnectorsStatus & { canSetUp?: boolean; canAddLocal?: boolean; catalog?: PanelEntry[] };
 
 // connectors.status: what the panel shows. { refresh: true } asks /health
 // first (the panel opening, or Check now), unless it did within FRESH_MS.
@@ -457,7 +545,24 @@ export function connectorsMethods(m: Pick<ConnectorsMonitor, 'status' | 'refresh
   const running = new Map<string, string>();
   const panel = (s: ConnectorsStatus): ConnectorsPanelStatus => {
     if (!setup?.on()) return s;
-    return { ...s, canSetUp: s.state === 'off', ...(s.state === 'ok' ? { catalog: catalogFor(s.services.map((x) => x.id)) } : {}) };
+    const local = localOn();
+    return { ...s, canSetUp: s.state === 'off', ...(s.state === 'ok' ? { catalog: catalogFor(s.services.map((x) => x.id), local), ...(local ? { canAddLocal: true } : {}) } : {}) };
+  };
+  const localOn = () => Boolean(setup?.on() && setup.local?.());
+  // A local add finds its launcher first; a second click meanwhile waits
+  // for the same answer rather than starting a second thread.
+  const pending = new Map<string, Promise<{ threadId: string; already: boolean }>>();
+  const onceLocal = (key: string, make: (path: string | undefined) => { text: string; title: string; why: string }, launcher: Launcher) => {
+    const was = running.get(key);
+    if (was && setup!.open(was)) return Promise.resolve({ threadId: was, already: true });
+    const waiting = pending.get(key);
+    if (waiting) return waiting.then((r) => ({ ...r, already: true }));
+    const p = (setup!.findLauncher?.(launcher) ?? Promise.resolve(undefined))
+      .catch(() => undefined)
+      .then((found) => once(key, () => make(found)))
+      .finally(() => pending.delete(key));
+    pending.set(key, p);
+    return p;
   };
   const once = (key: string, make: () => { text: string; title: string; why: string }) => {
     const was = running.get(key);
@@ -479,9 +584,24 @@ export function connectorsMethods(m: Pick<ConnectorsMonitor, 'status' | 'refresh
       mustBeOn();
       if (m.status().state !== 'ok') throw new RpcError(ErrorCode.other, 'The gateway has to be running before a service can be added: use Set up first.');
       if (typeof p.id === 'string') {
-        const entry = CATALOG.find((e) => e.id === p.id);
+        const entry = CATALOG.find((e) => e.id === p.id && (e.kind === 'remote' || localOn()));
         if (!entry) throw new RpcError(ErrorCode.badParams, `no service called ${p.id.slice(0, 40)}`);
+        if (entry.kind === 'local') return onceLocal(`add:${entry.id}`, (found) => ({ text: localAddMessage(entry, false, found), title: `Add ${entry.title} to Connectors`, why: 'Add in the Connectors panel' }), entry.launcher);
         return once(`add:${entry.id}`, () => ({ text: addMessage(entry, false), title: `Add ${entry.title} to Connectors`, why: `Add in the Connectors panel` }));
+      }
+      if (p.local !== undefined) {
+        if (!localOn()) throw new RpcError(ErrorCode.other, 'Local connectors is off: turn it on in Settings > General > Experiments.');
+        const l = (p.local && typeof p.local === 'object' ? p.local : {}) as Record<string, unknown>;
+        const problem = localServerProblem(l);
+        if (problem) throw new RpcError(ErrorCode.badParams, problem);
+        const launcher = l.launcher as Launcher;
+        const pkg = (l.package as string).trim();
+        const version = (l.version as string).trim();
+        const args = (l.args as string[] | undefined) ?? [];
+        const title = cleanTitle(l.title);
+        const id = idFor(title || pkg.replace(/^@[^/]+\//, ''), 'https://local.invalid');
+        if (CATALOG.some((e) => e.id === id) || m.status().services.some((s) => s.id === id)) throw new RpcError(ErrorCode.badParams, `There's already a service called ${id}: give it another name.`);
+        return onceLocal(`add:local:${launcher}:${pkg}@${version}`, (found) => ({ text: localAddMessage({ id, title, launcher, package: pkg, version, args }, true, found), title: `Add ${title || pkg} to Connectors`, why: 'Add in the Connectors panel' }), launcher);
       }
       if (typeof p.url !== 'string') throw new RpcError(ErrorCode.badParams, 'id or url is needed');
       const problem = customServerProblem(p.url);

@@ -357,6 +357,11 @@ let projects = [];
 let librarian;
 const MOCK_GATEWAY = 'https://bruce.example.ts.net:8443';
 let mockAgents = { on: true, url: 'https://demo-seal-123.convex.site/mcp', keys: [] };
+const MOCK_BLENDER = {
+  kind: 'local', id: 'blender', title: 'Blender', blurb: 'Build and change scenes in the Blender open on this Mac',
+  command: 'uvx mcp-for-blender@2.2.7', asks: ['blender__execute_blender_code'],
+  setupNote: 'Needs Blender on this Mac and uv (brew install uv). The thread that adds it installs its Blender add-on.',
+};
 let connectors = {
   state: 'ok',
   url: MOCK_GATEWAY,
@@ -1282,6 +1287,9 @@ async function dispatch(client, method, p) {
     case 'agents.revoke':
       mockAgents = { ...mockAgents, keys: p.id ? mockAgents.keys.filter((k) => k.id !== p.id) : [] };
       return mockAgents;
+    case 'connectors.add':
+      // Opens a demo thread, as the runner's starts one.
+      return { threadId: 'demo_upload', already: false };
     case 'connectors.status':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (p.refresh) connectors = { ...connectors, checkedAt: iso() };
@@ -1375,6 +1383,15 @@ async function dispatch(client, method, p) {
       // { state?, error?, services? }: replaces what connectors.status
       // answers and sends connectors.updated.
       connectors = { ...connectors, state: p.state ?? 'ok', services: Array.isArray(p.services) ? p.services : connectors.services, checkedAt: iso() };
+      // { catalog: [...] } or { local: true }: Add a service's list, and
+      // with local, Local connectors on (Blender, a local service in error
+      // and Other local server).
+      if (Array.isArray(p.catalog)) connectors.catalog = p.catalog;
+      if (p.local === true) {
+        connectors.canAddLocal = true;
+        connectors.catalog = [...(connectors.catalog ?? []).filter((e) => e.id !== 'blender'), MOCK_BLENDER];
+        connectors.services = [...connectors.services.filter((x) => x.id !== 'figma-local'), { id: 'figma-local', title: 'Figma (local)', state: 'error', local: true, stateNote: 'Not running. The gateway\'s page for it has why.', message: 'Not reachable. The admin page has the details.' }];
+      }
       if (typeof p.error === 'string') connectors.error = p.error;
       else delete connectors.error;
       if (connectors.state !== 'ok') connectors.services = [];

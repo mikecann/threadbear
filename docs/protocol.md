@@ -1008,7 +1008,7 @@ the summary and then the reply.
 | `librarian.status` | `{}` | `{ librarian: LibrarianStatus }` |
 | `connectors.status` | `{ refresh?: boolean }` | `{ connectors: ConnectorsStatus }` (see Connectors). `refresh` asks the gateway's `/health` first, unless it did in the last 10 seconds; the app passes it when the Connectors panel opens. A runner from before Connectors answers `-32601` and the app leaves the panel out |
 | `connectors.setup` | `{}` | `{ threadId, already: boolean }`. Connectors setup (an experiment): starts the thread that installs the gateway (see "Connectors setup"), or answers the one already open. Refused while the experiment is off |
-| `connectors.add` | `{ id: string }` or `{ url: string, title?: string }` | `{ threadId, already: boolean }`. Starts the thread that adds a catalog service, or a public `https:` MCP server, to the gateway. Refused while the gateway isn't `ok`, for an id not in the catalog, and for any other address |
+| `connectors.add` | `{ id: string }`, `{ url: string, title?: string }` or (Local connectors) `{ local: { launcher, package, version, args?, title? } }` | `{ threadId, already: boolean }`. Starts the thread that adds a catalog service, or a public `https:` MCP server, to the gateway. Refused while the gateway isn't `ok`, for an id not in the catalog, and for any other address |
 | `agents.list` | `{}` | `{ on, reason?, url?, keys: AgentKey[] }`. Outside agents (an experiment, see "Outside agents"): `url` is the backend's `/mcp`; `reason` says why none can be made (sync off) |
 | `agents.connect` | `{ name?: string, scope?: "read" \| "write", readAll?: boolean }` | `{ key: AgentKey, secret, url }`. Makes a key, `read` and own threads only unless asked. `secret` is in this reply and nowhere else |
 | `agents.revoke` | `{ id?: string }` | As `agents.list`. One key, or every key with no `id` |
@@ -4159,6 +4159,15 @@ fall back on the next place: the gateway stays off, `connectors.status`
 says why (`error` with state `off`) and so does the log. Every request to
 it (`/health` too) refuses redirects, so a 307 can't pass the call on.
 
+**Local services.** With Local connectors on and the gateway on this
+Mac, the runner reads the ids of the `type: "stdio"` upstreams in
+plugbear's `config/upstreams.json` (or the example it falls back to; only
+`id` and `type`), as `/health` doesn't say. Those services carry `local:
+true` and never a `connectUrl` (there's nothing to sign in to); one in
+`error`, `connecting` or `unknown` carries `stateNote`, the catalog's
+line for it or a plain "Not running". The app shows no Connect button for
+them. Older apps ignore both.
+
 **Status.** The runner asks the gateway's open `GET <base>/health` every
 3 minutes, and when the app passes `refresh` to `connectors.status`
 (the panel opening, or its refresh button). One ask at a time, 5
@@ -4255,6 +4264,27 @@ each at a time: a second call while it's open answers `already: true`
 with the same id. plugbear has no admin API, so its config files and a
 restart are the thread's work; the gateway is picked up by the runner's
 next restart (`connectors.url` in runner.json).
+
+**Local servers.** A second experiment, `localConnectors`, on top of this
+one. Catalog entries carry `kind`: `"remote"` (the above) or `"local"`, a
+command plugbear runs on this Mac (`{ kind, id, title, launcher, package,
+version, env?, ask?, blurb, setupNote?, command, asks }`; `command` is the
+command line as it will run with the bare launcher name, `asks` the tools,
+prefixed, that the add puts an `ask` rule on). Local entries are in
+`catalog` only with it on, and so is `canAddLocal: true`. Older apps read
+every entry as remote; an app that doesn't know `kind` was never sent one.
+`connectors.add` takes a local entry's `id`, or `{ local: { launcher,
+package, version, args?, title? } }`, checked by `localServerProblem`:
+`uvx` or `npx` only, a package name its registry would take, one exact
+version (no ranges, tags, git or URL specs), args from a plain charset,
+and no `env`. The runner finds the launcher's absolute path itself (the
+usual folders, then the login shell's `command -v`), as plugbear's
+LaunchAgent PATH has no `~/.local/bin`. The thread's message carries one
+`stdio` upstream (`{ id, title, prefix, type: "stdio", command, args,
+env }`, the args the exact pin, with `-y` before it for npx) and its
+`ask` rules, put first in `policy.json`, and allows exactly that command,
+args and env and nothing more. Every remote add's message still forbids
+`stdio`.
 
 ### Outside agents
 

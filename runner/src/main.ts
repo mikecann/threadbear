@@ -27,7 +27,7 @@ import { AgentThreads, agentCommands, agentsMethods, EXPERIMENT as OUTSIDE_AGENT
 import { MacScreen } from './mac-screen.ts';
 import { Projects, drainProjectMethods, projectMethods } from './projects.ts';
 import { Librarian, librarianMethods } from './librarian.ts';
-import { ConnectorsMonitor, connectorsMethods } from './connectors.ts';
+import { ConnectorsMonitor, connectorsMethods, findLauncher, gatewayIsLocal, readLocalIds } from './connectors.ts';
 import { TaskBoards, gatewayCaller, helperHeaders } from './notion-tasks.ts';
 import { createLogger } from './log.ts';
 import { hidIdleMs, isAtMac } from './presence.ts';
@@ -382,6 +382,9 @@ async function main(): Promise<void> {
     ...(cfg.connectorsRefused ? { offReason: cfg.connectorsRefused } : {}),
     log,
     onChange: (s) => runner.publish({ method: 'connectors.updated', params: { connectors: s } }),
+    // Local connectors (an experiment): which of a gateway on this Mac's
+    // services are commands it runs.
+    localIds: () => (experimentOn(cfg.home, 'localConnectors') && gatewayIsLocal(cfg.connectorsUrl) ? readLocalIds(path.join(os.homedir(), 'Library', 'Application Support', 'Connectors')) : undefined),
   });
   connectors.start();
   // Projects' task boards in Notion, read through the same gateway
@@ -666,7 +669,7 @@ async function main(): Promise<void> {
   updaterReady = true;
 
   runner.attachClis(updates);
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors, { on: () => experimentOn(cfg.home, 'connectorsSetup'), start: ({ text, title, why }) => runner.create({ text, title, permissionMode: 'full', startedBy: { kind: 'runner', label: 'Threadbear', why } }).thread.id, open: openThread }), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...agentsMethods(sync, () => experimentOn(cfg.home, OUTSIDE_AGENTS)), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors, { on: () => experimentOn(cfg.home, 'connectorsSetup'), start: ({ text, title, why }) => runner.create({ text, title, permissionMode: 'full', startedBy: { kind: 'runner', label: 'Threadbear', why } }).thread.id, open: openThread, local: () => experimentOn(cfg.home, 'localConnectors'), findLauncher: (l) => findLauncher(l) }), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...agentsMethods(sync, () => experimentOn(cfg.home, OUTSIDE_AGENTS)), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {
