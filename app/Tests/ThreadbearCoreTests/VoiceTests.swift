@@ -108,6 +108,26 @@ final class UtteranceTrackerTests: XCTestCase {
         XCTAssertEqual(t.pending, "and more")
     }
 
+    func testRevisionsOfWhatWentAreNotSentAgain() {
+        // Fn dictation, 8 Nov: "Is this working? Is this working?"
+        var t = UtteranceTracker(pause: 0.8)
+        t.add(R(text: "is this working", start: 0, end: 1.0, isFinal: false), now: 0)
+        XCTAssertEqual(t.take(now: 1), "is this working")
+        // The same stretch again, reaching a little further each time.
+        XCTAssertFalse(t.add(R(text: "is this working", start: 0, end: 1.3, isFinal: false), now: 1.1))
+        XCTAssertFalse(t.add(R(text: "Is this working?", start: 0, end: 1.5, isFinal: true), now: 1.2))
+        XCTAssertNil(t.take(now: 5))
+        XCTAssertNil(t.flush())
+    }
+
+    func testNewWordsOnARevisionStillCount() {
+        var t = UtteranceTracker(pause: 0.8)
+        t.add(R(text: "hello do you", start: 0, end: 1.0, isFinal: false), now: 0)
+        XCTAssertEqual(t.take(now: 1), "hello do you")
+        XCTAssertTrue(t.add(R(text: "Hello, do you hear me?", start: 0, end: 1.8, isFinal: true), now: 1.2))
+        XCTAssertEqual(t.flush(), "hear me?")
+    }
+
     func testSilenceAloneSendsNothing() {
         var t = UtteranceTracker(pause: 1)
         XCTAssertFalse(t.add(R(text: " ", start: 0, end: 1, isFinal: true), now: 0))
