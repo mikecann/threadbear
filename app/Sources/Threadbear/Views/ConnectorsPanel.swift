@@ -407,19 +407,25 @@ private struct AgentKeyRow: View {
     }
 }
 
-/// The address and the key, once, with what to do in Grok Bot.
+/// A new key, once, as the boxes of Grok Bot's "Add a custom connector"
+/// form, each with what to put there. The key is copied, never shown.
 private struct NewKeyBox: View {
     @Environment(AppModel.self) private var app
     let made: AgentConnected
 
     var body: some View {
         VStack(alignment: .leading, spacing: zoomed(8)) {
-            Text("Copy both now. The key isn't shown again once this panel closes.")
+            Text("Copy these now. The key can't be copied again once this panel closes.")
                 .font(.system(size: zoomed(12), weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
-            CopyLine(label: "Server", value: made.url, tip: "Copy the server address")
-            CopyLine(label: "Key", value: made.secret, tip: "Copy the key")
-            Text("In Grok Bot, open Connect apps, add a custom MCP server by its address, and give it the key as a bearer token. Then ask it to list your Threadbear threads.")
+            Text("In Grok Bot, open Connect apps, then Add a custom connector, and fill in each box:")
+                .font(.system(size: zoomed(11)))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(ConnectorsText.agentForm(url: made.url, secret: made.secret), id: \.label) { field in
+                FormLine(field: field)
+            }
+            Text("Save it, then ask Grok Bot to list your Threadbear threads. Its row here says Used just now once it works. If the key ever leaks, Revoke it and make a new one.")
                 .font(.system(size: zoomed(11)))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -432,30 +438,33 @@ private struct NewKeyBox: View {
     }
 }
 
-private struct CopyLine: View {
+/// One box of Grok Bot's form: its name, what goes in it, and a copy
+/// button for what's pasted.
+private struct FormLine: View {
     @Environment(AppModel.self) private var app
-    let label: String
-    let value: String
-    let tip: String
+    let field: ConnectorsText.AgentFormField
 
     var body: some View {
         HStack(spacing: zoomed(6)) {
-            Text(label)
+            Text(field.label)
                 .font(.system(size: zoomed(11)))
                 .foregroundStyle(.secondary)
-                .frame(width: zoomed(42), alignment: .leading)
-            Text(value)
-                .font(.system(size: zoomed(11), design: .monospaced))
+                .frame(width: zoomed(84), alignment: .leading)
+            Text(field.shown)
+                .font(.system(size: zoomed(11), design: field.copies ? .monospaced : .default))
+                .foregroundStyle(field.copies ? .primary : .secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .textSelection(.enabled)
+                .tip(field.tip)
             Spacer(minLength: 0)
-            Button { app.copyToPasteboard(value) } label: {
-                Image(systemName: "doc.on.doc").font(.system(size: zoomed(11)))
+            if field.copies {
+                Button { app.copyToPasteboard(field.value) } label: {
+                    Image(systemName: "doc.on.doc").font(.system(size: zoomed(11)))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .tip(field.tip)
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .tip(tip)
         }
     }
 }

@@ -31,6 +31,48 @@ public enum ConnectorsText {
         return k.scope == "write" ? "Starts Ask threads, \(reads)" : "Read only, \(reads)"
     }
 
+    /// One box of Grok Bot's "Add a custom connector" form, as the panel
+    /// shows it under a new key.
+    public struct AgentFormField: Equatable, Sendable {
+        init(label: String, value: String, shown: String? = nil, copies: Bool, tip: String) {
+            self.label = label
+            self.value = value
+            self.shown = shown ?? value
+            self.copies = copies
+            self.tip = tip
+        }
+
+        public var label: String
+        /// What the copy button copies.
+        public var value: String
+        /// What the row shows: the value, but never the key itself, so a
+        /// screenshot or a screen share doesn't give it away.
+        public var shown: String
+        /// Whether the row has a copy button; Type and Client ID are
+        /// chosen or left empty, not pasted.
+        public var copies: Bool
+        public var tip: String
+    }
+
+    /// What goes in each box of Grok Bot's form for a new key. The header
+    /// value is the whole "Bearer <key>": a bare key there is refused, and
+    /// "give it as a bearer token" lost people (8 Nov).
+    public static func agentForm(url: String, secret: String) -> [AgentFormField] {
+        [
+            AgentFormField(label: "Name", value: "threadbear", copies: true, tip: "Copy a name for the connector"),
+            AgentFormField(label: "Type", value: "Remote HTTPS", copies: false, tip: "Pick Remote HTTPS in the menu, not Command"),
+            AgentFormField(label: "Server URL", value: url, copies: true, tip: "Copy the server address"),
+            AgentFormField(label: "Header key", value: "Authorization", copies: true, tip: "Copy the header name, for the left box under HTTP headers"),
+            AgentFormField(label: "Header value", value: "Bearer " + secret, shown: "Bearer " + masked(secret), copies: true, tip: "Copy \"Bearer\", a space and the key, for the right box under HTTP headers"),
+            AgentFormField(label: "Client ID", value: "Leave it empty", copies: false, tip: "Only for services you sign in to in a browser; the key does that here"),
+        ]
+    }
+
+    /// "tba_••••••••": the key's kind, never any of its secret part.
+    static func masked(_ secret: String) -> String {
+        (secret.hasPrefix("tba_") ? "tba_" : "") + String(repeating: "•", count: 8)
+    }
+
     /// The services that need Mike to sign in again.
     public static func signedOut(_ s: ConnectorsStatus?) -> [ConnectorService] {
         guard let s, s.state == "ok" else { return [] }

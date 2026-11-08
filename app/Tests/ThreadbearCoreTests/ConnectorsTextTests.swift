@@ -126,4 +126,25 @@ final class ConnectorsTextTests: XCTestCase {
         XCTAssertEqual(ConnectorsText.lastUsed(used, now: now), "Used 10 minutes ago")
         XCTAssertEqual(ConnectorsText.lastUsed(AgentKey(id: "e", name: "E", expired: true)), "Expired")
     }
+
+    /// A new key reads as Grok Bot's "Add a custom connector" form, box by
+    /// box, and the header value is the whole "Bearer <key>", so nobody
+    /// pastes the bare key there (8 Nov).
+    func testANewKeyReadsAsGrokBotsFormWithTheWholeHeaderValue() {
+        let fields = ConnectorsText.agentForm(url: "https://x.convex.site/mcp", secret: "tba_abc")
+        XCTAssertEqual(fields.map(\.label), ["Name", "Type", "Server URL", "Header key", "Header value", "Client ID"])
+        func field(_ label: String) -> ConnectorsText.AgentFormField { fields.first { $0.label == label }! }
+        XCTAssertEqual(field("Name").value, "threadbear")
+        XCTAssertEqual(field("Type").value, "Remote HTTPS")
+        XCTAssertFalse(field("Type").copies)
+        XCTAssertEqual(field("Server URL").value, "https://x.convex.site/mcp")
+        XCTAssertEqual(field("Header key").value, "Authorization")
+        XCTAssertEqual(field("Header value").value, "Bearer tba_abc")
+        XCTAssertTrue(field("Header value").copies)
+        XCTAssertEqual(field("Header value").shown, "Bearer tba_••••••••", "the key is copied, never shown")
+        XCTAssertFalse(fields.contains { $0.shown.contains("abc") })
+        XCTAssertFalse(field("Client ID").copies, "left empty, nothing to copy")
+        XCTAssertEqual(fields.filter { $0.copies }.map(\.label), ["Name", "Server URL", "Header key", "Header value"])
+        XCTAssertTrue(fields.allSatisfy { !$0.tip.isEmpty })
+    }
 }

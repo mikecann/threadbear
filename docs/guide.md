@@ -1112,20 +1112,35 @@ Threadbear through your backend rather than this Mac.
 1. Click **Connect Grok Bot**. Tick **Can start Ask threads and message
    them** if you want it to do more than read, and **Can read all my
    threads** if it should see yours, not only the ones it started.
-2. Click **Make key**. Copy the server address and the key now: closing the
-   panel hides the key for good, and you'd make a new one.
-3. In Grok Bot, open **Connect apps**, add a custom MCP server by its
-   address, and give it the key as a bearer token. Then ask it to list your
-   Threadbear threads. The panel's Grok Bot row says "Used just now".
+2. Click **Make key**. The panel lists the boxes of Grok Bot's form, each
+   with a copy button. The key itself is never shown, only copied, so it
+   doesn't end up in a screenshot. Copy what you need before you close the
+   panel: after that the key is gone, and you'd make a new one.
+3. In Grok Bot, open **Connect apps**, then **Add a custom connector**, and
+   fill it in:
+   - **Name**: `threadbear`.
+   - **Type**: **Remote HTTPS** (not Command, which runs a program on
+     your own computer).
+   - **Server URL**: the server address from the panel, ending in `/mcp`.
+   - **HTTP headers**: `Authorization` in the left box, and in the right
+     box `Bearer `, a space, then the key. The panel's Header value copies
+     all of that in one go.
+   - **Client ID**: leave it empty. It's for services you sign in to in a
+     browser, and the key does that here.
+
+   Save it, then ask Grok Bot to list your Threadbear threads. The panel's
+   Grok Bot row says "Used just now".
 
 Threads it starts always run in Ask mode, so every tool asks you first,
 and show "started from Grok Bot". Its messages say they're from Grok Bot,
 not you. It can only message threads it started, and only while they stay
 in Ask mode: switch one to Full access and it stops. It never sees
 approvals, secrets, schedules or archived threads, and it's held to a few
-calls a minute and ten new threads a day. **Revoke** ends a key on its next
-call, and turning the experiment off ends every key. Then remove the server
-in Grok Bot's Connect apps too. What Grok Bot reads goes to xAI.
+calls a minute and ten new threads a day. Keys expire after 30 days. If
+one leaks, or you lose it, click **Revoke** on its row and Connect Grok Bot
+again for a new one. **Revoke** ends a key on its next call, and turning
+the experiment off ends every key. Then remove the connector in Grok Bot's
+Connect apps too. What Grok Bot reads goes to xAI.
 
 ## The prompts macOS shows you
 <!-- slug: macos-prompts -->
