@@ -1213,18 +1213,39 @@ never asks for your Mac password. Notes are for ideas and to-dos, not
 passwords: keep those in a password manager. To hide Notes, turn off Show Notes in Settings >
 General; the notes are kept.
 
-You can talk into a note too: turn on Use with Notes in Settings (⌘,) >
-Voice & Audio, and a waveform button shows beside the note's bin. Press
-it (it turns red) and talk; each time you pause, what you said is typed
-in at the cursor, as if you'd typed it, so it saves and undoes the same
-way. The words you're saying show under the note until they go in. Say
-"new line" or "new paragraph" on its own for a line break. Press the
-button again, Done, or Esc to stop; going to another note or closing
-Notes stops it too. Speech is turned into text on your Mac by macOS, so
-a note's words still never leave it, and nothing is downloaded for it
-beyond macOS's own speech files. Talking into a note ends Voice on a
-thread, and starting Voice on a thread ends it, as there's one
-microphone.
+With Voice on, you can dictate into any text box in Threadbear (the
+message box, a note, a search field) from the keyboard:
+
+- Hold Fn to dictate; let go to type in what you said.
+- Fn Space starts hands-free dictation, which types in each time you
+  pause; Fn Space again (or a tap of Fn) stops it. Two quick taps of Fn
+  start it too.
+- Fn Control is Command Mode, once it's on (Settings > Voice & Audio > Command
+  Mode): hold it and talk, and when you let go what you said goes to the
+  open thread as your message (or starts one on a new thread).
+- Esc cancels, with nothing typed in or sent.
+
+A pill over the bottom of the window shows what it's heard. With no text
+box in use, it types into the message box. Settings (⌘,) > Keyboard >
+Voice changes the key (Fn, Right Option or Right Command), turns any of
+these off, and picks the key held for Command Mode. If macOS opens emoji
+or its own dictation when you press Fn, set System Settings > Keyboard >
+Press 🌐 key to Do Nothing, or use another key. They only work while
+Threadbear is the app in front, and not while Voice is on in a thread or
+a note is listening.
+
+You can talk into a note too, once Voice is on (see Talking with a thread):
+turn on Use with Notes in Settings (⌘,) > Voice & Audio, and a microphone button
+shows beside the note's bin. Press it (it turns red) and talk; each time
+you pause, what you said is typed in at the cursor, as if you'd typed it,
+so it saves and undoes the same way. The words you're saying show under
+the note until they go in. Say "new line" or "new paragraph" on its own
+for a line break. Press the button again, Done, or Esc to stop; going to
+another note or closing Notes stops it too. Speech is turned into text on
+your Mac by macOS, so a note's words still never leave it, and nothing is
+downloaded for it beyond macOS's own speech files. Talking into a note
+ends Voice on a thread, and starting Voice on a thread ends it, as there's
+one microphone.
 
 ## Patches: your own buttons and panels
 <!-- slug: patches -->
@@ -1377,7 +1398,9 @@ turn it off, in Settings (⌘,) > General > Updates from Mike.
 
 ### Talking with a thread
 
-Press the waveform button beside Send to talk with the thread out loud.
+Press the microphone button beside Send to talk with the thread out loud
+(Settings > Voice & Audio > Button icon picks its icon: a microphone, a filled
+one, a stage microphone or a waveform).
 It's on a new thread's composer too: there, what you say first starts the
 thread, and you carry on talking in it.
 It turns red while Voice is on. Say what you want as you would to a
@@ -1397,7 +1420,7 @@ tells you they're on screen. Press the button again, or go to another
 thread, to end Voice.
 
 Use Voice in Settings (⌘,) > Voice & Audio turns it off, which takes the
-waveform button away everywhere. Use with Notes, under it, lets you talk
+microphone button away everywhere and turns off Voice's keys. Use with Notes, under it, lets you talk
 into a note (see Notes); it's off until you turn it on. The same tab picks who it sounds like (Emily, Mike and about
 twenty more), how fast it talks, the language, and the microphone. Play
 a Sample tries a voice. The first time you use Voice, Threadbear
@@ -1425,7 +1448,7 @@ and press Play to hear it again.
 
 The bear at the top right of the sidebar is a chat for anything: a quick
 question, what to cook, planning your week, or real work. Click it to open
-your chat with it, and type, or press the waveform button beside Send
+your chat with it, and type, or press the microphone button beside Send
 to talk with it out loud (that works before its first message too).
 Right-click it and pick Talk Out Loud to go straight to talking. It remembers: whenever it learns something lasting about
 you, it saves it to its memory, so a new chat with it still knows you.

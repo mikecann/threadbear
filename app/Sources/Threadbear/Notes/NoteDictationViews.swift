@@ -2,7 +2,7 @@ import SwiftUI
 import ThreadbearCore
 
 /// The note's microphone (Settings > Voice & Audio > Use with Notes): Voice's
-/// waveform in a circle, blue to start and red while it listens, its bars
+/// button (VoiceCircle), grey to start and red while it listens, its bars
 /// following his voice. NoteDictation does the listening.
 struct NoteDictationButton: View {
     let noteId: String
@@ -14,12 +14,7 @@ struct NoteDictationButton: View {
         Button {
             dictation.toggle(noteId: noteId)
         } label: {
-            VoiceBars(level: on ? CGFloat(dictation.level) : 0, active: on, busy: starting)
-                .frame(width: size * 0.5, height: size * 0.5)
-                .foregroundStyle(.white)
-                .frame(width: size, height: size)
-                .background(Circle().fill(on ? Color.red : Color.accentColor))
-                .contentShape(Circle())
+            VoiceCircle(size: size, on: on, level: on ? CGFloat(dictation.level) : 0, busy: starting)
         }
         .buttonStyle(.plain)
         .tip(on ? "Stop talking into this note (Esc)" : "Talk into this note: what you say is typed in at the cursor, on this Mac")

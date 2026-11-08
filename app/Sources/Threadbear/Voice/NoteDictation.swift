@@ -70,6 +70,7 @@ final class NoteDictation {
         stop()
         // The microphone is one thing at a time.
         if VoiceMode.shared.isOn { VoiceMode.shared.stop() }
+        if KeyDictation.shared.isOn { KeyDictation.shared.cancel() }
         let startId = UUID()
         self.startId = startId
         self.noteId = noteId

@@ -86,6 +86,14 @@ language (`app/Sources/Threadbear/Voice/`). Talking into a note (Settings >
 Voice & Audio > Use with Notes, off by default) uses only the microphone and that
 on-device recognition: pocket-tts isn't started or downloaded for it, and
 the words go straight into the note (`Voice/NoteDictation.swift`).
+Voice's keys (hold Fn to dictate, Fn Space, Fn Control; Settings >
+Keyboard > Voice) are the same: microphone and on-device recognition
+only, and only while Voice is on. They're watched inside Threadbear alone
+(an app-local key monitor, `Voice/VoiceKeyMonitor.swift`), so they need
+no Accessibility or Input Monitoring permission and see no keys typed in
+other apps. Settings > Voice & Audio reads one macOS setting,
+`AppleFnUsageType` in `com.apple.HIToolbox` (what the 🌐 key does), to
+say when macOS uses Fn too; it never changes it.
 Skills (the bar's Skills page) live in `~/Library/Application Support/Threadbear/skills/`:
 `instructions.md` (the page's Instructions, given to every session),
 `skills.json`, each skill's files in `<name>@<commit>/` as fetched from

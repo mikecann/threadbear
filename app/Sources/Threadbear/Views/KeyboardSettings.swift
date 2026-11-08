@@ -16,6 +16,7 @@ struct KeyboardSettings: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
             Form {
+                VoiceShortcutsSection(search: search)
                 ForEach(ShortcutGroup.allCases, id: \.self) { group in
                     let commands = group.commands.filter(matches)
                     if !commands.isEmpty {
@@ -219,5 +220,144 @@ private struct KeyCap: View {
         case .listening: .clear
         case .taken: Color.orange.opacity(0.6)
         }
+    }
+}
+
+/// Voice's keys: hold Fn to dictate, Fn Space or two taps for hands-free,
+/// Fn Control for Command Mode, Esc to cancel. They're held keys and taps
+/// rather than menu keys, so they're picked here rather than recorded, and
+/// kept in this Mac's defaults with the rest of Voice (VoiceKeyMonitor).
+/// They only work while Voice is on.
+private struct VoiceShortcutsSection: View {
+    let search: String
+    @AppStorage(VoiceMode.enabledKey) private var voiceOn = true
+    @AppStorage(VoiceKeys.triggerKey) private var trigger = VoiceTriggerKey.fn.rawValue
+    @AppStorage(VoiceKeys.holdKey) private var hold = true
+    @AppStorage(VoiceKeys.handsFreeKey) private var handsFree = true
+    @AppStorage(VoiceKeys.doubleTapKey) private var doubleTap = true
+    @AppStorage(VoiceKeys.commandModeKey) private var commandMode = false
+    @AppStorage(VoiceKeys.commandKey) private var command = VoiceCommandKey.control.rawValue
+
+    var body: some View {
+        let keys = VoiceKeys(defaults: .standard)
+        let rows = visibleRows(keys)
+        if !rows.isEmpty {
+            SettingsSection("Voice",
+                            about: voiceOn
+                                ? "Talk instead of typing, anywhere in Threadbear. Hold the key to dictate into the text box you're in, and let go to type it in. Hands-free types in each time you pause until you stop it. Command Mode sends what you say to the open thread. Speech is turned into text on this Mac."
+                                : "These work once Voice is on: turn on Use Voice in Settings > Voice & Audio.",
+                            ask: "change them for you, or set Voice up.") {
+                Picker("Voice key", selection: $trigger) {
+                    ForEach(VoiceTriggerKey.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
+                }
+                .tip("The key the Voice shortcuts below are built on")
+                ForEach(rows, id: \.self) { row($0, keys) }
+                if keys != VoiceKeys(commandModeFrom: keys) {
+                    HStack {
+                        Spacer()
+                        Button("Reset Voice Keys") { reset() }
+                            .tip("Back to Fn, Fn Space, a double tap of Fn and Fn Control")
+                    }
+                }
+            }
+            .disabled(!voiceOn)
+        }
+    }
+
+    private enum Row: String, CaseIterable {
+        case hold = "Dictate while held, type in on release"
+        case handsFree = "Start or stop hands-free dictation"
+        case doubleTap = "Double-tap to start hands-free"
+        case command = "Command Mode, held"
+        case cancel = "Cancel"
+    }
+
+    private func visibleRows(_ keys: VoiceKeys) -> [Row] {
+        let words = search.trimmingCharacters(in: .whitespaces)
+        guard !words.isEmpty else { return Row.allCases }
+        if "voice dictate dictation microphone".localizedCaseInsensitiveContains(words) { return Row.allCases }
+        return Row.allCases.filter { $0.rawValue.localizedCaseInsensitiveContains(words) || display($0, keys).localizedCaseInsensitiveContains(words) }
+    }
+
+    private func display(_ row: Row, _ keys: VoiceKeys) -> String {
+        switch row {
+        case .hold: keys.holdDisplay
+        case .handsFree: keys.handsFreeDisplay
+        case .doubleTap: keys.doubleTapDisplay
+        case .command: keys.commandDisplay
+        case .cancel: "Esc"
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ row: Row, _ keys: VoiceKeys) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.rawValue)
+                if row == .command, !commandMode {
+                    Text("Turn on Command Mode in Settings > Voice to use it")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            switch row {
+            case .hold:
+                onOff($hold, tip: "Hold \(keys.trigger.display) to dictate")
+            case .handsFree:
+                onOff($handsFree, tip: "\(keys.handsFreeDisplay) starts and stops hands-free dictation")
+            case .doubleTap:
+                onOff($doubleTap, tip: "Two quick taps of \(keys.trigger.display) start hands-free dictation")
+            case .command:
+                Picker("With", selection: $command) {
+                    ForEach(VoiceCommandKey.allCases, id: \.self) {
+                        Text("\(keys.trigger.display) + \($0.title)").tag($0.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .disabled(!commandMode)
+                .tip("The key held with \(keys.trigger.display) for Command Mode")
+            case .cancel:
+                EmptyView()
+            }
+            KeyCap(look: .key(display(row, keys)))
+                .opacity(isOn(row) ? 1 : 0.4)
+                .accessibilityLabel("\(row.rawValue), \(isOn(row) ? display(row, keys) : "off")")
+        }
+    }
+
+    private func isOn(_ row: Row) -> Bool {
+        switch row {
+        case .hold: hold
+        case .handsFree: handsFree
+        case .doubleTap: doubleTap
+        case .command: commandMode
+        case .cancel: true
+        }
+    }
+
+    private func onOff(_ value: Binding<Bool>, tip: String) -> some View {
+        Toggle("On", isOn: value)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .tip(tip)
+    }
+
+    private func reset() {
+        trigger = VoiceTriggerKey.fn.rawValue
+        hold = true
+        handsFree = true
+        doubleTap = true
+        command = VoiceCommandKey.control.rawValue
+    }
+}
+
+private extension VoiceKeys {
+    /// The defaults, keeping Command Mode's switch (that's Settings > Voice & Audio's).
+    init(commandModeFrom keys: VoiceKeys) {
+        self.init()
+        commandMode = keys.commandMode
     }
 }

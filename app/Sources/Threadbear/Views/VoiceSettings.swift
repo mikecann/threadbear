@@ -12,6 +12,9 @@ struct VoiceSettings: View {
     @AppStorage(VoiceCatalog.microphoneKey) private var microphone = ""
     @AppStorage(VoiceMode.enabledKey) private var enabled = true
     @AppStorage(NoteDictation.enabledKey) private var inNotes = false
+    @AppStorage(VoiceIcon.key) private var icon = VoiceIcon.fallback.rawValue
+    @AppStorage(VoiceKeys.commandModeKey) private var commandMode = false
+    @AppStorage(VoiceKeys.triggerKey) private var trigger = VoiceTriggerKey.fn.rawValue
     @State private var microphones: [VoiceAudio.Microphone] = []
     @State private var voice = VoiceMode.shared
     @AppStorage(CompletionSound.enabledKey) private var dingOn = false
@@ -21,15 +24,33 @@ struct VoiceSettings: View {
     var body: some View {
         Form {
             SettingsSection("Voice",
-                            about: "Press the waveform button beside Send to talk with a thread out loud. What you say goes to the thread as your message, even while it's working, and its replies are read out. Talk over it and it stops to listen. It's the same thread, with the same memory, tools and approvals. Use with Notes adds a microphone to Notes, so you can talk and have it typed into the note. Speech is turned into text on this Mac by macOS, and replies are spoken by Kyutai's pocket-tts, which Threadbear downloads the first time you use Voice.",
+                            about: "Press the microphone button beside Send to talk with a thread out loud. What you say goes to the thread as your message, even while it's working, and its replies are read out. Talk over it and it stops to listen. It's the same thread, with the same memory, tools and approvals. Use with Notes adds a microphone to Notes, so you can talk and have it typed into the note. With Voice on, hold Fn anywhere in Threadbear to dictate into the text box you're in (Settings > Keyboard changes the keys). Speech is turned into text on this Mac by macOS, and replies are spoken by Kyutai's pocket-tts, which Threadbear downloads the first time you use Voice.",
                             ask: "change how Voice sounds, or check on it if it isn't working.") {
                 Toggle("Use Voice", isOn: $enabled)
-                    .tip("Show the waveform button beside Send to talk with threads out loud")
-                    .onChange(of: enabled) { _, on in if !on { VoiceMode.shared.stop(); NoteDictation.shared.stop() } }
+                    .tip("Show the microphone button beside Send to talk with threads out loud, and turn on Voice's keyboard shortcuts")
+                    .onChange(of: enabled) { _, on in if !on { VoiceMode.shared.stop(); NoteDictation.shared.stop(); KeyDictation.shared.cancel() } }
                 Toggle("Use with Notes", isOn: $inNotes)
                     .disabled(!enabled)
                     .tip("Show a microphone button in Notes, to talk and have what you say typed into the note on this Mac")
                     .onChange(of: inNotes) { _, on in if !on { NoteDictation.shared.stop() } }
+                Picker("Button icon", selection: $icon) {
+                    ForEach(VoiceIcon.allCases) { choice in
+                        Label { Text(choice.title) } icon: { Image(nsImage: choice.image(side: 14)).renderingMode(.template) }
+                            .tag(choice.rawValue)
+                    }
+                }
+                .disabled(!enabled)
+                .tip("The icon on the Voice button beside Send and in Notes")
+                Toggle("Command Mode", isOn: $commandMode)
+                    .disabled(!enabled)
+                    .tip("Hold \(VoiceKeys(defaults: .standard).commandDisplay) and talk: when you let go, what you said goes to the open thread as your message")
+                    .onChange(of: commandMode) { _, on in if !on, KeyDictation.shared.mode == .command { KeyDictation.shared.cancel() } }
+                if enabled, trigger == VoiceTriggerKey.fn.rawValue, Self.fnKeyTakenByMacOS {
+                    Text("macOS also uses Fn: to use it for Voice alone, set System Settings > Keyboard > Press 🌐 key to Do Nothing.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Picker("Voice", selection: $voiceId) {
                     ForEach(VoiceCatalog.voices) { Text($0.name).tag($0.id) }
                 }
@@ -92,5 +113,11 @@ struct VoiceSettings: View {
         .scrollIndicators(.never)
         .scrollDisabled(true)
         .onAppear { microphones = VoiceAudio.microphones() }
+    }
+
+    /// System Settings > Keyboard > Press 🌐 key to, anything but Do Nothing
+    /// (0): then macOS opens emoji or its own dictation on Fn as well.
+    static var fnKeyTakenByMacOS: Bool {
+        (UserDefaults(suiteName: "com.apple.HIToolbox")?.object(forKey: "AppleFnUsageType") as? Int) != 0
     }
 }

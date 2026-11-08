@@ -79,6 +79,7 @@ final class VoiceMode {
         stop()
         // The microphone is one thing at a time.
         if NoteDictation.shared.isOn { NoteDictation.shared.stop() }
+        if KeyDictation.shared.isOn { KeyDictation.shared.cancel() }
         self.threadId = threadId
         startedAt = Date()
         phase = .starting("Getting ready…")

@@ -1073,6 +1073,21 @@ enum Automation {
             }
             try? await Task.sleep(for: .milliseconds(300))
             return "ok"
+        case "keydictation-stage":
+            // Fn dictation's pill in a phase, with no microphone; "off" puts it away.
+            let words = c["text"] as? String ?? ""
+            let mode: VoiceKeyMachine.Mode = switch c["mode"] as? String {
+            case "handsFree": .handsFree
+            case "command": .command
+            default: .dictating
+            }
+            switch c["phase"] as? String {
+            case "listening": KeyDictation.shared.stage(.listening, mode: mode, level: 0.4)
+            case "hearing": KeyDictation.shared.stage(.hearing(words), mode: mode, level: 0.6)
+            case "off": KeyDictation.shared.stage(.off, mode: .idle, level: 0)
+            default: return "error phase is listening, hearing or off"
+            }
+            return "ok"
         case "dictation-stage":
             // Opens Notes on its newest note (making one if there's none)
             // and shows talking into it in a phase, with no microphone;

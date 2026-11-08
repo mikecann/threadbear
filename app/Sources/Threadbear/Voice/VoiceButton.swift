@@ -1,9 +1,9 @@
 import SwiftUI
 import ThreadbearCore
 
-/// Voice mode's button beside Send: a waveform in a circle, blue to start
-/// and red while it's on, its bars moving with whoever is talking. The
-/// words he's saying, or what it's doing, show beside it.
+/// Voice mode's button beside Send: the icon picked in Settings > Voice in
+/// Send's grey circle, and red while it's on, its bars moving with whoever
+/// is talking (VoiceCircle).
 struct VoiceButton: View {
     /// Nil for a chat not started yet (the bear's): `startNew` starts it,
     /// and Voice with it.
@@ -18,12 +18,7 @@ struct VoiceButton: View {
             Button {
                 if let threadId { voice.toggle(threadId: threadId) } else { startNew?() }
             } label: {
-                VoiceBars(level: on ? CGFloat(voice.level) : 0, active: on, busy: busy)
-                    .frame(width: size * 0.5, height: size * 0.5)
-                    .foregroundStyle(.white)
-                    .frame(width: size, height: size)
-                    .background(Circle().fill(on ? Color.red : Color.accentColor))
-                    .contentShape(Circle())
+                VoiceCircle(size: size, on: on, level: on ? CGFloat(voice.level) : 0, busy: busy)
             }
             .buttonStyle(.plain)
             .tip(on ? "End voice" : "Talk with this thread out loud")
