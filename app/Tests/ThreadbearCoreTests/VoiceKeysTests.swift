@@ -27,7 +27,7 @@ final class VoiceKeysTests: XCTestCase {
     }
 
     func testDoubleTapStartsHandsFreeAndATapStopsIt() {
-        var m = machine()
+        var m = machine { $0.doubleTap = true }
         _ = m.handle(.triggerDown(at: 0))
         _ = m.handle(.triggerUp(at: 0.1))
         XCTAssertEqual(m.handle(.triggerDown(at: 0.3)).actions, [.start(.handsFree)])
@@ -47,8 +47,8 @@ final class VoiceKeysTests: XCTestCase {
         XCTAssertEqual(m.handle(.triggerDown(at: 1)).actions, [.waitToHold(pressedAt: 1)])
     }
 
-    func testDoubleTapCanBeTurnedOff() {
-        var m = machine { $0.doubleTap = false }
+    func testDoubleTapIsOffByDefault() {
+        var m = machine()
         _ = m.handle(.triggerDown(at: 0))
         _ = m.handle(.triggerUp(at: 0.1))
         XCTAssertEqual(m.handle(.triggerDown(at: 0.3)).actions, [.waitToHold(pressedAt: 0.3)])
@@ -64,6 +64,27 @@ final class VoiceKeysTests: XCTestCase {
         XCTAssertEqual(m.handle(.keyDown(.space)), .init([.finish], swallow: true))
         XCTAssertEqual(m.handle(.triggerUp(at: 3.2)).actions, [])
         XCTAssertEqual(m.mode, .idle)
+    }
+
+    func testShiftTriggerTogglesHandsFree() {
+        var m = machine()
+        // Shift held first, then Fn: the monitor sends both.
+        _ = m.handle(.triggerDown(at: 0))
+        XCTAssertEqual(m.handle(.shiftDown), .init([.start(.handsFree)]))
+        XCTAssertEqual(m.handle(.triggerUp(at: 0.3)).actions, [])
+        XCTAssertEqual(m.mode, .handsFree)
+        // Shift + Fn again stops it, typing in the rest.
+        _ = m.handle(.triggerDown(at: 4))
+        XCTAssertEqual(m.handle(.shiftDown).actions, [.finish])
+        XCTAssertEqual(m.handle(.triggerUp(at: 4.2)).actions, [])
+        XCTAssertEqual(m.mode, .idle)
+    }
+
+    func testShiftCanBeTurnedOff() {
+        var m = machine { $0.shiftToggle = false }
+        _ = m.handle(.triggerDown(at: 0))
+        XCTAssertEqual(m.handle(.shiftDown).actions, [])
+        XCTAssertEqual(m.handle(.holdDelayPassed(pressedAt: 0)).actions, [])
     }
 
     func testSpaceDuringAHoldCarriesOnHandsFree() {
@@ -156,12 +177,14 @@ final class VoiceKeysTests: XCTestCase {
         let defaults = UserDefaults(suiteName: "VoiceKeysTests-\(UUID())")!
         XCTAssertEqual(VoiceKeys(defaults: defaults), VoiceKeys())
         defaults.set("rightOption", forKey: VoiceKeys.triggerKey)
-        defaults.set(false, forKey: VoiceKeys.doubleTapKey)
+        defaults.set(false, forKey: VoiceKeys.shiftKey)
         defaults.set(true, forKey: VoiceKeys.commandModeKey)
         defaults.set("shift", forKey: VoiceKeys.commandKey)
         let keys = VoiceKeys(defaults: defaults)
         XCTAssertEqual(keys.trigger, .rightOption)
+        XCTAssertFalse(keys.shiftToggle)
         XCTAssertFalse(keys.doubleTap)
+        XCTAssertEqual(VoiceKeys().shiftDisplay, "⇧ Fn")
         XCTAssertTrue(keys.holdToDictate)
         XCTAssertTrue(keys.commandMode)
         XCTAssertEqual(keys.commandDisplay, "Right ⌥ ⇧")

@@ -314,7 +314,7 @@ private struct KeyDictationPill: View {
         case .listening:
             switch dictation.mode {
             case .command: return "Command Mode: let go of \(key) to send it to the thread. Esc cancels."
-            case .handsFree: return "Hands-free: \(keys.handsFreeWithSpace ? "\(keys.handsFreeDisplay)" : "tap \(key)") to stop, Esc to cancel"
+            case .handsFree: return "Hands-free: \(keys.shiftToggle ? keys.shiftDisplay : keys.handsFreeWithSpace ? keys.handsFreeDisplay : "tap \(key)") to stop, Esc to cancel"
             case .dictating, .idle: return "Listening: let go of \(key) to type it in. Esc cancels."
             }
         }

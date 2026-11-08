@@ -77,8 +77,11 @@ public struct VoiceKeys: Equatable, Sendable {
     public var holdToDictate = true
     /// Trigger + Space starts and stops hands-free dictation.
     public var handsFreeWithSpace = true
-    /// Two quick taps of the trigger start hands-free dictation too.
-    public var doubleTap = true
+    /// Shift + trigger starts and stops hands-free dictation too.
+    public var shiftToggle = true
+    /// Two quick taps of the trigger start hands-free dictation. Off by
+    /// default: a double tap of Fn is macOS's emoji or dictation too.
+    public var doubleTap = false
     /// Settings > Voice & Audio > Command Mode: off until turned on.
     public var commandMode = false
     public var command: VoiceCommandKey = .control
@@ -88,6 +91,7 @@ public struct VoiceKeys: Equatable, Sendable {
     public static let triggerKey = "voiceKeyTrigger"
     public static let holdKey = "voiceKeyHold"
     public static let handsFreeKey = "voiceKeyHandsFree"
+    public static let shiftKey = "voiceKeyShift"
     public static let doubleTapKey = "voiceKeyDoubleTap"
     public static let commandModeKey = "voiceCommandMode"
     public static let commandKey = "voiceKeyCommand"
@@ -96,7 +100,8 @@ public struct VoiceKeys: Equatable, Sendable {
         trigger = defaults.string(forKey: Self.triggerKey).flatMap(VoiceTriggerKey.init(rawValue:)) ?? .fn
         holdToDictate = defaults.object(forKey: Self.holdKey) as? Bool ?? true
         handsFreeWithSpace = defaults.object(forKey: Self.handsFreeKey) as? Bool ?? true
-        doubleTap = defaults.object(forKey: Self.doubleTapKey) as? Bool ?? true
+        shiftToggle = defaults.object(forKey: Self.shiftKey) as? Bool ?? true
+        doubleTap = defaults.object(forKey: Self.doubleTapKey) as? Bool ?? false
         commandMode = defaults.bool(forKey: Self.commandModeKey)
         command = defaults.string(forKey: Self.commandKey).flatMap(VoiceCommandKey.init(rawValue:)) ?? .control
     }
@@ -104,6 +109,7 @@ public struct VoiceKeys: Equatable, Sendable {
     /// Settings > Keyboard's caps: "Hold Fn", "Fn Space".
     public var holdDisplay: String { "Hold \(trigger.display)" }
     public var handsFreeDisplay: String { "\(trigger.display) Space" }
+    public var shiftDisplay: String { "⇧ \(trigger.display)" }
     public var doubleTapDisplay: String { "\(trigger.display) \(trigger.display)" }
     public var commandDisplay: String { "\(trigger.display) \(command.display)" }
 }
@@ -115,9 +121,9 @@ public struct VoiceKeys: Equatable, Sendable {
 /// - Hold the trigger: after `holdDelay` it starts listening, and letting
 ///   go types in what was said. A shorter press is a tap, and so is the
 ///   trigger used as a modifier (Fn-Delete, Fn-arrow): neither listens.
-/// - Trigger + Space starts hands-free dictation, and again stops it. Two
-///   taps within `doubleTapGap` start it too; a tap of the trigger while
-///   it's on stops it.
+/// - Trigger + Space, or Shift + trigger, starts hands-free dictation, and
+///   again stops it. Two taps within `doubleTapGap` start it too, if
+///   that's on; a tap of the trigger while it's on stops it.
 /// - Trigger + the Command Mode key, held: what's said goes to the thread
 ///   as a message when you let go.
 /// - Esc while any of them is on cancels it, with nothing typed or sent.
@@ -143,6 +149,8 @@ public struct VoiceKeyMachine: Sendable {
         case holdDelayPassed(pressedAt: Double)
         /// The Command Mode key went down.
         case commandKeyDown
+        /// Shift went down with the trigger (either first).
+        case shiftDown
         /// Another modifier went down.
         case otherModifierDown
         case keyDown(Key)
@@ -244,20 +252,13 @@ public struct VoiceKeyMachine: Sendable {
         case .otherModifierDown:
             return otherModifier()
 
+        case .shiftDown:
+            guard keys.shiftToggle else { return otherModifier() }
+            return toggleHandsFree(swallow: false) ?? Outcome()
+
         case .keyDown(.space):
             guard keys.handsFreeWithSpace else { return otherKey() }
-            switch press {
-            case .stopping:
-                press = .spent
-                mode = .idle
-                return Outcome([.finish], swallow: true)
-            case .down, .acting:
-                press = .spent
-                mode = .handsFree
-                return Outcome([.start(.handsFree)], swallow: true)
-            case .up, .spent:
-                return otherKey()
-            }
+            return toggleHandsFree(swallow: true) ?? otherKey()
 
         case .keyDown(.escape):
             guard mode != .idle else { return Outcome() }
@@ -283,6 +284,23 @@ public struct VoiceKeyMachine: Sendable {
                 lastTap = nil
                 return Outcome()
             }
+        }
+    }
+
+    /// Trigger + Space or Shift: hands-free on, or off if it's on. Nil if
+    /// the trigger isn't held for it.
+    private mutating func toggleHandsFree(swallow: Bool) -> Outcome? {
+        switch press {
+        case .stopping:
+            press = .spent
+            mode = .idle
+            return Outcome([.finish], swallow: swallow)
+        case .down, .acting:
+            press = .spent
+            mode = .handsFree
+            return Outcome([.start(.handsFree)], swallow: swallow)
+        case .up, .spent:
+            return nil
         }
     }
 

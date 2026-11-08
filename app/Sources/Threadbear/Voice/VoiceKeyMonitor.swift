@@ -51,8 +51,16 @@ final class VoiceKeyMonitor {
                 triggerDown = down
                 if !down { swallowingSpace = false }
                 run(down ? .triggerDown(at: event.timestamp) : .triggerUp(at: event.timestamp))
+                // Shift held first, then the trigger: Shift + trigger.
+                if down, event.modifierFlags.contains(.shift) { run(.shiftDown) }
             } else if triggerDown, Self.modifierWentDown(code, event.modifierFlags) {
-                run(keys.command.keyCodes.contains(code) ? .commandKeyDown : .otherModifierDown)
+                if keys.commandMode, keys.command.keyCodes.contains(code) {
+                    run(.commandKeyDown)
+                } else if [56, 60].contains(code) {
+                    run(.shiftDown)
+                } else {
+                    run(keys.command.keyCodes.contains(code) ? .commandKeyDown : .otherModifierDown)
+                }
             }
             return false
         case .keyDown:

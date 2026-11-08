@@ -1217,9 +1217,10 @@ With Voice on, you can dictate into any text box in Threadbear (the
 message box, a note, a search field) from the keyboard:
 
 - Hold Fn to dictate; let go to type in what you said.
-- Fn Space starts hands-free dictation, which types in each time you
-  pause; Fn Space again (or a tap of Fn) stops it. Two quick taps of Fn
-  start it too.
+- Shift Fn (or Fn Space) starts hands-free dictation, which types in
+  each time you pause; Shift Fn or Fn Space again (or a tap of Fn) stops
+  it. Two quick taps of Fn can start it too, once you turn that on: it's
+  off at first, as macOS uses a double tap of Fn for emoji or dictation.
 - Fn Control is Command Mode, once it's on (Settings > Voice & Audio > Command
   Mode): hold it and talk, and when you let go what you said goes to the
   open thread as your message (or starts one on a new thread).
@@ -1228,7 +1229,7 @@ message box, a note, a search field) from the keyboard:
 A pill over the bottom of the window shows what it's heard. With no text
 box in use, it types into the message box. Settings (⌘,) > Keyboard >
 Voice changes the key (Fn, Right Option or Right Command), turns any of
-these off, and picks the key held for Command Mode. If macOS opens emoji
+these on or off, and picks the key held for Command Mode. If macOS opens emoji
 or its own dictation when you press Fn, set System Settings > Keyboard >
 Press 🌐 key to Do Nothing (Settings > Voice has a button that opens it), or use another key. Threadbear can't stop macOS acting on Fn itself. They only work while
 Threadbear is the app in front, and not while Voice is on in a thread or
