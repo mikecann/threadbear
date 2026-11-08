@@ -46,10 +46,18 @@ struct VoiceSettings: View {
                     .tip("Hold \(VoiceKeys(defaults: .standard).commandDisplay) and talk: when you let go, what you said goes to the open thread as your message")
                     .onChange(of: commandMode) { _, on in if !on, KeyDictation.shared.mode == .command { KeyDictation.shared.cancel() } }
                 if enabled, trigger == VoiceTriggerKey.fn.rawValue, Self.fnKeyTakenByMacOS {
-                    Text("macOS also uses Fn: to use it for Voice alone, set System Settings > Keyboard > Press 🌐 key to Do Nothing.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("macOS also uses Fn, so a tap or double tap can open emoji. To use it for Voice alone, set Press 🌐 key to Do Nothing in System Settings > Keyboard.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 4)
+                        Button("Open Keyboard Settings") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension")!)
+                        }
+                        .controlSize(.small)
+                        .tip("Open System Settings > Keyboard, where Press 🌐 key to is")
+                    }
                 }
                 Picker("Voice", selection: $voiceId) {
                     ForEach(VoiceCatalog.voices) { Text($0.name).tag($0.id) }
