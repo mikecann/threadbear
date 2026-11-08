@@ -118,8 +118,8 @@ test('with the experiment off, or no backend, no key is made', async () => {
   assert.deepEqual(await off['agents.list']!({}), { on: false, keys: [] });
   await assert.rejects(Promise.resolve().then(() => off['agents.connect']!({})), /off/);
   const noSync = agentsMethods(backend({ offReason: () => 'Sync is off.' }).b, () => true);
-  assert.equal(((await noSync['agents.list']!({})) as any).reason, 'Sync is off.');
-  await assert.rejects(Promise.resolve().then(() => noSync['agents.connect']!({})), /Sync is off/);
+  assert.match(((await noSync['agents.list']!({})) as any).reason, /Settings > Phone & browser/);
+  await assert.rejects(Promise.resolve().then(() => noSync['agents.connect']!({})), /doesn't sync/);
 });
 
 test('agents.revoke ends one key, or every key with no id', async () => {

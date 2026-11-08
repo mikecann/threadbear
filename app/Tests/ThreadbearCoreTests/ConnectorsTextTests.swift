@@ -108,6 +108,12 @@ final class ConnectorsTextTests: XCTestCase {
         XCTAssertFalse(ConnectorsText.showsIcon(nil, agents: AgentsList(on: false)))
     }
 
+    func testALocalGatewayIsThisMac() {
+        XCTAssertEqual(ConnectorsText.host(ConnectorsStatus(state: "ok", url: "http://127.0.0.1:8795")), "This Mac")
+        XCTAssertEqual(ConnectorsText.host(ConnectorsStatus(state: "ok", url: "http://localhost:8795")), "This Mac")
+        XCTAssertEqual(ConnectorsText.host(ConnectorsStatus(state: "ok", url: "https://bruce.tail.ts.net:8443")), "bruce")
+    }
+
     func testAgentKeysReadAsWhatTheyMayDoAndWhenLastUsed() throws {
         let list = try JSONDecoder().decode(AgentsList.self, from: Data(#"{"on":true,"url":"https://x.convex.site/mcp","keys":[{"id":"k1","name":"Grok Bot","scope":"write","readAll":false,"expiresAt":"2026-12-08T00:00:00Z","expired":false},{"name":"no id"}]}"#.utf8))
         XCTAssertEqual(list.keys.map(\.id), ["k1"])

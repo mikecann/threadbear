@@ -125,6 +125,9 @@ export type AgentKeysBackend = {
 };
 type AgentKey = { id: string; name: string; scope: 'read' | 'write'; readAll: boolean; createdAt: string; expiresAt: string; lastUsedAt?: string; expired: boolean };
 
+// Why no key can be made: outside agents reach this Mac through the backend.
+const NO_BACKEND = "Grok Bot reaches Threadbear through your backend, and this Mac doesn't sync to one yet. Settings > Phone & browser sets that up.";
+
 export type AgentsList = { on: boolean; reason?: string; url?: string; keys: AgentKey[] };
 
 const fail = (message: string) => new RpcError(ErrorCode.other, message);
@@ -139,8 +142,7 @@ export function agentsMethods(b: AgentKeysBackend, on: () => boolean): Record<st
   };
   const list = async (): Promise<AgentsList> => {
     if (!on()) return { on: false, keys: [] };
-    const reason = b.offReason();
-    if (reason) return { on: true, reason, keys: [] };
+    if (b.offReason()) return { on: true, reason: NO_BACKEND, keys: [] };
     const where = url();
     if (!where) return { on: true, reason: "This runner doesn't know its backend's site address (sync.site in runner.json).", keys: [] };
     return { on: true, url: where, keys: await b.listAgentKeys() };
@@ -149,8 +151,7 @@ export function agentsMethods(b: AgentKeysBackend, on: () => boolean): Record<st
     'agents.list': () => list(),
     'agents.connect': async (p) => {
       if (!on()) throw fail('Outside agents are off: turn them on in Settings > General > Experiments.');
-      const reason = b.offReason();
-      if (reason) throw fail(reason);
+      if (b.offReason()) throw fail(NO_BACKEND);
       const where = url();
       if (!where) throw fail("This runner doesn't know its backend's site address (sync.site in runner.json).");
       const scope = p.scope === 'write' ? 'write' : p.scope === 'read' || p.scope === undefined ? 'read' : undefined;

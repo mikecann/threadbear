@@ -88,6 +88,8 @@ public enum ConnectorsText {
     /// bruce.example.ts.net.
     public static func host(_ s: ConnectorsStatus?) -> String? {
         guard let host = s?.url.flatMap({ URL(string: $0)?.host }), !host.isEmpty else { return nil }
+        // A gateway on this Mac (what Set up makes) is "This Mac", not "127".
+        if host == "localhost" || host == "::1" || host.hasPrefix("127.") { return "This Mac" }
         return host.components(separatedBy: ".").first ?? host
     }
 
