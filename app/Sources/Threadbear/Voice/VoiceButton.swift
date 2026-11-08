@@ -1,7 +1,7 @@
 import SwiftUI
 import ThreadbearCore
 
-/// Voice mode's button beside Send: the icon picked in Settings > Voice in
+/// Voice mode's button beside Send: the icon picked in Settings > Voice & Audio in
 /// Send's grey circle, and red while it's on, its bars moving with whoever
 /// is talking (VoiceCircle).
 struct VoiceButton: View {

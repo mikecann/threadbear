@@ -1231,7 +1231,7 @@ box in use, it types into the message box. Settings (⌘,) > Keyboard >
 Voice changes the key (Fn, Right Option or Right Command), turns any of
 these on or off, and picks the key held for Command Mode. If macOS opens emoji
 or its own dictation when you press Fn, set System Settings > Keyboard >
-Press 🌐 key to Do Nothing (Settings > Voice has a button that opens it), or use another key. Threadbear can't stop macOS acting on Fn itself. They only work while
+Press 🌐 key to Do Nothing (Settings > Voice & Audio has a button that opens it), or use another key. Threadbear can't stop macOS acting on Fn itself. They only work while
 Threadbear is the app in front, and not while Voice is on in a thread or
 a note is listening.
 

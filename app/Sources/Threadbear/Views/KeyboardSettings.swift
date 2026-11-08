@@ -298,7 +298,7 @@ private struct VoiceShortcutsSection: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.rawValue)
                 if row == .command, !commandMode {
-                    Text("Turn on Command Mode in Settings > Voice to use it")
+                    Text("Turn on Command Mode in Settings > Voice & Audio to use it")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
