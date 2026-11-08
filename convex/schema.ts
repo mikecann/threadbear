@@ -987,4 +987,30 @@ export default defineSchema({
     nonce: v.string(),
     createdAt: v.number(),
   }).index('by_nonce', ['nonce']),
+
+  // The public profile page, /@<handle> (profile.ts, docs/guide.md "The
+  // librarian"). One row, written by the owner runner from what Mike turned
+  // on in the Librarian page's Customize panel: a part he left off is never
+  // sent, so it isn't here to leak. `published` false keeps the handle and
+  // shows the page only to his own signed-in browser. About 3 KB.
+  profile: defineTable({
+    handle: v.string(),
+    published: v.boolean(),
+    name: v.string(),
+    bio: v.string(),
+    links: v.array(v.object({ title: v.string(), url: v.string() })),
+    // The page's cards, top to bottom ('numbers', 'activity', 'github',
+    // 'projects'); only those turned on are listed.
+    order: v.array(v.string()),
+    pictureId: v.optional(v.id('_storage')),
+    backgroundId: v.optional(v.id('_storage')),
+    backgroundDim: v.optional(v.number()),
+    memberSince: v.optional(v.string()),
+    numbers: v.optional(v.array(v.object({ key: v.string(), label: v.string(), value: v.string() }))),
+    // Threads started each day, oldest first, from `start` (YYYY-MM-DD).
+    activity: v.optional(v.object({ start: v.string(), counts: v.array(v.number()) })),
+    github: v.optional(v.string()),
+    projects: v.optional(v.array(v.object({ title: v.string(), threads: v.number(), symbol: v.optional(v.string()) }))),
+    updatedAt: v.number(),
+  }).index('by_handle', ['handle']),
 });

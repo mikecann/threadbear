@@ -4297,6 +4297,46 @@ browser is `agent-chrome`), as the same tab number can be in two. Replies use
 files are read or imported, and stills stay in memory on this Mac. Both sides
 ignore fields they don't know.
 
+## Profile page
+
+A public page about Mike at `<site>/@<handle>`, on his own Convex
+deployment's site (`runner/src/public-profile.ts`, `convex/profile.ts`,
+`web/src/profile.tsx`). The app's Customize panel (Librarian page) edits
+it; the runner keeps it in `profile.json` in its data dir and writes the
+backend's one `profile` row with the owner key, at once on a change and
+then whenever what it would send has changed, checked hourly. A runner
+key can't write it.
+
+| Method | Params | Result |
+|---|---|---|
+| `profilePage.get` | `{}` | `ProfilePageStatus` |
+| `profilePage.update` | `ProfilePageSettings` | `ProfilePageStatus`. Saved and sent now. `-32602` for a handle that isn't 3 to 30 of `a-z`, `0-9` and single hyphens, more than 4 links or one that isn't http(s); `-32000` with the reason when there's no backend or it refused |
+| `profilePage.remove` | `{}` | `ProfilePageStatus`. Deletes the row, its pictures and the handle from the backend, and forgets the settings |
+
+```ts
+ProfilePageSettings = {
+  published: boolean      // false: only Mike's signed-in browser sees it
+  handle: string
+  name: string; bio: string
+  links: { title: string; url: string }[]   // at most 4
+  show: ("picture" | "background" | "activity" | "github" | "numbers" | "projects" | "memberSince")[]
+  numbers: ("threads" | "activeDays" | "streak" | "projects" | "models")[]
+  projectIds: string[]    // at most 12
+  order: ("numbers" | "activity" | "github" | "projects")[]  // the page's cards, top to bottom
+  picturePath?: string; backgroundPath?: string; backgroundDim?: number  // files on this Mac
+  githubUser?: string
+}
+ProfilePageStatus = { profile: ProfilePageSettings | null; url?: string; sentAt?: string; problem?: string }
+```
+
+Only parts in `show` are sent. Activity is the count of threads started
+each local day for 372 days; numbers are counts; a project is its title,
+SF Symbol and thread count. Thread titles, prompts, replies, folders and
+project goals, state and notes are never sent, and threads in a private
+folder (`models.privateFolders`) aren't counted. Both sides ignore fields
+they don't know; an older runner answers `-32601` and the app says to
+update.
+
 ## Connectors
 
 Mike's agents get MCP services from his Connectors gateway on Bruce

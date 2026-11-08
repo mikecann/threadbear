@@ -622,6 +622,20 @@ enum Automation {
                 window.sendEvent(event)
             }
             return "ok"
+        case "wheel":
+            // {"cmd":"wheel","x":,"y":,"dy":-2000}: a scroll wheel turned over
+            // a point in the main window (points from its top left), for a
+            // panel's scroll view rather than the transcript's. Negative dy
+            // goes down the page.
+            guard let window, let x = c["x"] as? Double, let y = c["y"] as? Double else { return "error needs x and y" }
+            let dy = Int32(number(c["dy"]) ?? -2000)
+            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0) else { return "error no event" }
+            let point = NSPoint(x: x, y: window.frame.height - y)
+            cg.location = CGPoint(x: window.frame.minX + point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - (window.frame.minY + point.y))
+            guard let event = NSEvent(cgEvent: cg), let content = window.contentView,
+                  let target = content.hitTest(content.convert(point, from: nil)) else { return "error nothing there" }
+            target.scrollWheel(with: event)
+            return "ok"
         case "press-button":
             // {"cmd":"press-button","id":"b7k2abcd"} (or "title":"Fill in the
             // form") clicks a reply button in the open thread as its pill

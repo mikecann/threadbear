@@ -16,6 +16,7 @@ final class EveryClickShowsTests: XCTestCase {
         "events", "subscribe", "subagent", "unsubscribe", "markSeen", "startRequest", "importMedia", "usageStats",
         "listClis", "listSchedules", "listRunners", "remoteLogins", "remoteThreads", "previewSchedule",
         "movePreview", "listProjects", "getProject", "refreshProjectTasks", "librarianStatus", "connectorsStatus", "listPools",
+        "profilePage",
         // Not calls: helpers on the request types in the same file.
         "applied", "params",
     ]
@@ -27,6 +28,8 @@ final class EveryClickShowsTests: XCTestCase {
         "answerSecret", "checkClis", "updateCli", "setCliPolicy", "createSchedule", "updateSchedule",
         "deleteSchedule", "setRunnerOrder", "runSchedule", "createProject", "updateProject", "setProjectIcon",
         "mergeProject", "deleteProject", "deleteThread", "setThreadProjects", "runLibrarian", "updateLibrarian", "savePools", "moveThread", "cancelMove",
+        // The public profile page (ProfilePageModel.swift).
+        "updateProfilePage", "removeProfilePage",
     ]
 
     /// Functions that show their click some other way, and how.

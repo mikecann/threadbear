@@ -239,6 +239,9 @@ enum Art {
             .flatMap(Bundle.init(url:))
     }()
 
+    /// The librarian bear's file, for the profile page to upload a copy.
+    static var librarianURL: URL? { bundle?.url(forResource: "librarian", withExtension: "png", subdirectory: "Art") }
+
     private static func image(_ name: String) -> NSImage? {
         guard let url = bundle?.url(forResource: name, withExtension: "png", subdirectory: "Art") else { return nil }
         return NSImage(contentsOf: url)

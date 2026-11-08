@@ -31,6 +31,7 @@ enum BusyKey {
     static let refreshRunners = "refreshRunners"
     static let refreshConnectors = "refreshConnectors"
     static let startRunner = "startRunner"
+    static let saveProfilePage = "saveProfilePage"
 }
 
 /// A busy key's words, for the banner.

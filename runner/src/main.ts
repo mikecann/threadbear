@@ -60,6 +60,7 @@ import { acquireLock } from './lock.ts';
 import { isDirectory, removeTempFiles } from './fsutil.ts';
 import { Models } from './models/index.ts';
 import { SettingsService, modelMethods, settingsMethods } from './settings.ts';
+import { PublicProfile, profilePageMethods } from './public-profile.ts';
 import { InstructionsStore, instructionsMethods } from './instructions.ts';
 import { ConvexSync, defaultRunnerName, ensureRunnerId, readSyncKey } from './sync.ts';
 import { pushFailingText } from './push-failing.ts';
@@ -388,6 +389,18 @@ async function main(): Promise<void> {
   projects.start(runner);
   const librarian = new Librarian({ host: runner, projects, models, clock: realClock, log, home: cfg.home, pocket: pocketControl });
   librarian.start();
+  // The public profile page (public-profile.ts): sent to this runner's
+  // Convex backend, and only from the main Mac (the backend takes it from
+  // the owner key alone).
+  const publicProfile = new PublicProfile({
+    home: cfg.home,
+    backend: () => (sync.status().state === 'off' ? undefined : sync),
+    threads: () => runner.list(['inbox', 'snoozed', 'archived']),
+    projects: () => projects.list({ archived: true }),
+    isPrivate: (cwd) => models.isPrivateFolder(cwd),
+    clock: realClock,
+    log,
+  });
   // Background jobs that look stuck get their thread a message.
   const stuckJobs = new StuckJobs({ host: runner, clock: realClock, log, home: cfg.home });
   stuckJobs.start();
@@ -561,6 +574,7 @@ async function main(): Promise<void> {
     log,
   });
   sync.start();
+  publicProfile.start();
   // Counts only, and off unless runner.json asks (src/secret-check.ts).
   const secretCheck = new SecretCheck({ home: cfg.home, enabled: cfg.secretCheck === true, log });
   if (secretCheck.on) {
@@ -700,7 +714,7 @@ async function main(): Promise<void> {
   updaterReady = true;
 
   runner.attachClis(updates);
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  const methods = { ...profilePageMethods(publicProfile), ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {
@@ -1040,6 +1054,7 @@ async function main(): Promise<void> {
     // a restart of its own has no deadline.
     const checksDone = scheduler.settled(/^SIG|supervisor/.test(signal) ? 15_000 : undefined);
     librarian.stop();
+    publicProfile.stop();
     stuckJobs.stop();
     frozenClis.stop();
     macScreen?.stop();
@@ -1088,6 +1103,7 @@ async function main(): Promise<void> {
       stopHousekeeping();
       scheduler.stop();
       librarian.stop();
+    publicProfile.stop();
       // stuckJobs goes on: background work can hold a thread here for hours,
       // and a wait that can never end should still be noticed. It only looks
       // at this runner's threads, so the primary's check doesn't cover them.

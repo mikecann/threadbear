@@ -39,6 +39,7 @@ struct LibrarianLookEditor: View {
                         .disabled(look.isStandard)
                         .tip("Put the bear, the layout and every part back as Threadbear ships them, and take away your pictures")
                 }
+                ProfilePageSection(look: look)
             }
             .formStyle(.grouped)
         }

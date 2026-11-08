@@ -92,6 +92,13 @@ stops being shared stops unfurling. Mike's Share panel shows the same
 preview. With Mike's token it also answers while the
 thread isn't shared, with `manage`, so his page keeps its controls.
 
+**The profile page.** `/@<handle>` (`web/src/profile.tsx`) is Mike's
+public profile, made in the Librarian page's Customize panel (docs/guide.md,
+"The librarian"; docs/protocol.md, "Profile page"). No sign-in once it's
+published; before that, only his signed-in browser sees it, with a line
+saying so. Its link previews come the same way as a shared thread's, from
+`profile:card`.
+
 Pictures are in file storage (`shareImages`), uploaded by the runner only
 while the thread is shared and dropped when it stops, and only real
 pictures from the thread's media folder (attachments, tool pictures, and

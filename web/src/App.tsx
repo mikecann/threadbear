@@ -16,6 +16,7 @@ import { MessageText, Pictures, picturesByRow, ToolRun, Worked, type PageMessage
 import { ReplyButton } from './reply-button';
 import { CommandState } from './command-state';
 import { previewOf, ShareControl, SharePage } from './share';
+import { ProfilePage } from './profile';
 import { busy, Lists, ResizeHandle, type Row, useSidebarWidth } from './sidebar';
 import { Pop } from './menu';
 import { pastedOf } from './picture-chips';
@@ -33,6 +34,8 @@ export function App() {
   const route = useRoute();
   // A shared thread is for anyone, signed in or not.
   if (route.page === 'share') return <SharePage key={route.slug} slug={route.slug} token={token} />;
+  // So is a profile page, once it's published.
+  if (route.page === 'profile') return <ProfilePage key={route.handle} handle={route.handle} token={token} />;
   if (!token) return <SignIn />;
   // Keyed on the token so a fresh sign-in clears an earlier auth error.
   return (
