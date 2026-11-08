@@ -147,4 +147,34 @@ final class ConnectorsTextTests: XCTestCase {
         XCTAssertEqual(fields.filter { $0.copies }.map(\.label), ["Name", "Server URL", "Header key", "Header value"])
         XCTAssertTrue(fields.allSatisfy { !$0.tip.isEmpty })
     }
+
+    /// The panel's × hides a row and its + brings it back (8 Nov). Hiding is
+    /// only how the panel looks, so a hidden service drops out of the dot
+    /// and the tooltip too, and the + only offers rows that would be there.
+    func testHiddenRowsLeaveThePanelAndTheDotAndComeBackFromThePlus() {
+        let out = ConnectorService(id: "notion", title: "Notion", state: "signed_out", connectUrl: "https://x/admin/connect/notion")
+        let broken = ConnectorService(id: "cf", title: "Cloudflare", state: "error")
+        let fine = ConnectorService(id: "deepwiki", title: "DeepWiki", state: "connected")
+        let status = ConnectorsStatus(state: "ok", services: [out, broken, fine],
+                                      catalog: [ConnectorCatalogEntry(id: "slack", title: "Slack"), ConnectorCatalogEntry(id: "linear", title: "Linear")])
+        let H = ConnectorsText.Hidden.self
+        let hidden: Set = [H.service("notion"), H.service("cf"), H.catalog("slack"), H.grokBot, H.service("gone")]
+
+        XCTAssertTrue(ConnectorsText.needsYou(status))
+        XCTAssertFalse(ConnectorsText.needsYou(status, hiding: hidden), "no dot for a row Mike hid")
+        XCTAssertFalse(ConnectorsText.quiet(status, hiding: hidden))
+        XCTAssertEqual(ConnectorsText.tooltip(status, hiding: hidden), "Connectors\nEverything is signed in")
+        XCTAssertEqual(ConnectorsText.shown(status.services, hiding: hidden).map(\.id), ["deepwiki"])
+        XCTAssertEqual(ConnectorsText.shown(status.catalog, hiding: hidden).map(\.id), ["linear"])
+
+        let on = AgentsList(on: true, url: "https://x.convex.site/mcp")
+        XCTAssertEqual(H.items(hidden, status: status, agents: on).map(\.title), ["Notion", "Cloudflare", "Slack", "Grok Bot"],
+                       "in the panel's order, and nothing for a service the gateway dropped")
+        XCTAssertEqual(H.items(hidden, status: status, agents: AgentsList(on: false)).map(\.title), ["Notion", "Cloudflare", "Slack"])
+        XCTAssertEqual(H.items([], status: status, agents: on), [])
+
+        XCTAssertEqual(H.decode(H.encode(hidden)), hidden)
+        XCTAssertEqual(H.decode(""), [])
+        XCTAssertEqual(H.decode("service:a\n\n  \ncatalog:b"), ["service:a", "catalog:b"])
+    }
 }

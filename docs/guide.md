@@ -1102,6 +1102,15 @@ address and give it a name. Only public `https` servers are taken. To take a
 service out, its row's arrow opens its page on the gateway, where Disconnect
 is, or ask a thread to remove it from the gateway.
 
+**Hiding rows you don't use**: hover over a service, a suggestion under
+Add a service, or Connect Grok Bot, and click the **×** at its end. It only
+leaves this panel: a hidden service is still on the gateway and agents can
+still use it (sign it out on its page to stop that), and it no longer
+lights the plug's dot. A **+ hidden** menu at the bottom of the panel lists
+what you hid; pick one, or Show all, to bring it back. While Grok Bot has a
+live key its row stays, so Revoke is always there. What's hidden is kept on
+this Mac.
+
 ### Letting Grok Bot use Threadbear
 
 With the Outside agents experiment on and your runner syncing to your
