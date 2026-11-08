@@ -61,10 +61,12 @@ extension HomePage where Below == EmptyView {
 /// A home page's picture. Click it and it wobbles from its bottom edge and a
 /// short line fades in under it, in the gap above the title, so the page
 /// doesn't shift. Under Reduce Motion, just the line.
-private struct PokeablePicture: View {
+struct PokeablePicture: View {
     let picture: NSImage
     let label: String
     let lines: [String]
+    /// The largest side, before zoom: 280 wide by 260 high as shipped.
+    var side: CGFloat = 280
     @State private var pokes: PokeLines?
     @State private var line: String?
     /// Counts the pokes: the wobble's trigger, and what tells lines apart.
@@ -104,7 +106,7 @@ private struct PokeablePicture: View {
             .accessibilityLabel(label)
             // Capped in height too, so a tall picture (the alarm clock) is no
             // bigger than a wide one.
-            .frame(maxWidth: zoomed(280), maxHeight: zoomed(260), alignment: .leading)
+            .frame(maxWidth: zoomed(side), maxHeight: zoomed(side * 260 / 280), alignment: .leading)
             .overlay(alignment: .bottomLeading) {
                 // Drawn in the gap below, taking no room of its own.
                 ZStack(alignment: .leading) {
@@ -191,9 +193,13 @@ struct HomeStat: Identifiable, Equatable {
     let value: String
     let label: String
     let help: String
+    /// What a customized page hides it by: the same whatever the number
+    /// (a label can change, "Project it made" to "Projects it made").
+    var key: String = ""
 }
 
-private struct HomeStatTile: View {
+struct HomeStatTile: View {
+    @Environment(\.onPicture) private var onPicture
     let stat: HomeStat
 
     var body: some View {
@@ -210,7 +216,7 @@ private struct HomeStatTile: View {
         .padding(.horizontal, zoomed(14))
         .padding(.vertical, zoomed(12))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: zoomed(10), style: .continuous))
+        .tileBackground(onPicture, radius: zoomed(10))
         .tip(stat.help)
         .accessibilityElement(children: .combine)
     }

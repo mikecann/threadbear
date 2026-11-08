@@ -784,6 +784,22 @@ off Look at threads there to pause it; what's queued waits until you turn
 it back on. If it files a thread wrongly, take the thread out of the
 project and it won't put it back.
 
+With Customize the Librarian page on (Settings › General › Look, off by
+default), the page gets a Customize button at its top right. It opens a
+panel beside the page that changes it as you go: keep the bear, use a
+picture of your own or have none, and pick its size; put a photo behind the
+page and fade it so the text stays readable in light and dark; move each
+part (the picture, the name and status, the numbers, GitHub activity and
+Settings) to the top, middle or bottom, or hide it; and pick which numbers
+show. Drop a picture from Finder on its spot in the panel, or choose one.
+GitHub activity shows a year of your public contributions, as on your
+GitHub profile, once you type your user name: step through the years with
+the arrows, hover a day for its count, and click one to open that day on
+GitHub. It's fetched from the GitHub Contributions API
+(github-contributions-api.jogruber.de), sending only the user name. Turning
+the switch off puts the page back as it ships and keeps your changes for
+next time; Reset to the standard page clears them.
+
 ## Schedules
 <!-- slug: schedules -->
 
@@ -1495,6 +1511,17 @@ Threadbear follows your Mac's appearance (System Settings > Appearance)
 unless you pick one for it alone: Settings (⌘,) > General > Appearance has
 Same as the Mac, Light and Dark. It changes straight away and stays picked
 the next time the app opens.
+
+### A background picture
+
+To put a photo of yours behind a new thread, turn on Background picture
+in the main window in Settings (⌘,) > General > Look and choose one. It's
+off until you do. Fade lays the window's own colour over it so text stays
+readable in light and dark, and Show behind open threads too puts it behind
+every thread's transcript as well, a little more faded. The picture is
+copied, scaled down, into Threadbear's data folder (`looks/`), so the
+original can move; Remove deletes the copy. The Librarian page has its own
+background and layout (The librarian, above).
 
 ### A ding when a thread is done
 

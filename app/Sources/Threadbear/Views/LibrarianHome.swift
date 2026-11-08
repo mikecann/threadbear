@@ -8,14 +8,124 @@ import ThreadbearCore
 /// it's doing now and its numbers.
 struct LibrarianHome: View {
     @Environment(AppModel.self) private var app
+    /// Settings > General > Look. Off, the page is as it ships, whatever
+    /// look is saved; the look is kept for when it's back on.
+    @AppStorage(Looks.librarianOnKey) private var customizable = false
 
     var body: some View {
-        HomePage(picture: Art.librarian, pictureLabel: "The librarian bear, filing a card in a card catalogue", pokes: PokeLines.librarian,
-                 stats: app.librarian.map { LibrarianStats.tiles($0, projects: app.projects, threads: Array(app.threads.values)) } ?? []) {
+        let stats = app.librarian.map { LibrarianStats.tiles($0, projects: app.projects, threads: Array(app.threads.values)) } ?? []
+        if customizable {
+            CustomizedLibrarianPage(stats: stats)
+        } else {
+            HomePage(picture: Art.librarian, pictureLabel: "The librarian bear, filing a card in a card catalogue", pokes: PokeLines.librarian,
+                     stats: stats) {
+                LibrarianAbout(status: app.librarian)
+            } below: {
+                if let status = app.librarian {
+                    LibrarianSettings(status: status)
+                }
+            }
+        }
+    }
+}
+
+/// The Librarian's page laid out as the user set it (LibrarianLook): their
+/// picture or none, a background picture, each part at the top, middle or
+/// bottom, and only the parts and numbers they want. Customize at the top
+/// right opens the editor beside the page, which changes it as you go.
+private struct CustomizedLibrarianPage: View {
+    @Environment(AppModel.self) private var app
+    @AppStorage(Looks.librarianKey) private var saved = Data()
+    @State private var editing = false
+    let stats: [HomeStat]
+
+    private var look: LibrarianLook { LibrarianLook.load(saved) }
+
+    private var lookBinding: Binding<LibrarianLook> {
+        Binding(get: { LibrarianLook.load(saved) }, set: { Looks.saveLibrarianLook($0) })
+    }
+
+    var body: some View {
+        let look = self.look
+        let backdrop = Looks.image(look.background)
+        HStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: zoomed(32)) {
+                    ForEach(look.layout) { block in
+                        part(block, look: look)
+                    }
+                    if look.layout.isEmpty {
+                        Text("Everything on this page is hidden. Customize puts it back.")
+                            .font(.system(size: TypeScale.label))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: zoomed(1000), alignment: .leading)
+                .padding(.horizontal, zoomed(32))
+                .padding(.top, zoomed(28))
+                .padding(.bottom, zoomed(48))
+                .frame(maxWidth: .infinity)
+            }
+            .background {
+                if let backdrop { BackdropPicture(image: backdrop, dim: look.backgroundDim) }
+            }
+            .environment(\.onPicture, backdrop != nil)
+            .overlay(alignment: .topTrailing) {
+                if !editing {
+                    Button { withAnimation(.easeOut(duration: 0.18)) { editing = true } } label: {
+                        Label("Customize", systemImage: "paintbrush")
+                    }
+                    .controlSize(.small)
+                    .padding(zoomed(14))
+                    .tip("Change the picture, the background, and where each part of this page sits")
+                }
+            }
+            if editing {
+                Divider()
+                LibrarianLookEditor(look: lookBinding) {
+                    withAnimation(.easeOut(duration: 0.18)) { editing = false }
+                }
+                .frame(width: zoomed(320))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func part(_ block: LibrarianLook.Block, look: LibrarianLook) -> some View {
+        switch block {
+        case .picture:
+            let image = look.picture == .own ? Looks.image(look.pictureFile) : Art.librarian
+            if let image {
+                // Room under it for what the bear says when it's poked.
+                PokeablePicture(picture: image,
+                                label: look.picture == .own ? "Your picture" : "The librarian bear, filing a card in a card catalogue",
+                                lines: look.picture == .bear ? PokeLines.librarian : [],
+                                side: look.pictureSize.side)
+                    .padding(.bottom, look.picture == .bear ? zoomed(4) : 0)
+            }
+        case .about:
             LibrarianAbout(status: app.librarian)
-        } below: {
+                .frame(maxWidth: zoomed(620), alignment: .leading)
+        case .numbers:
+            let shown = stats.filter { !look.hiddenNumbers.contains($0.key) }
+            if !shown.isEmpty {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: zoomed(170)), spacing: zoomed(14), alignment: .top)],
+                    alignment: .leading,
+                    spacing: zoomed(14)
+                ) {
+                    ForEach(shown) { HomeStatTile(stat: $0) }
+                }
+                .frame(maxWidth: zoomed(620), alignment: .leading)
+            }
+        case .github:
+            GitHubActivityCard(user: look.githubUser)
+                .frame(maxWidth: zoomed(760), alignment: .leading)
+        case .settings:
             if let status = app.librarian {
                 LibrarianSettings(status: status)
+                    .frame(maxWidth: zoomed(620), alignment: .leading)
             }
         }
     }
@@ -101,22 +211,29 @@ private struct LibrarianSettings: View {
 enum LibrarianStats {
     typealias Tile = HomeStat
 
+    /// Every number, by its key, for the editor's switches: there even
+    /// while the runner's away and the tiles aren't.
+    static let names: [(key: String, title: String)] = [
+        ("looks", "Looks today"), ("skipped", "Skipped today"), ("tokens", "Tokens today"),
+        ("made", "Projects it made"), ("filed", "Threads it filed"), ("waiting", "Waiting"),
+    ]
+
     static func tiles(_ status: LibrarianStatus, projects: [Project], threads: [ThreadSummary]) -> [Tile] {
         let made = projects.filter { $0.createdBy == .librarian && !$0.archived }.count
         let filed = threads.filter { $0.archivedAt == nil && $0.projects.contains { $0.by == .librarian } }.count
         return [
             Tile(value: "\(status.looksToday)", label: "Looks today",
-                 help: "Threads it has looked at since midnight"),
+                 help: "Threads it has looked at since midnight", key: "looks"),
             Tile(value: "\(status.skippedToday)", label: "Skipped today",
-                 help: "Catch-ups after only a quick reply, skipped without asking the model"),
+                 help: "Catch-ups after only a quick reply, skipped without asking the model", key: "skipped"),
             Tile(value: LibrarianText.tokens(status.tokensToday), label: "Tokens today",
-                 help: "What today's looks sent and got back"),
+                 help: "What today's looks sent and got back", key: "tokens"),
             Tile(value: "\(made)", label: made == 1 ? "Project it made" : "Projects it made",
-                 help: "Projects the librarian started that aren't archived"),
+                 help: "Projects the librarian started that aren't archived", key: "made"),
             Tile(value: "\(filed)", label: filed == 1 ? "Thread it filed" : "Threads it filed",
-                 help: "Open threads the librarian put in a project"),
+                 help: "Open threads the librarian put in a project", key: "filed"),
             Tile(value: "\(status.queue.count)", label: "Waiting",
-                 help: "Threads queued for a look, listed in the sidebar"),
+                 help: "Threads queued for a look, listed in the sidebar", key: "waiting"),
         ]
     }
 }

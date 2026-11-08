@@ -107,6 +107,7 @@ struct DetailView: View {
             }
             }
             .frame(maxWidth: .infinity)
+            .background { MainBackdrop(isNew: isNew) }
         }
         }
         .overlay(alignment: .top) {
@@ -1019,6 +1020,26 @@ private struct ErrorBanner: View {
             .padding(.horizontal, zoomed(14))
             .padding(.vertical, zoomed(7))
             .background(.orange.opacity(0.1))
+        }
+    }
+}
+
+/// The main window's background picture (Settings > General > Look), off
+/// by default: behind a new thread, or behind every thread when "Show
+/// behind open threads too" is on, faded with the window's own colour. A
+/// thread's transcript is drawn clear, so it sits over the picture; it
+/// fades a little more there, as there's more text to read.
+private struct MainBackdrop: View {
+    let isNew: Bool
+    @AppStorage(Looks.mainBackgroundOnKey) private var on = false
+    @AppStorage(Looks.mainBackgroundKey) private var name = ""
+    @AppStorage(Looks.mainBackgroundEverywhereKey) private var everywhere = false
+    @AppStorage(Looks.mainBackgroundDimKey) private var dim = Looks.defaultDim
+
+    var body: some View {
+        if on, isNew || everywhere, let image = Looks.image(name) {
+            BackdropPicture(image: image, dim: isNew ? dim : min(0.95, dim + 0.2))
+                .transition(.opacity)
         }
     }
 }

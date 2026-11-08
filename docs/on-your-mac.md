@@ -102,6 +102,13 @@ File references are where to look.
   the connection it's about to send the token over is really that runner's.
   `mac-screen.json` in the data folder
   remembers what it's said about dialogs on the screen (below).
+- **Pictures for the Look settings:** pictures you choose under
+  Settings > General > Look (the main window's background, and the
+  Librarian page's picture and background when Customize the Librarian page is on; both off
+  by default) are copied, scaled down, into `looks/` in the data folder.
+  Removing or replacing one deletes its copy. The rest of those settings
+  are in the app's own settings, and none of it is sent anywhere
+  (`app/Sources/Threadbear/Looks.swift`).
 
 ## What runs in the background
 
@@ -312,6 +319,7 @@ File references are where to look.
 | Cursor (api2.cursor.sh) | theirs | Only with the `acpAgents` experiment on and a thread on Cursor: the same, on your own login |
 | Mike's push relay | Mike's | Only when a paired iPhone or Android phone gets a notification (an Android phone's goes on to Google's Firebase Cloud Messaging, from the relay). It's sent from your Convex deployment, not the Mac. The text is encrypted for the phone; the relay sees the device token and thread id (`convex/push.ts`, `docs/push-relay.md`). The first time, your deployment registers with it, giving its own address; the relay keeps that address and checks it by posting a one-time code back to your deployment's `/relay/verify` (`convex/http.ts`). |
 | A Connectors gateway | whoever runs it | Only if one is set in `runner.json` or `~/.claude.json`. Its `/health` every few minutes (and once more at the end of a turn where a call to one of its services failed, to see if it needs signing in), and for a project with a Notion page, a Notion read or two every 5 minutes for its task board (`runner/src/notion-tasks.ts`), signed with the header the `headersHelper` command in that `connectors` entry prints, which it runs for each read |
+| GitHub Contributions API (github-contributions-api.jogruber.de) | Jonathan Gruber's, a free public service | Only with Customize the Librarian page on (Settings > General > Look, off by default) and a GitHub user name typed in its GitHub activity: that user name and a year, when the page shows, at most once an hour for the current year. It answers with that profile's public contribution calendar. No token, nothing else of yours (`GitHubActivity` in `app/Sources/Threadbear/Looks.swift`). |
 | Sentry | Mike's | Nothing from your copy. Only a copy whose `origin` is Mike's own repo reports errors or uploads the app's debug symbols (`runner/src/sentry.ts`, `app/Sources/Threadbear/CrashReporting.swift`, `app/build-app.sh`). The App Store iPhone app sends anonymous crash reports. |
 
 An HTML file opened in the side pane (a mockup or report an agent made,

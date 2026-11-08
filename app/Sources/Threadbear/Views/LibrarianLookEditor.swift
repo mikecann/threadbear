@@ -1,0 +1,257 @@
+import AppKit
+import SwiftUI
+import ThreadbearCore
+import UniformTypeIdentifiers
+
+/// The Librarian page's Customize panel, beside the page so every change
+/// shows as it's made: the picture (the bear, one of your own, or none),
+/// a background picture and how faded it is, where each part sits and
+/// whether it shows, which numbers show, and whose GitHub activity.
+/// Pictures can be dropped on their wells as well as chosen.
+struct LibrarianLookEditor: View {
+    @Binding var look: LibrarianLook
+    let done: () -> Void
+    @State private var githubName = ""
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Customize")
+                    .font(.system(size: zoomed(15), weight: .semibold))
+                Spacer()
+                Button("Done", action: done)
+                    .keyboardShortcut(.cancelAction)
+                    .controlSize(.small)
+                    .tip("Close Customize. Changes are already saved")
+            }
+            .padding(.horizontal, zoomed(16))
+            .padding(.vertical, zoomed(12))
+            Divider()
+            Form {
+                pictureSection
+                backgroundSection
+                layoutSection
+                numbersSection
+                githubSection
+                Section {
+                    Button("Reset to the standard page") { reset() }
+                        .disabled(look.isStandard)
+                        .tip("Put the bear, the layout and every part back as Threadbear ships them, and take away your pictures")
+                }
+            }
+            .formStyle(.grouped)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear { githubName = look.githubUser }
+    }
+
+    // MARK: Picture
+
+    private var pictureSection: some View {
+        Section("Picture") {
+            Picker("Picture", selection: Binding(get: { look.picture }, set: { pick($0) })) {
+                ForEach(LibrarianLook.Picture.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .tip("The bear, a picture of your own, or no picture")
+            if look.picture == .own {
+                PictureWell(image: Looks.image(look.pictureFile), empty: "Drop a picture here") { url in
+                    importPicture(url)
+                }
+                HStack {
+                    Button(look.pictureFile == nil ? "Choose…" : "Replace…") {
+                        if let url = Looks.choosePicture(prompt: "Use Picture") { importPicture(url) }
+                    }
+                    .tip("Pick a picture from your Mac. A copy is kept, so the original can move")
+                    if look.pictureFile != nil {
+                        Button("Remove") { look.pictureFile = nil; look.picture = .bear }
+                            .tip("Go back to the bear and delete the copy")
+                    }
+                }
+                .controlSize(.small)
+            }
+            if look.picture != .none {
+                Picker("Size", selection: $look.pictureSize) {
+                    ForEach(LibrarianLook.PictureSize.allCases) { Text($0.title).tag($0) }
+                }
+                .tip("How big the picture is on the page")
+            }
+            if let problem {
+                Text(problem)
+                    .font(.system(size: TypeScale.label))
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func pick(_ picture: LibrarianLook.Picture) {
+        // Your picture with none chosen yet asks for one straight away.
+        if picture == .own, look.pictureFile == nil {
+            guard let url = Looks.choosePicture(prompt: "Use Picture") else { return }
+            importPicture(url)
+            return
+        }
+        look.picture = picture
+    }
+
+    private func importPicture(_ url: URL) {
+        guard let name = Looks.importPicture(from: url, maxSide: 1200, prefix: "picture") else {
+            problem = "That file isn't a picture Threadbear can read."
+            return
+        }
+        problem = nil
+        look.pictureFile = name
+        look.picture = .own
+        look.setShown(true, for: .picture)
+    }
+
+    // MARK: Background
+
+    private var backgroundSection: some View {
+        Section("Background") {
+            PictureWell(image: Looks.image(look.background), empty: "Drop a photo here", fill: true) { url in
+                importBackground(url)
+            }
+            HStack {
+                Button(look.background == nil ? "Choose…" : "Replace…") {
+                    if let url = Looks.choosePicture(prompt: "Use as Background") { importBackground(url) }
+                }
+                .tip("Pick a photo to fill the page behind everything")
+                if look.background != nil {
+                    Button("Remove") { look.background = nil }
+                        .tip("Take the background away and delete the copy")
+                }
+            }
+            .controlSize(.small)
+            if look.background != nil {
+                LabeledContent("Fade") {
+                    Slider(value: $look.backgroundDim, in: 0...0.9)
+                        .tip("How much the page's own colour covers the photo, so text stays easy to read in light and dark")
+                }
+            }
+        }
+    }
+
+    private func importBackground(_ url: URL) {
+        guard let name = Looks.importPicture(from: url, maxSide: 2880, prefix: "background") else {
+            problem = "That file isn't a picture Threadbear can read."
+            return
+        }
+        problem = nil
+        look.background = name
+    }
+
+    // MARK: Layout
+
+    private var layoutSection: some View {
+        Section("Layout") {
+            ForEach(LibrarianLook.Block.allCases) { block in
+                HStack(spacing: zoomed(8)) {
+                    Toggle(block.title, isOn: Binding(get: { !look.hidden.contains(block) }, set: { look.setShown($0, for: block) }))
+                        .tip(block == .github ? "Show your GitHub activity. Needs a user name, below" : "Show or hide \(block.title.lowercased()) on the page")
+                    Spacer(minLength: zoomed(4))
+                    Picker(block.title, selection: Binding(get: { look.place(block) }, set: { look.setPlace($0, for: block) })) {
+                        ForEach(LibrarianLook.Place.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(look.hidden.contains(block))
+                    .tip("Top, middle or bottom of the page")
+                }
+            }
+        }
+    }
+
+    // MARK: Numbers
+
+    private var numbersSection: some View {
+        Section("Numbers") {
+            ForEach(LibrarianStats.names, id: \.key) { number in
+                Toggle(number.title, isOn: Binding(
+                    get: { !look.hiddenNumbers.contains(number.key) },
+                    set: { if $0 { look.hiddenNumbers.remove(number.key) } else { look.hiddenNumbers.insert(number.key) } }
+                ))
+                .disabled(look.hidden.contains(.numbers))
+                .tip("Show or hide \(number.title.lowercased())")
+            }
+        }
+    }
+
+    // MARK: GitHub
+
+    private var githubSection: some View {
+        Section {
+            TextField("User name", text: $githubName, prompt: Text("octocat"))
+                .onSubmit { saveGitHubName() }
+                .onChange(of: githubName) { _, typed in
+                    // Saved as it's typed once it's a real name, or cleared.
+                    let clean = GitHubUser.clean(typed)
+                    if typed.isEmpty || !clean.isEmpty { look.githubUser = clean }
+                }
+                .tip("Your GitHub user name, or a link to your profile")
+            if !githubName.isEmpty, GitHubUser.clean(githubName).isEmpty {
+                Text("That isn't a GitHub user name.")
+                    .font(.system(size: TypeScale.label))
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            HStack(spacing: zoomed(6)) {
+                Text("GitHub activity")
+                InfoTip("Your public contributions for each year, as on your GitHub profile. Fetched from the GitHub Contributions API (github-contributions-api.jogruber.de), which reads that calendar; only the user name is sent, and no token. Private work counts only if your profile shows private contributions.")
+            }
+        }
+    }
+
+    private func saveGitHubName() {
+        githubName = GitHubUser.clean(githubName)
+        look.githubUser = githubName
+    }
+
+    private func reset() {
+        look = .standard
+        githubName = ""
+        problem = nil
+    }
+}
+
+/// A picture's spot in the editor: the picture, or a dashed box to drop one
+/// on. A dropped file is handed over to be copied in.
+private struct PictureWell: View {
+    let image: NSImage?
+    let empty: String
+    var fill = false
+    let dropped: (URL) -> Void
+    @State private var targeted = false
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: fill ? .fill : .fit)
+                    .frame(maxWidth: .infinity, maxHeight: zoomed(120))
+                    .clipShape(RoundedRectangle(cornerRadius: zoomed(8), style: .continuous))
+            } else {
+                Text(empty)
+                    .font(.system(size: TypeScale.label))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: zoomed(64))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .overlay {
+            RoundedRectangle(cornerRadius: zoomed(8), style: .continuous)
+                .strokeBorder(targeted ? Color.accentColor : Color.primary.opacity(image == nil ? 0.2 : 0),
+                              style: StrokeStyle(lineWidth: targeted ? 2 : 1, dash: image == nil && !targeted ? [4, 3] : []))
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            dropped(url)
+            return true
+        } isTargeted: { targeted = $0 }
+        .tip("Drop a picture from Finder to use it")
+    }
+}
