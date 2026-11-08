@@ -13,6 +13,8 @@
 import fs from 'node:fs';
 import type { PersistedEvent } from './protocol.ts';
 import { credentialUrlProblem } from './secure-url.ts';
+import { ErrorCode, RpcError } from './protocol.ts';
+import { addMessage, CATALOG, catalogFor, cleanTitle, customServerProblem, idFor, setupMessage, type CatalogEntry } from './connectors-catalog.ts';
 
 // How often /health is asked when nobody's looking. A sign-in that lapses
 // shows within this; the panel opening asks straight away.
@@ -435,10 +437,59 @@ export function nudgedThisTurn(events: PersistedEvent[]): boolean {
 
 // ------------------------------------------------------------------ RPC
 
+// What Connectors setup (an experiment, connectors-catalog.ts) needs: whether
+// it's on, and starting a thread with a first message written here.
+export type ConnectorsSetupDeps = {
+  on: () => boolean;
+  start: (r: { text: string; title: string; why: string }) => string;
+  // Whether a thread is still there and not archived.
+  open: (threadId: string) => boolean;
+};
+
+export type ConnectorsPanelStatus = ConnectorsStatus & { canSetUp?: boolean; catalog?: CatalogEntry[] };
+
 // connectors.status: what the panel shows. { refresh: true } asks /health
 // first (the panel opening, or Check now), unless it did within FRESH_MS.
-export function connectorsMethods(m: Pick<ConnectorsMonitor, 'status' | 'refresh'>): Record<string, (p: Record<string, unknown>) => unknown> {
+// With Connectors setup on, also whether Set up is offered and what Add a
+// service lists; connectors.setup and connectors.add start their threads,
+// one each at a time (a second click opens the first).
+export function connectorsMethods(m: Pick<ConnectorsMonitor, 'status' | 'refresh'>, setup?: ConnectorsSetupDeps): Record<string, (p: Record<string, unknown>) => unknown> {
+  const running = new Map<string, string>();
+  const panel = (s: ConnectorsStatus): ConnectorsPanelStatus => {
+    if (!setup?.on()) return s;
+    return { ...s, canSetUp: s.state === 'off', ...(s.state === 'ok' ? { catalog: catalogFor(s.services.map((x) => x.id)) } : {}) };
+  };
+  const once = (key: string, make: () => { text: string; title: string; why: string }) => {
+    const was = running.get(key);
+    if (was && setup!.open(was)) return { threadId: was, already: true };
+    const threadId = setup!.start(make());
+    running.set(key, threadId);
+    return { threadId, already: false };
+  };
+  const mustBeOn = () => {
+    if (!setup?.on()) throw new RpcError(ErrorCode.other, 'Connectors setup is off: turn it on in Settings > General > Experiments.');
+  };
   return {
-    'connectors.status': (p) => (p.refresh === true ? m.refresh().then((connectors) => ({ connectors })) : { connectors: m.status() }),
+    'connectors.status': (p) => (p.refresh === true ? m.refresh().then((connectors) => ({ connectors: panel(connectors) })) : { connectors: panel(m.status()) }),
+    'connectors.setup': () => {
+      mustBeOn();
+      return once('setup', () => ({ text: setupMessage(), title: 'Set up Connectors', why: 'Set up in the Connectors panel' }));
+    },
+    'connectors.add': (p) => {
+      mustBeOn();
+      if (m.status().state !== 'ok') throw new RpcError(ErrorCode.other, 'The gateway has to be running before a service can be added: use Set up first.');
+      if (typeof p.id === 'string') {
+        const entry = CATALOG.find((e) => e.id === p.id);
+        if (!entry) throw new RpcError(ErrorCode.badParams, `no service called ${p.id.slice(0, 40)}`);
+        return once(`add:${entry.id}`, () => ({ text: addMessage(entry, false), title: `Add ${entry.title} to Connectors`, why: `Add in the Connectors panel` }));
+      }
+      if (typeof p.url !== 'string') throw new RpcError(ErrorCode.badParams, 'id or url is needed');
+      const problem = customServerProblem(p.url);
+      if (problem) throw new RpcError(ErrorCode.badParams, problem);
+      const url = new URL(p.url.trim()).toString();
+      const title = cleanTitle(p.title);
+      const id = idFor(title, url);
+      return once(`add:${url}`, () => ({ text: addMessage({ id, title, url, auth: 'oauth' }, true), title: `Add ${title || new URL(url).hostname} to Connectors`, why: 'Add in the Connectors panel' }));
+    },
   };
 }
