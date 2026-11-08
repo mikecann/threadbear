@@ -423,6 +423,19 @@ final class QuestionAnswerTests: XCTestCase {
         let answers = QuestionRowCell.answers(for: request, chosen: [:], typed: "Medium")
         XCTAssertEqual(answers, ["Which size?": "Medium"])
     }
+
+    /// A long option description wraps and the card grows to fit it,
+    /// rather than cutting it off at one line.
+    func testLongOptionDescriptionsWrap() {
+        func height(_ description: String) -> CGFloat {
+            let question = Question(question: "Which?", options: [QuestionOption(label: "Lean", description: description)])
+            let row = TranscriptRow(id: "q", seq: 1, content: .question(QuestionItem(request: QuestionRequest(approvalId: "q1", questions: [question]))))
+            return RowRenderer.render(row, expanded: false, tableWidth: 500, measurer: TextMeasurer()).height
+        }
+        let short = height("Keep the four.")
+        let long = height(String(repeating: "Keep the workflow skills and add the security check. ", count: 6))
+        XCTAssertGreaterThan(long, short + RowMetrics.optionDescription * 2)
+    }
 }
 
 /// Incremental measuring while a reply streams must give exactly the height

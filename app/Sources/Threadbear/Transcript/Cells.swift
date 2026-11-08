@@ -1868,7 +1868,7 @@ final class PlanCardCell: RowCellView {
 private final class QuestionGroupView: NSView {
     let label = TranscriptTextView()
     var buttons: [NSButton] = []
-    var notes: [NSTextField] = []
+    var notes: [TranscriptTextView] = []
 
     override var isFlipped: Bool { true }
 
@@ -2045,6 +2045,8 @@ final class QuestionRowCell: RowCellView, NSTextFieldDelegate {
             }
             var inner = height + zoomed(8)
             var noteIndex = 0
+            let noteHeights = render.noteHeights.indices.contains(index)
+                ? render.noteHeights[index] : RowRenderer.optionNoteHeights(question, width: width, measurer: TextMeasurer.current)
             for (optionIndex, option) in question.options.enumerated() {
                 if group.buttons.count <= optionIndex {
                     let button = NSButton(radioButtonWithTitle: "", target: self, action: #selector(optionClicked(_:)))
@@ -2062,17 +2064,17 @@ final class QuestionRowCell: RowCellView, NSTextFieldDelegate {
                 inner += RowMetrics.optionHeight
                 if let description = option.description, !description.isEmpty {
                     if group.notes.count <= noteIndex {
-                        let note = makeLabel()
-                        note.textColor = .secondaryLabelColor
+                        let note = TranscriptTextView()
                         group.addSubview(note)
                         group.notes.append(note)
                     }
                     let note = group.notes[noteIndex]
                     note.isHidden = false
-                    note.font = Theme.labelFont
-                    if note.stringValue != description { note.stringValue = description }
-                    note.frame = NSRect(x: zoomed(20), y: inner - zoomed(2), width: width - zoomed(20), height: RowMetrics.optionDescription)
-                    inner += RowMetrics.optionDescription
+                    let noteWidth = width - RowRenderer.optionNoteIndent
+                    let noteHeight = noteIndex < noteHeights.count ? noteHeights[noteIndex] : RowMetrics.optionDescription
+                    note.frame = NSRect(x: RowRenderer.optionNoteIndent, y: inner - zoomed(2), width: noteWidth, height: noteHeight)
+                    note.show(RowRenderer.optionNoteText(description), width: noteWidth)
+                    inner += noteHeight
                     noteIndex += 1
                 }
             }

@@ -119,6 +119,9 @@ final class RowRender: @unchecked Sendable {
     let imageAreaHeight: CGFloat
     /// Measured heights of a question card's question texts.
     let lineHeights: [CGFloat]
+    /// A question card's option descriptions, measured: per question, one
+    /// height per option that has a description, in order.
+    let noteHeights: [[CGFloat]]
     /// A changes card's files.
     let parts: [Part]
 
@@ -131,7 +134,7 @@ final class RowRender: @unchecked Sendable {
     }
 
     init(height: CGFloat, text: NSAttributedString? = nil, textSize: NSSize = .zero, detail: NSAttributedString? = nil, detailSize: NSSize = .zero,
-         blocks: [String] = [], blockStarts: [Int] = [], imageFrames: [NSRect] = [], imageAreaHeight: CGFloat = 0, lineHeights: [CGFloat] = [], parts: [Part] = []) {
+         blocks: [String] = [], blockStarts: [Int] = [], imageFrames: [NSRect] = [], imageAreaHeight: CGFloat = 0, lineHeights: [CGFloat] = [], noteHeights: [[CGFloat]] = [], parts: [Part] = []) {
         self.height = height
         self.text = text
         self.textSize = textSize
@@ -142,6 +145,7 @@ final class RowRender: @unchecked Sendable {
         self.imageFrames = imageFrames
         self.imageAreaHeight = imageAreaHeight
         self.lineHeights = lineHeights
+        self.noteHeights = noteHeights
         self.parts = parts
     }
 }
@@ -443,15 +447,22 @@ enum RowRenderer {
             let inner = width - RowMetrics.cardPad * 2 - RowMetrics.accentBar
             var total = RowMetrics.cardPad * 2
             var textHeights: [CGFloat] = []
+            var noteHeights: [[CGFloat]] = []
             let answered = item.resolution != nil
             for question in item.request.questions {
                 let textHeight = measurer.measure(questionText(question.question, answered: answered), width: inner).height
                 textHeights.append(textHeight)
-                total += answered ? textHeight + RowMetrics.answeredGap : questionHeight(question, textHeight: textHeight)
+                if answered {
+                    total += textHeight + RowMetrics.answeredGap
+                    continue
+                }
+                let notes = optionNoteHeights(question, width: inner, measurer: measurer)
+                noteHeights.append(notes)
+                total += questionHeight(question, textHeight: textHeight, noteHeights: notes)
             }
             guard let resolution = item.resolution else {
                 total += RowMetrics.otherFieldHeight + zoomed(2) + zoomed(12) + RowMetrics.buttonHeight
-                return RowRender(height: vertical + zoomed(4) + total, lineHeights: textHeights)
+                return RowRender(height: vertical + zoomed(4) + total, lineHeights: textHeights, noteHeights: noteHeights)
             }
             // Answered: the question and the answer, not every option
             // greyed out with none of them ticked.
@@ -1241,14 +1252,39 @@ enum RowRenderer {
         return output
     }
 
-    static func questionHeight(_ question: Question, textHeight: CGFloat) -> CGFloat {
+    static func questionHeight(_ question: Question, textHeight: CGFloat, noteHeights: [CGFloat] = []) -> CGFloat {
         // The question's short `header` isn't shown: it would read as an eyebrow label.
         var height: CGFloat = textHeight + zoomed(8)
+        var noteIndex = 0
         for option in question.options {
             height += RowMetrics.optionHeight
-            if let description = option.description, !description.isEmpty { height += RowMetrics.optionDescription }
+            if let description = option.description, !description.isEmpty {
+                height += noteIndex < noteHeights.count ? noteHeights[noteIndex] : RowMetrics.optionDescription
+                noteIndex += 1
+            }
         }
         return height + zoomed(12)
+    }
+
+    /// An option's description under its radio button. It wraps: cut to
+    /// one line, the part that said what the option does was lost (Wayne,
+    /// 7 Nov).
+    static func optionNoteText(_ description: String) -> NSAttributedString {
+        NSAttributedString(string: description, attributes: Theme.text(Theme.labelFont, color: .secondaryLabelColor, line: RowMetrics.optionDescription))
+    }
+
+    /// Where an option's description sits: in from the card's text by the
+    /// radio button's width.
+    static var optionNoteIndent: CGFloat { zoomed(20) }
+
+    /// The heights of a question's option descriptions, in order, each at
+    /// least a line.
+    static func optionNoteHeights(_ question: Question, width: CGFloat, measurer: TextMeasurer) -> [CGFloat] {
+        question.options.compactMap { option in
+            guard let description = option.description, !description.isEmpty else { return nil }
+            let height = measurer.measure(optionNoteText(description), width: width - optionNoteIndent).height
+            return max(RowMetrics.optionDescription, ceil(height))
+        }
     }
 
     /// "2 of 5 steps done", then the steps. Every card starts with a
