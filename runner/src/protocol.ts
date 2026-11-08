@@ -905,11 +905,14 @@ export const AGENT_MESSAGE_PREFIX = '[Sent by the agent in the thread ';
 // How the `then` of a thread's own move_thread starts: the agent's note to
 // itself for after the move, which the app also draws as a card.
 export const MOVE_MESSAGE_PREFIX = '[Sent by the agent before moving to ';
+// How a message from an outside agent (Grok Bot, through the backend's /mcp)
+// starts (outside-agents.ts): never Mike's, whatever it says.
+export const OUTSIDE_AGENT_PREFIX = '[Sent by an outside agent, ';
 
 // Written by an agent (another thread's, or this one's before a move), not
 // typed by Mike, though the runner sends it with no origin.
 export function sentByAgent(text: string): boolean {
-  return text.startsWith(AGENT_MESSAGE_PREFIX) || text.startsWith(MOVE_MESSAGE_PREFIX);
+  return text.startsWith(AGENT_MESSAGE_PREFIX) || text.startsWith(MOVE_MESSAGE_PREFIX) || text.startsWith(OUTSIDE_AGENT_PREFIX);
 }
 
 export type MessageOrigin = 'runner' | 'schedule' | 'phone';

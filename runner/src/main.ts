@@ -23,6 +23,7 @@ import { StuckJobs } from './stuck-jobs.ts';
 import { FrozenClis } from './frozen-cli.ts';
 import { KeepAwake } from './keep-awake.ts';
 import { experimentOn } from './experiments.ts';
+import { AgentThreads, agentCommands, agentsMethods, EXPERIMENT as OUTSIDE_AGENTS } from './outside-agents.ts';
 import { MacScreen } from './mac-screen.ts';
 import { Projects, drainProjectMethods, projectMethods } from './projects.ts';
 import { Librarian, librarianMethods } from './librarian.ts';
@@ -270,7 +271,18 @@ async function main(): Promise<void> {
   });
   // Until it is listening (below): see Runner.holdWaits.
   runner.holdWaits = true;
-  const settings = new SettingsService({ config: cfg, publish: (n) => runner.publish(n), poolIds: () => runner.listPools().pools.map((p) => p.id) });
+  // Turning outside agents off ends their keys too, not just the panel
+  // (outside-agents.ts). `sync` is made further down.
+  let syncForAgents: { revokeAgentKeys(): Promise<number>; offReason(): string | undefined } | undefined;
+  const settings = new SettingsService({
+    config: cfg,
+    publish: (n) => runner.publish(n),
+    poolIds: () => runner.listPools().pools.map((p) => p.id),
+    onExperimentOff: (id) => {
+      if (id !== OUTSIDE_AGENTS || !syncForAgents || syncForAgents.offReason()) return;
+      syncForAgents.revokeAgentKeys().then((n) => log.info('outside agents off: revoked their keys', { n }), (e) => log.warn("outside agents off, but their keys couldn't be revoked", { error: (e as Error).message }));
+    },
+  });
   // Runners still finishing turns after a handover: connected before the
   // threads load, so the ones they have are left to them. Nothing after the
   // await below yields until runner.start(), so no thread can arrive first.
@@ -465,6 +477,14 @@ async function main(): Promise<void> {
     // on whichever runner has the thread.
     commands: {
       ...phoneCommands(runner, peers),
+      // Grok Bot and other outside agents, checked again here (outside-agents.ts).
+      ...agentCommands({
+        on: () => experimentOn(cfg.home, OUTSIDE_AGENTS),
+        threads: new AgentThreads(cfg.home),
+        create: (p) => runner.create(p),
+        send: (threadId, text) => runner.send(threadId, text, [], { origin: 'runner', queue: true }),
+        modeOf: (threadId) => (runner.has(threadId) ? runner.get(threadId).permissionMode : undefined),
+      }),
       // A schedule's own runner gets its command, so the scheduler here is its.
       schedule: ({ scheduleId, action }) => (action === 'run' ? scheduler.runNow(scheduleId) : scheduler.update({ scheduleId, paused: action === 'pause' })),
       // The Mac's Move sheet asking, through the relay (threads.movePreview).
@@ -502,6 +522,7 @@ async function main(): Promise<void> {
     clock: realClock,
     log,
   });
+  syncForAgents = sync;
   sync.start();
   // Counts only, and off unless runner.json asks (src/secret-check.ts).
   const secretCheck = new SecretCheck({ home: cfg.home, enabled: cfg.secretCheck === true, log });
@@ -645,7 +666,7 @@ async function main(): Promise<void> {
   updaterReady = true;
 
   runner.attachClis(updates);
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...agentsMethods(sync, () => experimentOn(cfg.home, OUTSIDE_AGENTS)), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {

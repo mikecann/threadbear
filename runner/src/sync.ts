@@ -12,6 +12,7 @@
 // THREADBEAR_SYNC=off turns it off whatever runner.json says, which
 // check.sh sets so no test runner ever writes to the real project.
 import { moveInfoFrom, type MoveInfo, type MovePreview, type MoveRow, type MovesBackend } from './moves.ts';
+import { agentOf, type AgentFrom } from './outside-agents.ts';
 import { START_CARD } from './cross-runner.ts';
 import { asPushFailing, pushFailingText, type PushFailing } from './push-failing.ts';
 import { wakeNote } from './wake-note.ts';
@@ -528,6 +529,9 @@ type Host = {
 // Mac app (docs/protocol.md, "Sync").
 // A thread's commands may go on to a draining runner (handover.ts's
 // phoneCommands), so they can answer later; apply() waits for each.
+// An outside agent's key as the Connectors panel lists it (convex/mcp.ts keyInfo).
+export type AgentKey = { id: string; name: string; scope: 'read' | 'write'; readAll: boolean; createdAt: string; expiresAt: string; lastUsedAt?: string; expired: boolean };
+
 export type CommandHost = {
   // origin: absent for a message Mike sent from the main Mac (a command `from: "mac"`).
   send(threadId: string, text: string, images: ImageRef[], opts: { origin?: 'phone'; answers?: AskAnswer[] }): unknown;
@@ -547,6 +551,10 @@ export type CommandHost = {
   schedule?: (p: { scheduleId: string; action: 'pause' | 'resume' | 'run' }) => unknown;
   // A reply button's press from the phone or website (API 59), buttons.press.
   pressButton?: (threadId: string, buttonId: string) => unknown;
+  // An outside agent's (Grok Bot, through the backend's /mcp): outside-agents.ts,
+  // which checks it again. Absent, those commands are refused.
+  agentCreate?: (from: AgentFrom, text: string) => { threadId: string };
+  agentSend?: (from: AgentFrom, threadId: string, text: string) => unknown;
   // The phone's slash command palette (API 62): threads.commands.
   threadCommands?: (threadId: string) => unknown;
   // The Mac's Move sheet (`moves.describe` and `moves.preview` calls).
@@ -1575,6 +1583,29 @@ export class ConvexSync {
   async revokeToken(id: string): Promise<boolean> {
     this.mustBeOn();
     return (await this.backend('mutation', 'sync:revokeToken', { key: this.deps.key, id })) === true;
+  }
+
+  // Outside agents' keys (convex/mcp.ts), for the Connectors panel. The
+  // secret in issueAgentKey's reply goes back to the app once and nowhere
+  // else: never logged, kept or synced.
+  async issueAgentKey(args: { name: string; scope: 'read' | 'write'; readAll: boolean; days?: number }): Promise<{ key: AgentKey; secret: string }> {
+    this.mustBeOn();
+    const r = (await this.backend('mutation', 'mcp:issueAgentKey', { key: this.deps.key, ...args })) as { key?: AgentKey; secret?: unknown } | null;
+    if (!r?.key || typeof r.secret !== 'string') throw new Error('The backend gave no key back.');
+    return { key: r.key, secret: r.secret };
+  }
+
+  async listAgentKeys(): Promise<AgentKey[]> {
+    this.mustBeOn();
+    const r = await this.backend('query', 'mcp:listAgentKeys', { key: this.deps.key });
+    return Array.isArray(r) ? (r as AgentKey[]) : [];
+  }
+
+  /** How many were revoked: one key by id, or every key with none. */
+  async revokeAgentKeys(id?: string): Promise<number> {
+    this.mustBeOn();
+    const r = await this.backend('mutation', 'mcp:revokeAgentKey', { key: this.deps.key, ...(id ? { id } : {}) });
+    return typeof r === 'number' ? r : 0;
   }
 
   // The `pocket` tool (threadbear-mcp.ts). Straight to the backend: the cards
@@ -3857,6 +3888,17 @@ export class ConvexSync {
       if (!threadId) throw new Error('no thread');
       return threadId;
     };
+    // From an outside agent: only a start or a message, and only through
+    // outside-agents.ts, never as one of Mike's.
+    const agent = agentOf(a);
+    if (agent) {
+      if (c.kind === 'create' && host.agentCreate) return host.agentCreate(agent, commandText(a));
+      if (c.kind === 'send' && host.agentSend) {
+        await host.agentSend(agent, needThread(), commandText(a));
+        return undefined;
+      }
+      throw new Error("This Mac doesn't take that from an outside agent.");
+    }
     switch (c.kind) {
       case 'send': {
         const text = commandText(a);

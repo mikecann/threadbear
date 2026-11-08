@@ -58,9 +58,13 @@ export class SettingsService {
   // The pools there are, so models.pool can be checked; unchecked without.
   private poolIds?: () => string[];
   private experimentList: readonly Experiment[];
+  // Told of each experiment this update turned off (outside agents' keys
+  // are revoked when theirs goes off).
+  private onExperimentOff?: (id: string) => void;
 
-  constructor(opts: { config: Config; publish: (n: Notification) => void; poolIds?: () => string[]; experiments?: readonly Experiment[] }) {
+  constructor(opts: { config: Config; publish: (n: Notification) => void; poolIds?: () => string[]; experiments?: readonly Experiment[]; onExperimentOff?: (id: string) => void }) {
     this.cfg = opts.config;
+    this.onExperimentOff = opts.onExperimentOff;
     this.experimentList = opts.experiments ?? EXPERIMENTS;
     this.poolIds = opts.poolIds;
     this.publish = opts.publish;
@@ -132,7 +136,9 @@ export class SettingsService {
     }
     // Read at each use (experimentOn), so this takes effect at once.
     if (u.experiments && Object.keys(u.experiments).length) json.experiments = { ...json.experiments, ...u.experiments };
+    const wasOn = Object.fromEntries(Object.keys(u.experiments ?? {}).map((id) => [id, experimentOn(this.cfg.home, id, this.experimentList)]));
     writeRunnerJson(this.cfg.home, json);
+    for (const [id, on] of Object.entries(u.experiments ?? {})) if (!on && wasOn[id]) this.onExperimentOff?.(id);
     return this.changed();
   }
 
