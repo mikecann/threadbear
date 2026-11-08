@@ -96,6 +96,25 @@ File references are where to look.
   `mac-screen.json` in the data folder
   remembers what it's said about dialogs on the screen (below).
 
+Connectors setup is an experiment, off by default (`connectorsSetup`).
+Only when you press Set up in the Connectors panel, a thread clones
+plugbear (github.com/mikecann/plugbear, at the one commit
+`runner/src/connectors-catalog.ts` pins) into
+`~/Library/Application Support/Threadbear/plugbear-src` and runs its own
+installer, which puts the gateway and its config, secrets and state in
+`~/Library/Application Support/Connectors/`, a LaunchAgent
+(`local.connectors`) that keeps it listening on 127.0.0.1:8795 only, and a
+`connectors` command in `~/.local/bin`. Its `install-clients.sh` adds a
+`connectors` MCP server to each login's Claude Code config (and Codex's
+and the Grok CLI's), with a helper that reads each login's token from the
+Keychain. The thread also sets `connectors.url` in `runner.json`. Each Add
+in the panel is a thread that edits the gateway's `upstreams.json` and
+restarts it. plugbear's README says how to take it all out.
+
+With Outside agents on (`outsideAgents`), the runner keeps which agent key
+started which thread in `runner/agent-threads.json` (0600) in the data
+folder.
+
 ## What runs in the background
 
 - **Landing work** (`runner/src/worktrees.ts`): `tb land` keeps an empty
@@ -248,6 +267,7 @@ File references are where to look.
 | Anthropic, OpenAI | yours | Your threads, through the official CLIs on your own logins. With the `cardReviewer` experiment on (off by default), an approval card in a thread on Auto, with the thread's first and latest messages, goes to Opus through the same CLI so it can decide in your place. With the `labReview` experiment on (off by default), a thread's code change, with your message and the agent's reply, goes to your other provider's CLI as a review thread, as if you'd started one. After a turn fails because the API couldn't be reached, the runner itself opens (and straight away closes) a connection to api.anthropic.com or chatgpt.com on port 443, at most once a minute, until one opens and the thread carries on. Nothing is sent over it (`runner/src/net-probe.ts`). |
 | Mike's push relay | Mike's | Only when a paired iPhone gets a notification. It's sent from your Convex deployment, not the Mac. The text is encrypted for the phone; the relay sees the device token and thread id (`convex/push.ts`, `docs/push-relay.md`). The first time, your deployment registers with it, giving its own address; the relay keeps that address and checks it by posting a one-time code back to your deployment's `/relay/verify` (`convex/http.ts`). |
 | A Connectors gateway | whoever runs it | Only if one is set in `runner.json` or `~/.claude.json`. Its `/health` every few minutes (and once more at the end of a turn where a call to one of its services failed, to see if it needs signing in), and for a project with a Notion page, a Notion read or two every 5 minutes for its task board (`runner/src/notion-tasks.ts`), signed with the header the `headersHelper` command in that `connectors` entry prints, which it runs for each read |
+| Your backend's `/mcp`, from outside agents | Convex, and the agents you give a key (Grok Bot runs at xAI) | Only with the Outside agents experiment on and a key made in the Connectors panel. An agent with a key can list and read threads (only ones it started, unless you allow all), and with a write key start Ask-mode threads and message those. What it reads goes to that agent's company. Keys are stored as hashes, expire, and are revoked from the panel |
 | Sentry | Mike's | Nothing from your copy. Only a copy whose `origin` is Mike's own repo reports errors or uploads the app's debug symbols (`runner/src/sentry.ts`, `app/Sources/Threadbear/CrashReporting.swift`, `app/build-app.sh`). The App Store iPhone app sends anonymous crash reports. |
 
 An HTML file opened in the side pane (a mockup or report an agent made,

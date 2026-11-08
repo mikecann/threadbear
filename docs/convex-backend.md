@@ -747,6 +747,53 @@ reading each row again to delete it after 30 days (`pruneBodies`), so about twic
 comes up. Bumping the rules re-sends nothing; `scrub-stored.mjs` covers this table,
 but it's the one table where a run over everything costs real I/O.
 
+
+## Outside agents (8 Nov 2026, an experiment)
+
+Grok Bot and other agents that run in the cloud use Threadbear as a
+remote MCP server: `POST https://<deployment>.convex.site/mcp`
+(`convex/http.ts`, `convex/mcpRpc.ts`, `convex/mcp.ts`). Streamable HTTP
+with plain JSON replies: `initialize`, `ping`, `tools/list`, `tools/call`;
+notifications get 202; GET and DELETE 405; batches, bodies over 64 KB and
+any request with an `Origin` header are refused (no browser should call
+it). Every request needs `Authorization: Bearer tba_<64 hex>`, a key from
+the Connectors panel (`agents.connect` on the runner, `mcp:issueAgentKey`
+with the main Mac's key only).
+
+- **Keys** are in `agentKeys`, stored as SHA-256, 30 days by default (90 at
+  most), `scope` read or write, `readAll` or not. Not in `tokens`:
+  `checkPhoneToken` takes any row there, so a key kept there would open
+  every `phone:*` function. A test checks an agent key gets `auth` from
+  them.
+- **Tools**: `list_threads` (id, title, status, needsYou, last activity,
+  whether it started it; never folders, logins, links or cards),
+  `read_thread` (text messages only, newest 20 by default, 50 at most, each
+  cut at 8,000 characters; the text was scrubbed by the runner before it
+  came here), and with write scope `start_thread` (a `create` command with
+  `permissionMode: "ask"` and nothing else of the agent's choosing) and
+  `send_message` (only into a thread this key started, recorded in
+  `agentThreads` when the create finishes, `sync:finishCommand`). Without
+  `readAll` a key sees only threads it started. Archived threads are never
+  shown. A read key's `tools/list` has only the read tools.
+- **Limits**, all in `begin`: 20 bad keys an IP in ten minutes (200 in
+  all) and then 429 for that IP; per key 30 calls a minute, 10 starts and
+  100 messages a day; 120 calls a minute for all keys. Each call is a row
+  in `agentCalls` (key, tool, time, no text), kept 30 days (`mcp:prune`,
+  crons.ts), which also sets the key's `lastUsedAt`.
+- **Revoking** (`mcp:revokeAgentKey`, one or all) fails that key's
+  commands no runner has taken yet, and clears their args. Turning the
+  experiment off on the runner revokes every key.
+- **Errors** a tool hits say only `not found`, `invalid`, `not allowed` or
+  `too much is waiting`; anything else is JSON-RPC -32603 with no detail.
+  A bad key, a guessed thread id and someone else's thread all read the
+  same.
+
+The runner checks every agent command again (docs/protocol.md, "Outside
+agents"). To probe it, use a dev deployment and a key from a dev runner:
+`curl -s -X POST https://<dev>.convex.site/mcp -H "Authorization: Bearer
+tba_..." -H 'Content-Type: application/json' -d
+'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`.
+
 ## The Pocket (API 19)
 
 The phone's deck of cards for when Mike's out (`pocketCards`, the `pocket`

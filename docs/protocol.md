@@ -1007,6 +1007,11 @@ the summary and then the reply.
 | `threads.setProjects` | `{ threadId, add?: string[], remove?: string[] }` | `{ thread: ThreadSummary }`. What Mike does by hand: an added project is pinned (adding one the thread is already in pins it, which is how "keep it here" works), a removed one is remembered so the librarian never puts the thread back in it |
 | `librarian.status` | `{}` | `{ librarian: LibrarianStatus }` |
 | `connectors.status` | `{ refresh?: boolean }` | `{ connectors: ConnectorsStatus }` (see Connectors). `refresh` asks the gateway's `/health` first, unless it did in the last 10 seconds; the app passes it when the Connectors panel opens. A runner from before Connectors answers `-32601` and the app leaves the panel out |
+| `connectors.setup` | `{}` | `{ threadId, already: boolean }`. Connectors setup (an experiment): starts the thread that installs the gateway (see "Connectors setup"), or answers the one already open. Refused while the experiment is off |
+| `connectors.add` | `{ id: string }` or `{ url: string, title?: string }` | `{ threadId, already: boolean }`. Starts the thread that adds a catalog service, or a public `https:` MCP server, to the gateway. Refused while the gateway isn't `ok`, for an id not in the catalog, and for any other address |
+| `agents.list` | `{}` | `{ on, reason?, url?, keys: AgentKey[] }`. Outside agents (an experiment, see "Outside agents"): `url` is the backend's `/mcp`; `reason` says why none can be made (sync off) |
+| `agents.connect` | `{ name?: string, scope?: "read" \| "write", readAll?: boolean }` | `{ key: AgentKey, secret, url }`. Makes a key, `read` and own threads only unless asked. `secret` is in this reply and nowhere else |
+| `agents.revoke` | `{ id?: string }` | As `agents.list`. One key, or every key with no `id` |
 | `librarian.run` | `{ threadId?: string }` | `{ librarian: LibrarianStatus }`. Queues a look at the thread now (reason `asked`), or with no `threadId`, at every thread it has never looked at (a backfill, newest first) |
 | `librarian.update` | `{ paused?: boolean }` | `{ librarian: LibrarianStatus }` |
 | `pools.list` | `{}` | `{ pools: Pool[] }` (see Pools) |
@@ -4227,6 +4232,54 @@ yet: this turn ran into`, names each service and its page, and asks for
 an ask with that page as a link if the work needs it. Called again, it's
 taken as it is. Nothing new reaches the app: the ask is an ordinary one.
 
+
+### Connectors setup
+
+An experiment (`connectorsSetup`, docs/experiments.md). With it on,
+`connectors.status` also carries `canSetUp: true` while there's no gateway
+(`state: "off"`), and `catalog`, the services from
+`runner/src/connectors-catalog.ts` the gateway doesn't list yet
+(`{ id, title, url, auth, blurb, setupNote? }`), while it's `ok`. Older
+apps ignore both. The app shows the plug icon with `canSetUp` too.
+
+`connectors.setup` and `connectors.add` start a thread (`startedBy` the
+runner, Full access, as Mike pressed the button) whose first message the
+runner writes from the catalog, the pinned plugbear commit
+(`PLUGBEAR_COMMIT`) and, for a custom server, an address it has checked
+(public `https:`, no credentials, no LAN, tailnet or IP hosts) and a name
+cut to plain words. Nothing else the app sends reaches the message. The
+message tells the thread: never read plugbear's secrets, take anything
+secret through `ask_secret` straight to its file, add only `http`
+upstreams (never `stdio`), and say what it'll change first. One thread
+each at a time: a second call while it's open answers `already: true`
+with the same id. plugbear has no admin API, so its config files and a
+restart are the thread's work; the gateway is picked up by the runner's
+next restart (`connectors.url` in runner.json).
+
+### Outside agents
+
+An experiment (`outsideAgents`). An agent that runs in the cloud, like
+Grok Bot, reaches Threadbear as a remote MCP server on the backend:
+`POST https://<deployment>.convex.site/mcp` (docs/convex-backend.md,
+"Outside agents"). Its key comes from `agents.connect` and lives in the
+backend's `agentKeys`, never `tokens`, so it opens no `phone:*` function.
+
+Its commands reach the runner as `create` and `send` with
+`args.agent: { keyId, name }`, which the backend sets. The runner
+(`runner/src/outside-agents.ts`) takes nothing else from an agent, and
+checks again: the experiment on here; a `create` always starts on `ask`
+with the default folder, login and model, and `startedBy: { kind: "tool",
+label: <name>, why: "started from <name>" }`; a `send` only to a thread
+that key started (`<home>/runner/agent-threads.json`) that's still on
+`ask`. The text arrives with `origin: "runner"`, quoted under a first line
+starting `[Sent by an outside agent, ` (`OUTSIDE_AGENT_PREFIX`), so it
+never counts as Mike's (`sentByAgent`). A command with a malformed
+`agent` is refused, never run as his. Turning the experiment off revokes
+every key.
+
+`AgentKey`: `{ id, name, scope: "read" | "write", readAll, createdAt,
+expiresAt, lastUsedAt?, expired }`.
+
 ## Projects
 
 A project groups threads above folders: it can have several folders, a
@@ -5765,6 +5818,9 @@ anyone's); "any runner" is any good key. Anything not sorted is owner only.
 | `setRunnerOrder` | owner only | a key that could move the order could put its own Mac first for Mike's phone's new threads |
 | `otherRunnersThreads` | owner only | other runners' sidebars |
 | `threadIndexSince` | owner only | other runners' sidebars |
+| `issueAgentKey` | owner only | an outside agent's key (convex/mcp.ts) starts threads on the main Mac |
+| `listAgentKeys` | owner only | the keys outside agents hold |
+| `revokeAgentKey` | owner only | ending them is the owner's |
 | `issueToken` | owner only | a phone token reads everything and queues commands for every runner |
 | `listTokens` | owner only | |
 | `revokeToken` | owner only | |

@@ -1062,6 +1062,71 @@ so: those are anyone's words, so a "sign in again" in them asks nothing. claude.
 connectors are signed in on claude.ai (Settings > Connectors), on the login
 the thread runs on.
 
+
+### Setting up the gateway, and adding services
+
+With the Connectors setup experiment on (Settings > General >
+Experiments), the plug icon shows before there's a gateway, and the panel
+has **Set up**.
+
+1. Click **Set up**. A thread called "Set up Connectors" opens and works by
+   itself. It installs plugbear on this Mac (it listens only on this Mac, at
+   127.0.0.1:8795), wires each of your logins to it, and points Threadbear at
+   it. It asks you before anything that needs a password or changes your
+   logins' settings, and says what it changed. If a step fails it says
+   which, and pressing Set up again carries on from there. Threadbear picks
+   the gateway up the next time its runner restarts, which it does by itself
+   once nothing is busy.
+2. Once it's running, the panel lists its services and, under **Add a
+   service**, ones it doesn't have yet: Notion, Slack, Linear, Sentry,
+   Cloudflare and DeepWiki. Click **Add**. A short thread adds it and
+   restarts the gateway, and in a few seconds the service shows with
+   **Connect**.
+3. Click **Connect** and sign in on the service's own page. The row turns
+   green and says how many tools it has. Ask any thread "list my Notion
+   pages" to check. If it says "Sign-in expired" or similar, click
+   **Reconnect**.
+
+**Slack** needs a Slack app of your own, about 10 minutes, and the thread
+that adds it walks you through it: make the app at api.slack.com/apps, add
+the exact redirect address the thread gives you, add only the user scopes
+you need (reading, and `chat:write` to post), and give the thread its
+Client ID and Secret in the secret box, never the chat. Your workspace's
+admin may have to approve the app. Posts then wait for your OK on the
+gateway's approval page. "does not support dynamic client registration"
+means the Client ID and Secret weren't saved, and "redirect_uri mismatch"
+means the redirect address differs from the one the thread gave.
+
+**Any other MCP server**: click **Other MCP server...**, paste its `https`
+address and give it a name. Only public `https` servers are taken. To take a
+service out, its row's arrow opens its page on the gateway, where Disconnect
+is, or ask a thread to remove it from the gateway.
+
+### Letting Grok Bot use Threadbear
+
+With the Outside agents experiment on and your runner syncing to your
+backend (Settings > Phone & browser), the Connectors panel has **Agents
+that use Threadbear**. Grok Bot, xAI's agent, runs in the cloud, so it reaches
+Threadbear through your backend rather than this Mac.
+
+1. Click **Connect Grok Bot**. Tick **Can start Ask threads and message
+   them** if you want it to do more than read, and **Can read all my
+   threads** if it should see yours, not only the ones it started.
+2. Click **Make key**. Copy the server address and the key now: closing the
+   panel hides the key for good, and you'd make a new one.
+3. In Grok Bot, open **Connect apps**, add a custom MCP server by its
+   address, and give it the key as a bearer token. Then ask it to list your
+   Threadbear threads. The panel's Grok Bot row says "Used just now".
+
+Threads it starts always run in Ask mode, so every tool asks you first,
+and show "started from Grok Bot". Its messages say they're from Grok Bot,
+not you. It can only message threads it started, and only while they stay
+in Ask mode: switch one to Full access and it stops. It never sees
+approvals, secrets, schedules or archived threads, and it's held to a few
+calls a minute and ten new threads a day. **Revoke** ends a key on its next
+call, and turning the experiment off ends every key. Then remove the server
+in Grok Bot's Connect apps too. What Grok Bot reads goes to xAI.
+
 ## The prompts macOS shows you
 <!-- slug: macos-prompts -->
 

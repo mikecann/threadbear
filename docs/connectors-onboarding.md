@@ -1,6 +1,6 @@
 # Connectors for everyone (proposal)
 
-29 Oct 2026, thread 0ee93bb5. Decided the same day (section 3); nothing built yet.
+29 Oct 2026, thread 0ee93bb5. Decided the same day (section 3). Steps 3 and 4 of section 4 are built as the Connectors setup experiment (8 Nov: Set up and Add a service in the Connectors panel, docs/protocol.md "Connectors setup"); the Finish setting up item and the claude.ai nudge aren't yet.
 
 What Mike asked: should the Connectors gateway be part of Threadbear's onboarding,
 explaining why someone would want it, and optional? And the gateway itself should be a
@@ -99,7 +99,7 @@ client file into the gateway's secrets.
 
 ### 2.5 Making the gateway public
 
-Before flipping `mikecann/connectors` to public:
+Before flipping it to public (done 29 Oct as `mikecann/plugbear`):
 
 - Move Mike's details out of the code into a local config file that isn't committed:
   tailnet hostname, admin logins, the agent list, Bruce paths in `deploy.sh` and the
