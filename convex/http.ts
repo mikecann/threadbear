@@ -12,6 +12,8 @@ import { httpAction } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { MAX_RUNNER_UPLOAD_BYTES } from './sync';
 import { PHONE_UPLOADS } from './phone';
+import { sha256 } from './lib';
+import { handleMcp, MCP_BODY_MAX } from './mcpRpc';
 
 const http = httpRouter();
 
@@ -137,6 +139,36 @@ http.route({
     return new Response(JSON.stringify({ storageId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   }),
 });
+
+// Outside agents (Grok Bot): Threadbear as a remote MCP server, with an
+// agent key (mcp.ts, mcpRpc.ts; docs/convex-backend.md "Outside agents").
+// Only internal functions are called, and only after the key's check.
+const mcp = httpAction(async (ctx, request) => {
+  const headers = request.headers;
+  const length = Number(headers.get('content-length') ?? 0);
+  if (request.method === 'POST' && (!Number.isFinite(length) || length > MCP_BODY_MAX)) return new Response(JSON.stringify({ error: 'too big' }), { status: 413, headers: { 'Content-Type': 'application/json' } });
+  const body = request.method === 'POST' ? await request.text() : '';
+  const auth = headers.get('authorization') ?? '';
+  const presented = /^Bearer\s+(tba_[0-9a-f]{64})$/i.exec(auth.trim())?.[1] ?? '';
+  const hash = presented ? await sha256(presented) : '';
+  const meta = await (ctx as { meta?: { getRequestMetadata?: () => Promise<{ ip: string | null }> } }).meta?.getRequestMetadata?.().catch(() => undefined);
+  const ip = meta?.ip ?? headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const now = Date.now();
+  const out = await handleMcp(
+    { method: request.method, header: (n) => headers.get(n), body },
+    {
+      begin: (tool) => ctx.runMutation(internal.mcp.begin, { hash, tool, ip, now }),
+      listThreads: (agent, view) => ctx.runQuery(internal.mcp.listThreads, { agent: agent as never, view }),
+      readThread: (agent, threadId, limit) => ctx.runQuery(internal.mcp.readThread, { agent: agent as never, threadId, ...(limit === undefined ? {} : { limit }) }),
+      startThread: (agent, text) => ctx.runMutation(internal.mcp.startThread, { agent: agent as never, text }),
+      sendMessage: (agent, threadId, text) => ctx.runMutation(internal.mcp.sendMessage, { agent: agent as never, threadId, text }),
+    },
+  );
+  return new Response(out.body ?? null, { status: out.status, headers: out.headers });
+});
+http.route({ path: '/mcp', method: 'POST', handler: mcp });
+http.route({ path: '/mcp', method: 'GET', handler: mcp });
+http.route({ path: '/mcp', method: 'DELETE', handler: mcp });
 
 registerStaticRoutes(http, components.staticHosting);
 

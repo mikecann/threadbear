@@ -2522,6 +2522,12 @@ export const finishCommand = mutation({
     // A note is a line for the phone: cut, so a finished command stays small (pruneOld reads them).
     const said = note ? clean(cutBytes(note, caller.owner ? NOTE_MAX : CAP.note)) : undefined;
     await ctx.db.patch(commandId, { state: ok ? 'done' : 'failed', doneAt: Date.now(), ...(said ? { note: said } : {}), ...(made ? { resultThreadId: made } : {}), ...(kept !== undefined ? { result: kept } : {}) });
+    // A thread an outside agent started (mcp.ts): it may message that one, so
+    // the id is kept on its own row before pruneOld takes the command.
+    if (made && c.kind === 'create') {
+      const started = await ctx.db.query('agentThreads').withIndex('by_command', (q) => q.eq('commandId', commandId)).first();
+      if (started) await ctx.db.patch(started._id, { threadId: made });
+    }
     // Its words, and a secret's sealed answer (docs/protocol.md, "Secrets"), have
     // done their job: see finishedArgs.
     await ctx.db.patch(commandId, { args: finishedArgs(c.args) });

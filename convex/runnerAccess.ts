@@ -154,6 +154,10 @@ export const ACCESS: Record<string, Access> = {
   issueToken: 'owner',
   listTokens: 'owner',
   revokeToken: 'owner',
+  // Outside agents' keys (mcp.ts): only the main Mac makes or ends them.
+  issueAgentKey: 'owner',
+  listAgentKeys: 'owner',
+  revokeAgentKey: 'owner',
   appendMessages: 'own',
   messageHeads: 'own',
   setProjects: 'own',
