@@ -100,16 +100,41 @@ test('a phone token is no good at /mcp', async () => {
   assert.equal((await s.post(token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).status, 401);
 });
 
-test('guessing keys gets slow: 20 bad keys from one IP in ten minutes, then 429 even with a good key', async () => {
+test('guessing keys gets slow from that address, but never locks the real key out', async () => {
   const s = await setup();
   const { secret } = await s.issue();
   const list = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
-  for (let i = 0; i < 20; i++) assert.equal((await s.post('tba_' + String(i).padStart(64, '0'), list, { ip: '198.51.100.1' })).status, 401);
-  assert.equal((await s.post(secret, list, { ip: '198.51.100.1' })).status, 429);
-  // Another IP still gets in.
-  assert.equal((await s.post(secret, list, { ip: '198.51.100.2' })).status, 200);
-  // Ten minutes on, the first IP does too.
-  assert.equal((await s.post(secret, list, { ip: '198.51.100.1', now: NOW + 11 * 60_000 })).status, 200);
+  const bad = (i: number) => 'tba_' + String(i).padStart(64, '0');
+  for (let i = 0; i < 20; i++) assert.equal((await s.post(bad(i), list, { ip: '198.51.100.1' })).status, 401);
+  // The 21st bad key from there is slowed; another address isn't yet.
+  assert.equal((await s.post(bad(99), list, { ip: '198.51.100.1' })).status, 429);
+  assert.equal((await s.post(bad(98), list, { ip: '198.51.100.2' })).status, 401);
+  // The real key gets in from the same address all the same.
+  assert.equal((await s.post(secret, list, { ip: '198.51.100.1' })).status, 200);
+  // Ten minutes on, bad keys from the first address are only refused again.
+  assert.equal((await s.post(bad(97), list, { ip: '198.51.100.1', now: NOW + 11 * 60_000 })).status, 401);
+});
+
+test('a flood of bad keys from everywhere still leaves the real key working', async () => {
+  const s = await setup();
+  const { secret } = await s.issue();
+  const list = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
+  for (let i = 0; i < 200; i++) await s.post('tba_' + String(i).padStart(64, '1'), list, { ip: `203.0.113.${i}` });
+  assert.equal((await s.post('tba_' + 'f'.repeat(64), list, { ip: '192.0.2.1' })).status, 429);
+  assert.equal((await s.post(secret, list, { ip: '192.0.2.1' })).status, 200);
+});
+
+test("prune clears an ended key's thread rows before the key, across runs", async () => {
+  const s = await setup();
+  const { key } = await s.issue({ scope: 'write' });
+  for (let i = 0; i < 600; i++) await s.ctx.db.insert('agentThreads', { keyId: key.id, commandId: `commands:${i}`, threadId: `t${i}` });
+  await s.ctx.db.patch(key.id, { revokedAt: 1 });
+  await call(s.ctx, mcp.prune, {});
+  assert.equal(s.rows('agentKeys').length, 1);
+  assert.equal(s.rows('agentThreads').length, 100);
+  await call(s.ctx, mcp.prune, {});
+  assert.equal(s.rows('agentKeys').length, 0);
+  assert.equal(s.rows('agentThreads').length, 0);
 });
 
 test('browsers, other methods, batches and big bodies are refused before the key is even looked at', async () => {

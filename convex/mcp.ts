@@ -4,7 +4,9 @@
 //
 // An agent key lives in agentKeys, never in tokens (schema.ts says why). It
 // can list and read threads, and with write scope start threads, always in
-// Ask mode on the main Mac with no folder, login or model of its choosing,
+// Ask mode where the phone's new threads go (mainRunner: the first online Mac
+// in Mike's order, else the main Mac; that Mac's runner refuses it unless
+// Outside agents is on there too), with no folder, login or model of its choosing,
 // and message only the threads it started. The runner checks all of that
 // again when it applies the command (runner/src/outside-agents.ts), so a
 // thread switched to Full access stops taking its messages.
@@ -38,6 +40,7 @@ const FAIL_WINDOW_MS = 10 * 60_000;
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 const CALLS_KEPT_MS = 30 * DAY;
+const PRUNE_BATCH = 4_000;
 // The threads of its own an agent can hold; past this, older ones drop off
 // what it may message (it can't start more than AGENT_STARTS_PER_DAY a day).
 const OWN_THREADS_MAX = 200;
@@ -60,13 +63,16 @@ export const begin = internalMutation({
   args: { hash: v.string(), tool: v.string(), ip: v.string(), now: v.number() },
   returns: v.union(v.object({ ok: v.literal(true), agent: agentRef }), v.object({ ok: v.literal(false), why: v.union(v.literal('auth'), v.literal('slow'), v.literal('limited'), v.literal('scope')) })),
   handler: async (ctx, { hash, tool, ip, now }) => {
-    const since = now - FAIL_WINDOW_MS;
-    const ipKey = ip.slice(0, 64) || 'unknown';
-    const ipFails = await ctx.db.query('agentAuthFails').withIndex('by_ip_at', (q) => q.eq('ip', ipKey).gte('at', since)).take(AGENT_FAILS_PER_IP);
-    const allFails = await ctx.db.query('agentAuthFails').withIndex('by_at', (q) => q.gte('at', since)).take(AGENT_FAILS_GLOBAL);
-    if (ipFails.length >= AGENT_FAILS_PER_IP || allFails.length >= AGENT_FAILS_GLOBAL) return { ok: false as const, why: 'slow' as const };
+    // The key first: a good key is never held up by other people's bad ones
+    // (a flood of made-up keys would otherwise lock Grok Bot out).
     const row = hash ? await ctx.db.query('agentKeys').withIndex('by_hash', (q) => q.eq('hash', hash)).unique() : null;
     if (!row || row.revokedAt !== undefined || row.expiresAt <= now) {
+      // A bad key: slow once there have been too many from here, or in all.
+      const since = now - FAIL_WINDOW_MS;
+      const ipKey = ip.slice(0, 64) || 'unknown';
+      const ipFails = await ctx.db.query('agentAuthFails').withIndex('by_ip_at', (q) => q.eq('ip', ipKey).gte('at', since)).take(AGENT_FAILS_PER_IP);
+      const allFails = await ctx.db.query('agentAuthFails').withIndex('by_at', (q) => q.gte('at', since)).take(AGENT_FAILS_GLOBAL);
+      if (ipFails.length >= AGENT_FAILS_PER_IP || allFails.length >= AGENT_FAILS_GLOBAL) return { ok: false as const, why: 'slow' as const };
       await ctx.db.insert('agentAuthFails', { ip: ipKey, at: now });
       return { ok: false as const, why: 'auth' as const };
     }
@@ -187,7 +193,7 @@ export const startThread = internalMutation({
   returns: v.object({ commandId: v.string() }),
   handler: async (ctx, { agent, text }) => {
     if (agent.scope !== 'write') throw new ConvexError({ kind: 'forbidden', message: 'this key is read only' });
-    // Ask mode always, on the main Mac's default folder, login and model:
+    // Ask mode always, where the phone's new threads go, on that Mac's default folder, login and model:
     // none of those are the agent's to pick.
     const commandId = await queue(ctx, await mainRunner(ctx), 'create', undefined, { text: checkText(text), permissionMode: 'ask', ...from(agent) });
     await ctx.db.insert('agentThreads', { keyId: agent.keyId, commandId });
@@ -285,19 +291,23 @@ export const revokeAgentKey = mutation({
 // ----------------------------------------------------------------- prune
 
 // Calls past 30 days, bad-key rows past a day, and revoked or expired keys
-// with their thread rows a month after. A batch a run (crons.ts).
+// with their thread rows a month after. A batch a run, hourly (crons.ts).
 export const prune = internalMutation({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     const now = Date.now();
-    for (const c of await ctx.db.query('agentCalls').withIndex('by_at', (q) => q.lt('at', now - CALLS_KEPT_MS)).take(500)) await ctx.db.delete(c._id);
-    for (const f of await ctx.db.query('agentAuthFails').withIndex('by_at', (q) => q.lt('at', now - DAY)).take(500)) await ctx.db.delete(f._id);
+    // Enough a run (hourly, crons.ts) to keep up with every key at its limits.
+    for (const c of await ctx.db.query('agentCalls').withIndex('by_at', (q) => q.lt('at', now - CALLS_KEPT_MS)).take(PRUNE_BATCH)) await ctx.db.delete(c._id);
+    for (const f of await ctx.db.query('agentAuthFails').withIndex('by_at', (q) => q.lt('at', now - DAY)).take(PRUNE_BATCH)) await ctx.db.delete(f._id);
     for await (const k of ctx.db.query('agentKeys')) {
       const ended = k.revokedAt ?? (k.expiresAt <= now ? k.expiresAt : undefined);
       if (ended === undefined || ended > now - CALLS_KEPT_MS) continue;
-      for (const t of await ctx.db.query('agentThreads').withIndex('by_key', (q) => q.eq('keyId', k._id)).take(500)) await ctx.db.delete(t._id);
-      await ctx.db.delete(k._id);
+      // Its thread rows first; the key goes only once none are left, so a
+      // key with more than one batch is finished on a later run.
+      const rows = await ctx.db.query('agentThreads').withIndex('by_key', (q) => q.eq('keyId', k._id)).take(500);
+      for (const t of rows) await ctx.db.delete(t._id);
+      if (rows.length < 500) await ctx.db.delete(k._id);
     }
     return null;
   },

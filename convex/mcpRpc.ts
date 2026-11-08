@@ -3,8 +3,8 @@
 // hands it the request and the calls into mcp.ts; it hands back a reply.
 // docs/convex-backend.md, "Outside agents".
 //
-// Every request needs a key (Authorization: Bearer tba_...), checked before
-// the body is parsed beyond its size. Nothing it answers is an instruction:
+// Every request needs a key (Authorization: Bearer tba_...), checked once
+// the body (at most 64 KB) is parsed, before anything is read or done. Nothing it answers is an instruction:
 // thread text comes back as data in a tool result, labelled as such.
 
 export const MCP_BODY_MAX = 64 * 1024;
