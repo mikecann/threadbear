@@ -800,8 +800,8 @@ GitHub. It's fetched from the GitHub Contributions API
 the switch off puts the page back as it ships and keeps your changes for
 next time; Reset to the standard page clears them.
 
-The bottom of the Customize panel makes you a public profile page, like a
-GitHub or Cursor profile, at `https://<your deployment>.convex.site/@<handle>`.
+The bottom of the Customize panel makes you a public profile page at
+`https://<your deployment>.convex.site/@<handle>`.
 Your Convex backend serves it, so it needs one (Your phone and a browser).
 Pick a handle (lowercase letters, numbers and single hyphens), a name, a
 line about you and up to four links, then turn on each part you want

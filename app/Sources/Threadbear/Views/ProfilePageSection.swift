@@ -108,7 +108,7 @@ struct ProfilePageSection: View {
         } header: {
             HStack(spacing: zoomed(6)) {
                 Text("Profile page")
-                InfoTip("A page about you on your own Threadbear site, like a GitHub or Cursor profile. It's kept on your Convex backend, which serves it. Thread titles, prompts, replies, folders and project notes are never sent, and threads in a private folder aren't counted.")
+                InfoTip("A page about you on your own Threadbear site. It's kept on your Convex backend, which serves it. Thread titles, prompts, replies, folders and project notes are never sent, and threads in a private folder aren't counted.")
             }
         }
     }
