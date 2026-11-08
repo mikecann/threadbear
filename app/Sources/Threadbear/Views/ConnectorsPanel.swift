@@ -571,11 +571,11 @@ private struct ShowHiddenMenu: View {
         if !items.isEmpty {
             IconMenu {
                 ForEach(items) { item in
-                    Button("Show \(item.title)") { show([item.id]) }
+                    Button("Show \(item.title)", systemImage: "eye") { show([item.id]) }
                 }
                 if items.count > 1 {
                     Divider()
-                    Button("Show all") { show(items.map(\.id)) }
+                    Button("Show all", systemImage: "eye") { show(items.map(\.id)) }
                 }
             } label: {
                 Label(items.count == 1 ? "1 hidden" : "\(items.count) hidden", systemImage: "plus.circle")
