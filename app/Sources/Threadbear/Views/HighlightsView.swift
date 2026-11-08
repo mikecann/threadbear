@@ -751,7 +751,12 @@ struct PreviewButtons: View {
         // A copy of another Mac's file: not edited here (only the copy
         // would change), and its folder is just the cache.
         if let file = preview.fileURL, preview.away == nil {
-            if preview.editing {
+            if PreviewRules.isMarkdown(file.path), TextFileView.shows(file.path), TextFileView.canEdit(file.path) {
+                MarkdownViewMenu(showing: preview.editing ? .markdown : .preview) { view in
+                    MarkdownView.current = view
+                    app.setPreviewEditing(view == .markdown, in: thread.id)
+                }
+            } else if preview.editing {
                 PaneHeaderButton(symbol: "checkmark", help: "Done. What you typed is saved.") { app.setPreviewEditing(false, in: thread.id) }
             } else if TextFileView.shows(file.path), TextFileView.canEdit(file.path) {
                 PaneHeaderButton(symbol: "pencil", help: "Edit the file here. It's saved as you type.") { app.setPreviewEditing(true, in: thread.id) }
@@ -764,6 +769,44 @@ struct PreviewButtons: View {
                 app.openExternally(url, from: preview.away == nil ? .thisMac : app.copyOrigin(of: thread))
             }
         }
+    }
+}
+
+/// A Markdown file's Preview or Markdown, in the panel's bar: the drawn
+/// page, or the raw text ready to type in. What's picked is how the next
+/// Markdown file opens too (MarkdownView).
+struct MarkdownViewMenu: View {
+    let showing: MarkdownView
+    let pick: (MarkdownView) -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Menu {
+            ForEach(MarkdownView.allCases, id: \.self) { view in
+                Toggle(isOn: Binding(get: { showing == view }, set: { if $0 { pick(view) } })) {
+                    Label(view.title, systemImage: view.symbol)
+                }
+            }
+        } label: {
+            HStack(spacing: zoomed(3)) {
+                Text(showing.title)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: TypeScale.small - 2, weight: .semibold))
+            }
+            .font(.system(size: TypeScale.small, weight: .medium))
+            .foregroundStyle(hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, zoomed(7))
+            .frame(height: zoomed(26))
+            .background(hovering ? SidebarMetrics.hover : .clear, in: RoundedRectangle(cornerRadius: zoomed(6)))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { hovering = $0 }
+        .tip(showing == .preview ? "Showing it drawn as a page. Pick Markdown to edit the text." : "Showing the Markdown text, ready to type in. Pick Preview to read it as a page.")
+        .accessibilityLabel("Show as \(showing.title)")
     }
 }
 

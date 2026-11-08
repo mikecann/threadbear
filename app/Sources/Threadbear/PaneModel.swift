@@ -190,6 +190,11 @@ extension AppModel {
     func show(_ preview: PanePreview, in threadId: String) {
         var preview = preview
         preview.opened = (panePreview[threadId]?.opened ?? 0) + 1
+        // A Markdown file opens as its bar's menu last left it (MarkdownView).
+        if preview.away == nil, let path = preview.fileURL?.path, MarkdownView.opensRaw(path: path),
+           TextFileView.shows(path), TextFileView.canEdit(path) {
+            preview.editing = true
+        }
         panePreview[threadId] = preview
         // Over the section it's from, opening that if it's closed.
         showPane(preview.from)

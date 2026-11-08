@@ -264,6 +264,12 @@ away. If the file changes on disk while you have unsaved edits (an agent
 rewrote it), nothing is written over: a bar asks whether to take the
 file's version or keep yours.
 
+A Markdown file opens drawn, as a page to read: headings, lists, tables,
+code and pictures, with the lines kept to a comfortable width. In place
+of the pencil, a menu in its bar switches between Preview (drawn) and
+Markdown (the raw text, ready to type in, saved as above), and the next
+Markdown file you open shows the way you last picked.
+
 An HTML file opens in the side pane as a static page, with the styles,
 pictures, fonts and media beside it that its markup names. Script files,
 SVGs and other pages beside it don't load, so a mockup made of several
