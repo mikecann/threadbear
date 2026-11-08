@@ -49,6 +49,9 @@ import { removeTempFiles } from './fsutil.ts';
 import { Models } from './models/index.ts';
 import { SettingsService, modelMethods, settingsMethods } from './settings.ts';
 import { SkillStore, skillMethods } from './skills.ts';
+import { ProfileJobs, profileMethods } from './profiles.ts';
+import { spawn as spawnProcess } from 'node:child_process';
+import net from 'node:net';
 import { ConvexSync, defaultRunnerName, ensureRunnerId, readSyncKey } from './sync.ts';
 import { pushFailingText } from './push-failing.ts';
 import { Scrubber } from './scrub.ts';
@@ -584,7 +587,27 @@ async function main(): Promise<void> {
   updaterReady = true;
 
   runner.attachClis(updates);
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...skillMethods(skills), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  // Settings > Profiles (profiles.ts): this Mac's profiles, made and removed
+  // from whichever runner the app is on. A profile's setup runs from the
+  // checkout this runner was built from.
+  const profileJobs = new ProfileJobs({
+    checkout: () => ownCheckout(),
+    spawn: (cmd, args, opts) => spawnProcess(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] }),
+    reachable: (port) =>
+      new Promise((resolve) => {
+        const socket = net.connect({ host: '127.0.0.1', port }, () => {
+          socket.destroy();
+          resolve(true);
+        });
+        socket.on('error', () => resolve(false));
+        socket.setTimeout(500, () => {
+          socket.destroy();
+          resolve(false);
+        });
+      }),
+    changed: () => {},
+  });
+  const methods = { ...profileMethods(profileJobs), ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...skillMethods(skills), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {

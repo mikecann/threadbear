@@ -30,6 +30,9 @@ struct SettingsView: View {
             RunnersSettings()
                 .tabItem { Label("Runners", systemImage: "server.rack") }
                 .tag(SettingsTab.runners)
+            ProfilesSettings()
+                .tabItem { Label("Profiles", systemImage: "person.2") }
+                .tag(SettingsTab.profiles)
             DevicesSettings()
                 .tabItem { Label("Phone & browser", systemImage: "iphone") }
                 .tag(SettingsTab.devices)

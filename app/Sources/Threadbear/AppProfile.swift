@@ -106,6 +106,8 @@ struct ProfileMenu: View {
                     .disabled(entry == current || !AppProfile.canSwitch)
                     .keyboardShortcut(KeyEquivalent(Character(String(min(index + 1, 9)))), modifiers: [.control, .command])
                 }
+                Divider()
+                Button("Manage Profiles…", systemImage: "person.2") { app.openSettings(tab: .profiles) }
             } label: {
                 HStack(spacing: zoomed(5)) {
                     Circle().fill(AppProfile.colour(current) ?? Color.secondary).frame(width: zoomed(8), height: zoomed(8))

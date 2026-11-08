@@ -303,6 +303,7 @@ const settings = {
 };
 
 /** threadId -> { summary, events: [], inProgress: Map(itemId -> {type,text}), timers: [] } */
+const mockProfiles = [{ id: 'personal', name: 'Personal', home: '/Users/mike/Library/Application Support/Threadbear', port: 8797, label: 'com.mikerosoft.threadbear.runner', running: true, convexUrl: 'https://demo-bear-123.convex.cloud' }];
 const threads = new Map();
 loadFixtures();
 addFillers(fillerCount);
@@ -609,6 +610,36 @@ async function dispatch(client, method, p) {
         made.push(summary);
       }
       return { threads: made.reverse() };
+    }
+    // Settings > Profiles (runner/src/profiles.ts), made up: making one
+    // "runs setup" for a few seconds, a line at a time.
+    case 'profiles.list':
+      return { profiles: mockProfiles.map((p) => ({ ...p })) };
+    case 'profiles.create': {
+      if (!p.name?.trim()) throw rpcError(-32602, 'name must be a string');
+      const id = p.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const profile = { id, name: p.name.trim(), home: `/Users/mike/Library/Application Support/Threadbear Profiles/${id}`, port: 8797 + mockProfiles.length, label: `com.mikerosoft.threadbear.runner.${id}`, running: false, job: { state: 'running', lines: ['4. Convex', '  → npx convex login (opens the browser)'] } };
+      mockProfiles.push(profile);
+      const steps = ['  ✓ logged in to Convex', `  ✓ project ${p.project || `threadbear-${id}`}`, '  ✓ deploy key', '  ✓ runner key set as RUNNER_KEY', "  ✓ the profile's runner installed (the Mac app is shared)"];
+      steps.forEach((line, i) => setTimeout(() => {
+        profile.job.lines = [...profile.job.lines, line].slice(-12);
+        if (i === steps.length - 1) Object.assign(profile, { running: true, convexUrl: `https://happy-otter-${mockProfiles.length}.convex.cloud`, job: { ...profile.job, state: 'done' } });
+      }, 800 * (i + 1)));
+      return { profile: { id, name: profile.name, home: profile.home, port: profile.port, label: profile.label } };
+    }
+    case 'profiles.rename': {
+      const profile = mockProfiles.find((x) => x.id === p.id);
+      if (!profile || profile.id === 'personal') throw rpcError(-32602, `No profile ${p.id}.`);
+      profile.name = p.name;
+      return { profile };
+    }
+    case 'profiles.retry':
+      return { ok: true };
+    case 'profiles.remove': {
+      const profile = mockProfiles.find((x) => x.id === p.id);
+      if (!profile || profile.id === 'personal') throw rpcError(-32602, `No profile ${p.id}.`);
+      mockProfiles.splice(mockProfiles.indexOf(profile), 1);
+      return { profile };
     }
     case 'threads.create': {
       if (!p.text) throw rpcError(-32602, 'text is required');

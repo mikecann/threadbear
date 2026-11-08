@@ -6,6 +6,16 @@
 //   ./threadbear setup [--dry-run] [--yes] [--team SLUG] [--project NAME]
 //                      [--region REGION] [--cwd DIR] [--name NAME]
 //                      [--home DIR] [--skip-install] [--existing]
+//                      [--profile ID --label LABEL --port N]
+//
+// --profile sets up a profile (docs/guide.md, "Profiles"): a second whole
+// Threadbear beside the first, such as Work, in its own --home (made by
+// tb profile add, whose runner.json names it). Its Convex login is its own
+// (the Convex CLI runs with HOME at <home>/logins/convex, never your
+// ~/.convex), its Convex project is chosen in <home>/backend (linked to
+// this repo's convex/ code, so this clone's .env.local, which is your
+// first setup's, is never used), and its runner is installed with its own
+// --label and --port. The Mac app is shared, so it isn't installed again.
 //
 //   1. this Mac: macOS, Xcode's command line tools, git, Node 24, Claude Code
 //      or Codex, and Tailscale (optional)
@@ -67,6 +77,9 @@ const { values: v } = parseArgs({
     home: { type: 'string' },
     'skip-install': { type: 'boolean' },
     existing: { type: 'boolean' },
+    profile: { type: 'string' },
+    label: { type: 'string' },
+    port: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -83,6 +96,30 @@ const runnerJsonPath = path.join(home, 'runner.json');
 const deployKeyFile = path.join(secrets, 'convex-deploy.env');
 const runnerKeyFile = path.join(secrets, 'convex-key');
 const npx = path.join(path.dirname(process.execPath), 'npx');
+// A profile's own Convex login and project folder (see --profile above).
+const profile = v.profile;
+if (profile && (!v.home || !v.label)) {
+  console.error('--profile needs the profile\'s --home and --label (tb profile add makes them).');
+  process.exit(2);
+}
+const convexHome = profile ? path.join(home, 'logins', 'convex') : os.homedir();
+const projectDir = profile ? path.join(home, 'backend') : repo;
+// The Convex CLI, run where this setup's project is chosen and with its login.
+function cx(args, opts = {}) {
+  return { cwd: projectDir, ...opts, env: { ...(opts.env ?? process.env), ...(profile ? { HOME: convexHome } : {}) } };
+}
+// A profile's project folder: this repo's backend code and packages,
+// linked, with a .env.local of its own.
+function projectFolder() {
+  if (!profile || dry) return;
+  fs.mkdirSync(convexHome, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(projectDir, { recursive: true, mode: 0o700 });
+  for (const name of ['convex', 'package.json', 'node_modules', 'convex.json', 'tsconfig.json']) {
+    const from = path.join(repo, name);
+    const to = path.join(projectDir, name);
+    if (fs.existsSync(from) && !fs.existsSync(to)) fs.symlinkSync(from, to);
+  }
+}
 const localKey = (() => {
   try {
     return fs.readFileSync(runnerKeyFile, 'utf8').trim();
@@ -246,13 +283,13 @@ function packages() {
 
 function convexLogin() {
   say('4. Convex');
-  const config = readJson(path.join(os.homedir(), '.convex', 'config.json'));
+  const config = readJson(path.join(convexHome, '.convex', 'config.json'));
   if (config.accessToken) ok('logged in to Convex');
   else if (dry) todo('npx convex login (opens the browser)');
   else {
     // Opens the browser and waits for the approval there, with no questions
     // in the terminal, so an agent can run setup too (INSTALL.md).
-    runOrFail('Logging in to Convex', npx, ['convex', 'login', '--device-name', os.hostname().split('.')[0], '--login-flow', 'poll']);
+    runOrFail('Logging in to Convex', npx, ['convex', 'login', '--device-name', os.hostname().split('.')[0], '--login-flow', 'poll'], cx());
     ok('logged in to Convex');
   }
 }
@@ -266,7 +303,8 @@ async function project() {
     ok(`using ${json.sync.url}`);
     return json.sync.url;
   }
-  const selected = fs.existsSync(path.join(repo, '.env.local')) && /CONVEX_DEPLOYMENT=/.test(fs.readFileSync(path.join(repo, '.env.local'), 'utf8'));
+  projectFolder();
+  const selected = fs.existsSync(path.join(projectDir, '.env.local')) && /CONVEX_DEPLOYMENT=/.test(fs.readFileSync(path.join(projectDir, '.env.local'), 'utf8'));
   if (!selected) {
     const verb = v.existing ? 'use the existing' : 'create a';
     if (dry) {
@@ -276,16 +314,18 @@ async function project() {
       return undefined;
     }
     const args = ['convex', 'dev', '--once', '--configure', v.existing ? 'existing' : 'new', '--project', v.project, '--dev-deployment', 'cloud'];
+    // A profile's convex/ is this repo's, linked: never regenerate it there.
+    if (profile) args.push('--codegen', 'disable', '--typecheck', 'disable');
     const team = v.team ?? onlyTeam();
     if (team) args.push('--team', team);
-    runOrFail(v.existing ? 'Selecting the Convex project' : 'Creating the Convex project', npx, args);
+    runOrFail(v.existing ? 'Selecting the Convex project' : 'Creating the Convex project', npx, args, cx());
     ok(`project ${v.project}`);
   } else ok('this clone already has a Convex project (.env.local)');
   if (dry) return todo(`create its production deployment${(v.region ?? nearestRegion()) ? ` in ${v.region ?? nearestRegion()}` : ''}`), undefined;
   const args = ['convex', 'deployment', 'create', 'production', '--type', 'prod', '--default'];
   const region = v.region ?? nearestRegion();
   if (region) args.push('--region', region);
-  const made = run(npx, args);
+  const made = run(npx, args, cx());
   const text = `${made.stdout}\n${made.stderr}`;
   let url = text.match(/https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)?\.convex\.cloud/)?.[0];
   if (!url) {
@@ -302,7 +342,7 @@ async function keys(urlFromProject) {
     else {
       fs.mkdirSync(secrets, { recursive: true, mode: 0o700 });
       const keyName = `threadbear-runner-${os.hostname().split('.')[0].toLowerCase()}`;
-      runOrFail('Making a deploy key', npx, ['convex', 'deployment', 'token', 'create', keyName, '--prod', '--save-env', deployKeyFile]);
+      runOrFail('Making a deploy key', npx, ['convex', 'deployment', 'token', 'create', keyName, '--prod', '--save-env', deployKeyFile], cx());
       fs.chmodSync(deployKeyFile, 0o600);
       // By name, so tb runner rotate-owner knows this one is this Mac's own.
       fs.appendFileSync(path.join(secrets, 'made-deploy-keys'), keyName + '\n', { mode: 0o600 });
@@ -323,10 +363,10 @@ async function keys(urlFromProject) {
     else todo("the runner key: the deployment's own if it has one, else a new one set as RUNNER_KEY");
   }
   if (!dry && key) {
-    const got = run(npx, ['convex', 'env', 'get', 'RUNNER_KEY'], { env: withKey(key.key) });
+    const got = run(npx, ['convex', 'env', 'get', 'RUNNER_KEY'], cx({ env: withKey(key.key) }));
     const existing = (got.stdout ?? '').trim();
     const local = fs.existsSync(runnerKeyFile) ? fs.readFileSync(runnerKeyFile, 'utf8').trim() : '';
-    const nextGet = run(npx, ['convex', 'env', 'get', 'RUNNER_KEY_NEXT'], { env: withKey(key.key) });
+    const nextGet = run(npx, ['convex', 'env', 'get', 'RUNNER_KEY_NEXT'], cx({ env: withKey(key.key) }));
     const plan = runnerKeyPlan({ envGet: got, nextGet, local, joining });
     if (plan.action === 'fail') throw new Fail(plan.why);
     if (plan.action === 'joined') ok("runner key: this Mac's own, left as it is");
@@ -337,7 +377,7 @@ async function keys(urlFromProject) {
     } else {
       const fresh = local || crypto.randomBytes(32).toString('hex');
       if (!local) writeSecret(runnerKeyFile, fresh);
-      const r = spawnSync(npx, ['convex', 'env', 'set', 'RUNNER_KEY'], { cwd: repo, env: withKey(key.key), input: fresh, encoding: 'utf8' });
+      const r = spawnSync(npx, ['convex', 'env', 'set', 'RUNNER_KEY'], { ...cx({ env: withKey(key.key) }), input: fresh, encoding: 'utf8' });
       if (r.status !== 0) throw new Fail('Setting RUNNER_KEY on the deployment failed.');
       ok('runner key set as RUNNER_KEY');
     }
@@ -362,7 +402,7 @@ function nearestRegion() {
 // The Convex login's teams, from `convex login status` (which prints the list on stderr). None
 // when it isn't logged in yet.
 function convexTeams() {
-  const r = run(npx, ['convex', 'login', 'status']);
+  const r = run(npx, ['convex', 'login', 'status'], cx());
   const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
   return [...out.matchAll(/^\s+- (.+) \(([^)]+)\)$/gm)].map((m) => ({ name: m[1], slug: m[2] }));
 }
@@ -428,7 +468,10 @@ function install() {
   if (!desktopSession()) throw new Fail("Nobody is logged in to this Mac's desktop, and macOS only starts the runner (a login agent) for someone who is. Log in, in person or with Screen Sharing, then run setup again.");
   const env = { ...process.env, THREADBEAR_NODE: process.execPath };
   const homeArgs = path.resolve(home) === DEFAULT_HOME ? [] : ['--home', home];
-  runOrFail('Installing the runner', 'bash', [path.join(repo, 'runner', 'scripts', 'install-runner.sh'), ...homeArgs], { env });
+  const profileArgs = profile ? ['--label', v.label, ...(v.port ? ['--port', v.port] : [])] : [];
+  runOrFail('Installing the runner', 'bash', [path.join(repo, 'runner', 'scripts', 'install-runner.sh'), ...homeArgs, ...profileArgs], { env });
+  // A profile shares the Mac app the first setup installed.
+  if (profile) return ok("the profile's runner installed (the Mac app is shared)");
   runOrFail('Installing the Mac app', 'bash', [path.join(repo, 'app', 'install.sh')], { env });
   // A Mac joining a Threadbear you already use: you know your way round,
   // so the app's first-run tour stays away (Help > Take the Tour still has it).

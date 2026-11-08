@@ -112,3 +112,70 @@ test('installing a profile runs install-runner.sh with its folder, label and por
   assert.deepEqual(calls[0].args, ['--home', work.home, '--label', work.label, '--port', String(work.port)]);
   assert.equal(calls[1].args.at(-1), '--uninstall');
 });
+
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { ProfileJobs, profileMethods, renameProfile } from '../../src/profiles.ts';
+
+function fakeSpawn() {
+  const runs: { args: string[]; out: PassThrough; finish: (code: number) => void }[] = [];
+  const spawn = (_cmd: string, args: string[]) => {
+    const out = new PassThrough();
+    const child = Object.assign(new EventEmitter(), { stdout: out, stderr: new PassThrough() });
+    runs.push({ args, out, finish: (code) => child.emit('close', code) });
+    return child as never;
+  };
+  return { runs, spawn };
+}
+
+const settle = () => new Promise((r) => setImmediate(r));
+
+test('making a profile from Settings runs setup in profile mode and shows its progress', async () => {
+  const { base, root } = setup();
+  const { runs, spawn } = fakeSpawn();
+  const jobs = new ProfileJobs({ base, root, checkout: () => '/repo', spawn, reachable: async (port) => port === DEFAULT_PORT, changed: () => {}, node: '/node' });
+  const methods = profileMethods(jobs);
+  const made = (await methods['profiles.create']({ name: 'Work', project: 'Acme Threads' })) as { profile: { id: string; home: string } };
+  assert.equal(made.profile.id, 'work');
+  assert.ok(made.profile.home.startsWith(root));
+  const args = runs[0].args;
+  assert.equal(args[0], '/repo/scripts/setup.mjs');
+  for (const [flag, value] of [['--profile', 'work'], ['--label', `${LABEL_PREFIX}.work`], ['--port', String(DEFAULT_PORT + 1)], ['--project', 'acme-threads'], ['--name', 'Work']]) {
+    assert.equal(args[args.indexOf(flag) + 1], value, flag);
+  }
+  runs[0].out.write('4. Convex\n  → npx convex login (opens the browser)\n');
+  await settle();
+  let list = (await jobs.list()).profiles;
+  assert.deepEqual(list.map((p) => [p.id, p.running]), [['personal', true], ['work', false]]);
+  assert.equal(list[1].job?.state, 'running');
+  assert.match(list[1].job?.lines.at(-1) ?? '', /convex login/);
+  runs[0].finish(0);
+  list = (await jobs.list()).profiles;
+  assert.equal(list[1].job?.state, 'done');
+});
+
+test('a Convex login with several teams stops for a pick, and the retry passes it', async () => {
+  const { base, root } = setup();
+  const { runs, spawn } = fakeSpawn();
+  const jobs = new ProfileJobs({ base, root, checkout: () => '/repo', spawn, reachable: async () => false, changed: () => {} });
+  const { profile } = jobs.create({ name: 'Work' });
+  assert.ok(profile.home.startsWith(root));
+  runs[0].out.write('Your Convex login has several teams. Run again with --team and one of:\n  - Acme (acme)\n  - Wayne (wayne-sutton)\n');
+  await settle();
+  runs[0].finish(1);
+  const job = (await jobs.list()).profiles[1].job!;
+  assert.equal(job.state, 'needs-team');
+  assert.deepEqual(job.teams, [{ name: 'Acme', slug: 'acme' }, { name: 'Wayne', slug: 'wayne-sutton' }]);
+  jobs.retry({ id: 'work', team: 'acme' });
+  assert.equal(runs[1].args[runs[1].args.indexOf('--team') + 1], 'acme');
+  assert.throws(() => jobs.retry({ id: 'work' }), /being set up already/);
+});
+
+test('renaming changes the list and its runner.json, never its folder or id', () => {
+  const { base, root } = setup();
+  const work = addProfile('Work', { base, root });
+  renameProfile('work', 'Acme', base);
+  assert.equal(findProfile('acme', base)?.home, work.home);
+  assert.deepEqual(readRunnerJson(work.home).profile, { id: 'work', name: 'Acme' });
+  assert.throws(() => renameProfile('personal', 'Me', base), /keeps its name/);
+});

@@ -978,6 +978,35 @@ Threadbear, and its switch goes.
   stops below 15% battery when you're not plugged in, and closing the lid
   on battery still puts the Mac to sleep.
 
+## Profiles
+<!-- slug: profiles -->
+
+A profile is a whole Threadbear of its own on this Mac, such as Work beside
+Personal: its own threads, projects, skills, notes, bear, and Claude and
+Codex logins, and its own Convex account and backend, so work never mixes
+with personal. Your first setup is Personal.
+
+To make one, open Settings (⌘,) > Profiles and press New Profile…. Give it
+a name and, if you like, a name for its Convex project. Threadbear opens
+your browser to sign in to the Convex account for it (a work account, say:
+it never touches the Convex login your other profiles use), makes its
+backend there and starts its runner. Its row shows how it's going; if your
+Convex login has several teams it asks which. Then, from the row's ⋯ menu,
+Sign In to Claude… (or Codex…) opens a Terminal window to sign its own
+login in, and Switch opens Threadbear on it.
+
+With more than one profile, the sidebar has a profile menu at the top (its
+colour and name) and a thin strip of its colour runs along the top of the
+window, so you can always see which one you're in. Pick another from the
+menu, or press ⌃⌘1, ⌃⌘2 and so on, and Threadbear opens again on it,
+keeping its window; it opens on that one next time too. Each profile's
+runner keeps working while you're in another, and notifications say which
+profile they're from. Keyboard shortcuts and how the app looks are shared;
+everything else is the profile's own. Its agents are told which profile
+they're in, and to keep its work inside it. Rename, Colour and Remove are in
+the row's ⋯ menu; removing one stops its runner and can keep or delete its
+files, and leaves its Convex backend for you to delete in Convex.
+
 ## Connectors
 <!-- slug: connectors -->
 
