@@ -47,19 +47,14 @@ final class NotesStore {
     private static var bundleId: String { Bundle.main.bundleIdentifier ?? "unknown" }
 
     static var defaultFolder: URL {
-        if bundleId == realApp {
-            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Threadbear/notes", isDirectory: true)
-        }
+        // In the profile's own folder: Work's notes are never Personal's.
+        if bundleId == realApp { return RunnerConfig.dataDir().appendingPathComponent("notes", isDirectory: true) }
         return FileManager.default.temporaryDirectory.appendingPathComponent("threadbear-notes-\(bundleId)", isDirectory: true)
     }
 
     /// secrets/notes-key in the real app's data folder; a copy's own beside its notes.
     static var defaultKeyFile: URL {
-        if bundleId == realApp {
-            return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Threadbear/secrets/notes-key")
-        }
+        if bundleId == realApp { return RunnerConfig.dataDir().appendingPathComponent("secrets/notes-key") }
         return FileManager.default.temporaryDirectory.appendingPathComponent("threadbear-notes-key-\(bundleId)")
     }
 
@@ -159,7 +154,14 @@ final class NotesStore {
 
     // MARK: The key
 
-    static var service: String { bundleId == realApp ? "com.mikerosoft.threadbear.notes" : "com.mikerosoft.threadbear.notes.\(bundleId)" }
+    /// The old Keychain item's name. Only Personal ever had one: a
+    /// profile's is a name that never existed, so its first load makes a
+    /// new key and never moves (or deletes) Personal's.
+    @MainActor static var service: String {
+        let base = bundleId == realApp ? "com.mikerosoft.threadbear.notes" : "com.mikerosoft.threadbear.notes.\(bundleId)"
+        guard let profile = AppProfile.current, !profile.isPersonal else { return base }
+        return "\(base).profile.\(profile.id)"
+    }
     private static let account = "notes-key"
 
     /// The notes' key from its file. The first time, the key moves there

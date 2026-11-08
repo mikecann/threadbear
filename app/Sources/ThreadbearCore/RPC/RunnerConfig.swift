@@ -22,14 +22,21 @@ public enum RunnerConfig {
     }
 
     /// The data folder: `--data-dir <path>`, then `THREADBEAR_DATA_DIR`, then
-    /// the default. The override is how the mock runner and tests stay away
-    /// from the real one.
-    public static func dataDir(arguments: [String] = CommandLine.arguments, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    /// the profile last switched to (Profiles), then the default. The
+    /// overrides are how the mock runner and tests stay away from the real
+    /// one. A saved profile counts only while it's still on the list.
+    public static func dataDir(arguments: [String] = CommandLine.arguments, environment: [String: String] = ProcessInfo.processInfo.environment,
+                               savedProfileHome: String? = UserDefaults.standard.string(forKey: Profiles.savedHomeKey),
+                               profiles: () -> [ProfileEntry] = { Profiles.all() }) -> URL {
         if let index = arguments.firstIndex(of: "--data-dir"), index + 1 < arguments.count {
             return URL(fileURLWithPath: (arguments[index + 1] as NSString).expandingTildeInPath, isDirectory: true)
         }
         if let path = environment["THREADBEAR_DATA_DIR"], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        if let saved = savedProfileHome, !saved.isEmpty {
+            let url = URL(fileURLWithPath: saved, isDirectory: true)
+            if let entry = Profiles.entry(for: url, in: profiles()), !entry.isPersonal { return entry.homeURL }
         }
         return defaultDataDir
     }

@@ -29,7 +29,7 @@ struct RunnersPanel: View {
     @Environment(AppModel.self) private var app
     @State private var aboutShown = false
     /// The runners whose details are open, kept across launches.
-    @AppStorage("runnersPanelOpen") private var openIds = ""
+    @AppStorage(AppProfile.key("runnersPanelOpen")) private var openIds = ""
     /// Some Threadbear window can be seen: not hidden, minimised, covered,
     /// or the screen locked or asleep.
     @State private var onScreen = NSApp.occlusionState.contains(.visible)

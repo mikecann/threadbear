@@ -270,7 +270,7 @@ final class AppModel {
     var defaultRunnerId: String? = UserDefaults.standard.string(forKey: AppModel.defaultRunnerKey) {
         didSet { UserDefaults.standard.set(defaultRunnerId, forKey: Self.defaultRunnerKey) }
     }
-    static let defaultRunnerKey = "defaultRunnerId"
+    static var defaultRunnerKey: String { AppProfile.key("defaultRunnerId") }
 
     /// Settings > Runners, "Connect to other machines directly": open other
     /// runners' threads over the tailnet, as before 5 Nov, rather than
@@ -552,8 +552,8 @@ final class AppModel {
     var slashCommands: [String: [SlashCommand]] = [:]
     @ObservationIgnored var slashFetches: [String: Task<Void, Never>] = [:]
     /// The commands picked from the palette lately, newest first.
-    var recentSlashCommands: [String] = UserDefaults.standard.stringArray(forKey: "recentSlashCommands") ?? [] {
-        didSet { UserDefaults.standard.set(recentSlashCommands, forKey: "recentSlashCommands") }
+    var recentSlashCommands: [String] = UserDefaults.standard.stringArray(forKey: AppProfile.key("recentSlashCommands")) ?? [] {
+        didSet { UserDefaults.standard.set(recentSlashCommands, forKey: AppProfile.key("recentSlashCommands")) }
     }
     /// Each thread's highlights once `threads.highlights` has answered
     /// (PaneModel.swift). Only threads Mike has opened this session.
@@ -626,15 +626,15 @@ final class AppModel {
     @ObservationIgnored var lastDownReason: String?
 
     static let maxSessions = 24
-    static let lastAccountKey = "lastAccountId"
+    static var lastAccountKey: String { AppProfile.key("lastAccountId") }
     /// The last pool Mike picked, and the provider he last picked a model
     /// of in each pool (a mixed one has two).
-    static let lastPoolKey = "lastPoolId"
-    static let lastPoolProvidersKey = "lastPoolProviders"
+    static var lastPoolKey: String { AppProfile.key("lastPoolId") }
+    static var lastPoolProvidersKey: String { AppProfile.key("lastPoolProviders") }
     /// Claude's keys keep their old names, so a model picked before Codex
     /// came along is still remembered; other providers add ".<provider>".
-    static let lastModelKey = "lastModel"
-    static let lastEffortKey = "lastEffort"
+    static var lastModelKey: String { AppProfile.key("lastModel") }
+    static var lastEffortKey: String { AppProfile.key("lastEffort") }
     static let memoryProviders = ["claude", "codex"]
     static let collapsedSectionsKey = "collapsedSections"
     /// Set once Hibernating and Archive have been folded the first time.

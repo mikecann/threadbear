@@ -42,10 +42,11 @@ final class RemoteFileStore {
     /// inside the data folder for a dev or scripted app on a dev runner or
     /// the mock, so those never mix with his (and go when it's deleted).
     static func root(dataDir: URL) -> URL {
-        if dataDir.standardizedFileURL.path == RunnerConfig.defaultDataDir.standardizedFileURL.path {
+        if let profile = Profiles.entry(for: dataDir, in: Profiles.all()) {
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches")
-            return caches.appendingPathComponent("Threadbear/remote", isDirectory: true)
+            // Each profile's copies apart, Personal's where they always were.
+            return caches.appendingPathComponent(profile.isPersonal ? "Threadbear/remote" : "Threadbear/remote-\(profile.id)", isDirectory: true)
         }
         return dataDir.appendingPathComponent("app-remote-files", isDirectory: true)
     }

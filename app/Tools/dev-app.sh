@@ -8,6 +8,7 @@
 #
 #   Tools/dev-app.sh start [--mock [--fixtures DIR]...] [--home DIR]
 #                          [--appearance light|dark] [--size WxH] [--id NAME]
+#                          [--profiles Personal,Work] (a made-up list: the app is the second)
 #   Tools/dev-app.sh do '<json>'... [--timeout S]
 #   Tools/dev-app.sh shot <file.png> [--sheet] [--settings]   (the sheet over it, the Settings window, or with both the sheet over Settings)
 #   Tools/dev-app.sh menu <file.png> '{"x":854,"y":19}'   (a real menu, opened and captured; realMenu in app/README.md)
@@ -401,7 +402,7 @@ launch_app() {
 }
 
 cmd_start() {
-  local mode="" home="" appearance="" size="" fixtures=()
+  local mode="" home="" appearance="" size="" profiles="" fixtures=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --mock) mode=mock ;;
@@ -410,6 +411,7 @@ cmd_start() {
       --appearance) appearance="${2:?--appearance needs light or dark}"; shift ;;
       --size) size="${2:?--size needs WxH}"; shift ;;
       --id) ID="${2:?--id needs a name}"; shift ;;
+      --profiles) profiles="${2:?--profiles needs a list, like Personal,Work}"; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "unknown option for start: $1" ;;
     esac
@@ -524,6 +526,17 @@ cmd_start() {
       --automation-idle-quit "$IDLE_QUIT_SECONDS"
     [ -z "$appearance" ] || printf '%s\n' --appearance "$appearance"
     [ -z "$size" ] || printf '%s\n' --window-size "$size"
+    # A made-up profile list, this app being the second one (Work), to draw
+    # the switcher and colour strip. Never the real profiles.json.
+    if [ -n "$profiles" ]; then
+      local plist="$dir/profiles-list" second
+      mkdir -p "$plist"
+      second="$(printf '%s' "$profiles" | cut -d, -f2)"
+      printf '{"port": 8797}\n' >"$plist/runner.json"
+      printf '{"profiles":[{"id":"%s","name":"%s","home":"%s","port":0,"label":"dev"}]}\n' \
+        "$(printf '%s' "$second" | tr 'A-Z ' 'a-z-')" "$second" "$data" >"$plist/profiles.json"
+      printf '%s\n' --profiles-list "$plist"
+    fi
   } >"$dir/app.args"
   launch_app
   trap - ERR

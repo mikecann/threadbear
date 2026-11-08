@@ -129,6 +129,16 @@ shows them, `tb <command> --profile work` runs any command on that
 profile's runner, and `tb profile remove work` stops its runner and takes
 it off the list (`--delete-files` deletes its folder too).
 
+With more than one profile, the app's sidebar has a profile menu (its
+colour and name) and a thin strip of that colour runs along the top of the
+window. Picking another profile (or ⌃⌘1, ⌃⌘2…) opens the app again on its
+folder, handing the window over so it never goes away; the app remembers
+the profile in its settings (`profileHome`) and opens on it next time. Each
+profile keeps its own Notes (and notes key) in its folder, its own bear
+(`~/ThreadbearThreads/<profile>/Bear`), and its own last login, pool,
+model and runner choices; keyboard shortcuts and the app's looks are
+shared. Notifications say which profile they're from.
+
 ## What runs in the background
 
 - **The runner** listens on `127.0.0.1:8797` only, and needs a token

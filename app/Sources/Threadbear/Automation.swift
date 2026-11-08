@@ -57,8 +57,8 @@ enum Automation {
     /// mock or a dev runner), or `--automation-allow-live` from Mike.
     static func refusesLiveRunner(dataDir: URL, arguments: [String] = CommandLine.arguments) -> Bool {
         guard argument(after: "--automation", in: arguments) != nil, !arguments.contains("--automation-allow-live") else { return false }
-        return dataDir.resolvingSymlinksInPath().standardizedFileURL.path
-            == RunnerConfig.defaultDataDir.resolvingSymlinksInPath().standardizedFileURL.path
+        // Personal's folder or any profile's: all real threads.
+        return RunnerConfig.isInstalled(dataDir: dataDir)
     }
 
     /// Says why in the automation log (where the script waits for "ready")
@@ -1422,9 +1422,9 @@ enum Automation {
             }
             if let which = c["open"] as? String {
                 guard let r = app.runners.first(where: { $0.id == which || $0.name == which }) else { return "error no runner \(which)" }
-                var ids = Set((UserDefaults.standard.string(forKey: "runnersPanelOpen") ?? "").split(separator: ",").map(String.init))
+                var ids = Set((UserDefaults.standard.string(forKey: AppProfile.key("runnersPanelOpen")) ?? "").split(separator: ",").map(String.init))
                 if ids.contains(r.id) { ids.remove(r.id) } else { ids.insert(r.id) }
-                UserDefaults.standard.set(ids.sorted().joined(separator: ","), forKey: "runnersPanelOpen")
+                UserDefaults.standard.set(ids.sorted().joined(separator: ","), forKey: AppProfile.key("runnersPanelOpen"))
                 return "ok " + (ids.contains(r.id) ? "open" : "closed")
             }
             if let show = c["show"] as? Bool {

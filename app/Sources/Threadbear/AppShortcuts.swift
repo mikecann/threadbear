@@ -10,7 +10,7 @@ import ThreadbearCore
 @MainActor
 @Observable
 final class AppShortcuts {
-    static let shared = AppShortcuts(file: RunnerConfig.dataDir().appendingPathComponent("shortcuts.json"))
+    static let shared = AppShortcuts(file: RunnerConfig.sharedDir(dataDir: RunnerConfig.dataDir()).appendingPathComponent("shortcuts.json"))
 
     private(set) var bindings = ShortcutBindings()
     /// Why the file couldn't be used, or which lines of it couldn't, for the page.

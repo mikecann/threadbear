@@ -254,6 +254,8 @@ struct RootView: View {
                 PanelRail(thread: thread, project: app.openProject)
             }
         }
+        // The profile's colour along the top, with more than one profile.
+        .overlay(alignment: .top) { ProfileStrip() }
         // The tour's frames are in this space, and its overlay covers it.
         .coordinateSpace(.named(Tour.space))
         .overlay { TourOverlay().animation(.easeOut(duration: 0.2), value: Tour.shared.step == nil) }

@@ -77,6 +77,16 @@ private struct InboxList: View {
             drawn(section).map { ($0.id, SectionRow.id(section: section.title, thread: $0.id)) }
         })
         VStack(spacing: 0) {
+            // Which profile this is, and the others to switch to, with
+            // more than one profile (AppProfile).
+            if AppProfile.hasSeveral {
+                HStack {
+                    ProfileMenu()
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, SidebarMetrics.outerInset)
+                .padding(.bottom, zoomed(4))
+            }
             // One line, the search and then New thread (Mike asked 30 Oct):
             // a New thread row over a search field read as two bars that
             // didn't match. The button takes the field's height.

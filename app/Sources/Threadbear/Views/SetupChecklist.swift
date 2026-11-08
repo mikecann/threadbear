@@ -56,7 +56,7 @@ struct SetupChecklist: Equatable {
 @Observable
 final class SetupState {
     static let shared = SetupState()
-    static let hiddenKey = "setupHidden"
+    static var hiddenKey: String { AppProfile.key("setupHidden") }
 
     var hidden: Bool {
         didSet { defaults.set(hidden, forKey: Self.hiddenKey) }

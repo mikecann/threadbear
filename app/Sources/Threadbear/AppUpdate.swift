@@ -174,7 +174,7 @@ final class AppUpdater {
     static let logPath = NSHomeDirectory() + "/Library/Logs/threadbear-update.log"
     /// Where the app was (the thread and sidebar list) when it restarted
     /// itself, put back once the threads have loaded.
-    static let restoreKey = "updateRestore"
+    static var restoreKey: String { AppProfile.key("updateRestore") }
 
     nonisolated static var installDir: URL {
         URL(fileURLWithPath: ProcessInfo.processInfo.environment["THREADBEAR_APP_DIR"] ?? NSHomeDirectory() + "/Applications/Threadbear.app")

@@ -105,7 +105,7 @@ extension AppModel {
     /// only helps an app pointed at that runner's data folder. A debug app
     /// against the mock or a dev runner must never start the live one.
     var canStartRunner: Bool {
-        dataDir.standardizedFileURL.path == RunnerConfig.defaultDataDir.standardizedFileURL.path
+        RunnerConfig.isInstalled(dataDir: dataDir)
     }
 
     /// What "Copy debug info" says to run for a row's events: a bare `tb`
