@@ -17,6 +17,7 @@ import { ErrorCode, RpcError } from './protocol.ts';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import { loginShell } from './system-tools.ts';
 import { addMessage, CATALOG, catalogFor, cleanTitle, customServerProblem, idFor, localAddMessage, localServerProblem, setupMessage, type Launcher, type PanelEntry } from './connectors-catalog.ts';
 
 // How often /health is asked when nobody's looking. A sign-in that lapses
@@ -177,7 +178,7 @@ export function readLocalIds(dataDir: string): Set<string> {
 // LaunchAgent's PATH has no ~/.local/bin (uv's own installer) or nvm's
 // folders. The usual places first, then the login shell's `command -v`.
 // Undefined when it isn't installed.
-export async function findLauncher(name: Launcher, home = os.homedir(), shell = process.env.SHELL || '/bin/zsh'): Promise<string | undefined> {
+export async function findLauncher(name: Launcher, home = os.homedir(), shell: string[] = loginShell()): Promise<string | undefined> {
   for (const dir of [path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', path.join(home, '.cargo', 'bin')]) {
     const p = path.join(dir, name);
     try {
@@ -188,7 +189,7 @@ export async function findLauncher(name: Launcher, home = os.homedir(), shell = 
     }
   }
   const found = await new Promise<string>((resolve) => {
-    execFile(shell, ['-lc', `command -v ${name}`], { timeout: 5000, env: { HOME: home, PATH: '/usr/bin:/bin' } }, (err, out) => resolve(err ? '' : String(out).trim().split('\n').pop() ?? ''));
+    execFile(shell[0]!, [...shell.slice(1), `command -v ${name}`], { timeout: 5000, env: { HOME: home, PATH: '/usr/bin:/bin' } }, (err, out) => resolve(err ? '' : String(out).trim().split('\n').pop() ?? ''));
   });
   return path.isAbsolute(found) && path.basename(found) === name ? found : undefined;
 }

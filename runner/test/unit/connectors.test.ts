@@ -504,7 +504,7 @@ test('findLauncher gives an absolute path from the usual places, or nothing', as
   try {
     fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
     fs.writeFileSync(path.join(home, '.local', 'bin', 'uvx'), '#!/bin/sh\n', { mode: 0o755 });
-    assert.equal(await findLauncher('uvx', home, '/bin/sh'), path.join(home, '.local', 'bin', 'uvx'));
+    assert.equal(await findLauncher('uvx', home, ['/bin/sh', '-c']), path.join(home, '.local', 'bin', 'uvx'));
     assert.ok(gatewayIsLocal('http://127.0.0.1:8795'));
     assert.ok(!gatewayIsLocal('https://bruce.tail.ts.net:8443'));
   } finally {
