@@ -775,13 +775,16 @@ with the main Mac's key only).
   `agentThreads` when the create finishes, `sync:finishCommand`). Without
   `readAll` a key sees only threads it started. Archived threads are never
   shown. A read key's `tools/list` has only the read tools.
-- **Limits**, all in `begin`: 20 bad keys an IP in ten minutes (200 in
-  all) and then 429 for that IP; per key 30 calls a minute, 10 starts and
+- **Limits**, all in `begin`, which looks the key up first so a good key is
+  never held up by bad ones: 20 bad keys from an address in ten minutes
+  (200 in all), and then 429 for bad keys (the address is Convex's
+  `getRequestMetadata`, never `X-Forwarded-For`, which the caller sets); per key 30 calls a minute, 10 starts and
   100 messages a day; 120 calls a minute for all keys. Each call is a row
   in `agentCalls` (key, tool, time, no text), kept 30 days (`mcp:prune`,
-  crons.ts), which also sets the key's `lastUsedAt`.
+  hourly in crons.ts), which also sets the key's `lastUsedAt`.
 - **Revoking** (`mcp:revokeAgentKey`, one or all) fails that key's
-  commands no runner has taken yet, and clears their args. Turning the
+  commands no runner has taken yet, and clears their args. One a runner
+  took a moment before still runs (on ask, into that key's own thread). Turning the
   experiment off on the runner revokes every key.
 - **Errors** a tool hits say only `not found`, `invalid`, `not allowed` or
   `too much is waiting`; anything else is JSON-RPC -32603 with no detail.
