@@ -86,7 +86,7 @@ struct ConnectorsPanel: View {
                     Divider().padding(.vertical, zoomed(2))
                     AddServiceSection(catalog: ConnectorsText.shown(status.catalog, hiding: hidden))
                 }
-                // Hiding Connect Grok Bot hides the section, unless a key
+                // Hiding Connect an agent hides the section, unless a key
                 // is live: its Revoke is never out of reach.
                 if let agents = app.outsideAgents, agents.on,
                    !hidden.contains(ConnectorsText.Hidden.grokBot) || !agents.keys.isEmpty {
@@ -332,14 +332,16 @@ private struct CatalogRow: View {
 
 // MARK: Outside agents (an experiment)
 
-/// Agents in the cloud that use Threadbear through the backend's /mcp:
-/// each key with what it may do and Revoke, and Connect Grok Bot, which
+/// each key with what it may do and Revoke, and Connect an agent, which
+/// picks the app (Grok Bot, Notion, Slack: OutsideAgentApp), makes a key
+/// named for it and shows it once.
 /// makes a key and shows it once.
 private struct OutsideAgentsSection: View {
     @Environment(AppModel.self) private var app
     let agents: AgentsList
-    /// Mike hid Connect Grok Bot; the section is only here for live keys.
+    /// Mike hid Connect an agent; the section is only here for live keys.
     var offerHidden = false
+    @State private var picked = OutsideAgentApp.grokBot.id
     @State private var write = false
     @State private var offerHovered = false
     @State private var readAll = false
@@ -364,32 +366,15 @@ private struct OutsideAgentsSection: View {
                 NewKeyBox(made: made)
             } else if agents.reason == nil, !offerHidden {
                 if formShown {
-                    VStack(alignment: .leading, spacing: zoomed(6)) {
-                        Toggle("Can start Ask threads and message them", isOn: $write)
-                            .toggleStyle(.checkbox)
-                            .tip("Threads it starts always ask you before any tool runs")
-                        Toggle("Can read all my threads", isOn: $readAll)
-                            .toggleStyle(.checkbox)
-                            .tip("Without this it reads only threads it started. Archived threads are never shown.")
-                        HStack(spacing: zoomed(6)) {
-                            Button("Make key") { app.connectAgent(name: "Grok Bot", write: write, readAll: readAll) }
-                                .controlSize(.small)
-                                .busy(app.isBusy(BusyKey.connectAgent))
-                                .tip("Make a key for Grok Bot, shown once")
-                            Button("Cancel") { formShown = false }
-                                .controlSize(.small)
-                                .tip("Don't make a key")
-                        }
-                    }
-                    .font(.system(size: zoomed(12)))
+                    ConnectAgentForm(picked: $picked, write: $write, readAll: $readAll) { formShown = false }
                 } else {
                     HStack(spacing: zoomed(6)) {
-                        Button("Connect Grok Bot") { formShown = true }
+                        Button("Connect an agent") { formShown = true }
                             .controlSize(.small)
-                            .tip("Let Grok Bot list, read and start threads here through your backend")
+                            .tip("Let Grok Bot, Notion or another agent list, read and start threads here through your backend")
                         Spacer(minLength: 0)
                         HideButton(id: ConnectorsText.Hidden.grokBot, shown: offerHovered,
-                                   tip: "Hide Connect Grok Bot. The + below brings it back.")
+                                   tip: "Hide Connect an agent. The + below brings it back.")
                     }
                     .contentShape(Rectangle())
                     .onHover { offerHovered = $0 }
@@ -404,6 +389,56 @@ private struct OutsideAgentsSection: View {
             }
         }
         .onChange(of: app.agentJustConnected == nil) { _, gone in if !gone { formShown = false } }
+    }
+}
+
+/// Which app, what it needs, its own guide, and what the key may do.
+/// Slack can't take a key, so it says why and has no Make key (8 Nov).
+private struct ConnectAgentForm: View {
+    @Environment(AppModel.self) private var app
+    @Binding var picked: String
+    @Binding var write: Bool
+    @Binding var readAll: Bool
+    let close: () -> Void
+
+    var body: some View {
+        let agent = OutsideAgentApp.all.first { $0.id == picked } ?? .grokBot
+        VStack(alignment: .leading, spacing: zoomed(8)) {
+            Picker("Agent", selection: $picked) {
+                ForEach(OutsideAgentApp.all) { Text($0.name).tag($0.id) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .tip("Which app to connect to Threadbear")
+            Text(agent.needs)
+                .font(.system(size: zoomed(11)))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("\(agent.name)'s guide") { OpenGate.openWeb(agent.docs) }
+                .buttonStyle(.link)
+                .font(.system(size: zoomed(11)))
+                .tip("Open \(agent.name)'s own page on adding an MCP server")
+            if agent.canConnect {
+                Toggle("Can start Ask threads and message them", isOn: $write)
+                    .toggleStyle(.checkbox)
+                    .tip("Threads it starts always ask you before any tool runs")
+                Toggle("Can read all my threads", isOn: $readAll)
+                    .toggleStyle(.checkbox)
+                    .tip("Without this it reads only threads it started. Archived threads are never shown.")
+            }
+            HStack(spacing: zoomed(6)) {
+                if agent.canConnect {
+                    Button("Make key") { app.connectAgent(name: agent.name, write: write, readAll: readAll) }
+                        .controlSize(.small)
+                        .busy(app.isBusy(BusyKey.connectAgent))
+                        .tip("Make a key for \(agent.name), shown once")
+                }
+                Button(agent.canConnect ? "Cancel" : "Close") { close() }
+                    .controlSize(.small)
+                    .tip(agent.canConnect ? "Don't make a key" : "Put this away")
+            }
+        }
+        .font(.system(size: zoomed(12)))
     }
 }
 
@@ -433,25 +468,27 @@ private struct AgentKeyRow: View {
     }
 }
 
-/// A new key, once, as the boxes of Grok Bot's "Add a custom connector"
-/// form, each with what to put there. The key is copied, never shown.
+/// A new key, once, as the boxes of its app's form (Grok Bot's "Add a
+/// custom connector", Notion's Custom MCP server), each with what to put
+/// there. The key is copied, never shown.
 private struct NewKeyBox: View {
     @Environment(AppModel.self) private var app
     let made: AgentConnected
 
     var body: some View {
+        let agent = OutsideAgentApp.forKey(named: made.key.name)
         VStack(alignment: .leading, spacing: zoomed(8)) {
             Text("Copy these now. The key can't be copied again once this panel closes.")
                 .font(.system(size: zoomed(12), weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
-            Text("In Grok Bot, open Connect apps, then Add a custom connector, and fill in each box:")
+            Text(agent.intro)
                 .font(.system(size: zoomed(11)))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            ForEach(ConnectorsText.agentForm(url: made.url, secret: made.secret), id: \.label) { field in
+            ForEach(agent.form(url: made.url, secret: made.secret), id: \.label) { field in
                 FormLine(field: field)
             }
-            Text("Save it, then ask Grok Bot to list your Threadbear threads. Its row here says Used just now once it works. If the key ever leaks, Revoke it and make a new one.")
+            Text(agent.outro)
                 .font(.system(size: zoomed(11)))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -464,7 +501,7 @@ private struct NewKeyBox: View {
     }
 }
 
-/// One box of Grok Bot's form: its name, what goes in it, and a copy
+/// One box of an agent's form: its name, what goes in it, and a copy
 /// button for what's pasted.
 private struct FormLine: View {
     @Environment(AppModel.self) private var app
@@ -532,7 +569,7 @@ private struct ShowHiddenMenu: View {
 
     var body: some View {
         if !items.isEmpty {
-            Menu {
+            IconMenu {
                 ForEach(items) { item in
                     Button("Show \(item.title)") { show([item.id]) }
                 }

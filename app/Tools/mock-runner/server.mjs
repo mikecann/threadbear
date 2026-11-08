@@ -356,6 +356,7 @@ addDemoSchedules();
 let projects = [];
 let librarian;
 const MOCK_GATEWAY = 'https://bruce.example.ts.net:8443';
+let mockAgents = { on: true, url: 'https://demo-seal-123.convex.site/mcp', keys: [] };
 let connectors = {
   state: 'ok',
   url: MOCK_GATEWAY,
@@ -1267,6 +1268,20 @@ async function dispatch(client, method, p) {
     // The Connectors gateway (docs/protocol.md, "Connectors"): a made-up
     // one, with a service signed out so the panel and its dot show.
     // mock.connectors changes it.
+    // Outside agents (docs/protocol.md, "Outside agents"): keys made here
+    // are made up and reach nothing.
+    case 'agents.list':
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      return mockAgents;
+    case 'agents.connect': {
+      const name = typeof p.name === 'string' && p.name.trim() ? p.name.trim().slice(0, 60) : 'Agent';
+      const key = { id: `k${mockAgents.keys.length + 1}`, name, scope: p.scope === 'write' ? 'write' : 'read', readAll: !!p.readAll, expiresAt: new Date(Date.now() + 30 * 864e5).toISOString(), expired: false };
+      mockAgents = { ...mockAgents, keys: [...mockAgents.keys, key] };
+      return { key, secret: 'tba_' + 'f00d'.repeat(16), url: mockAgents.url };
+    }
+    case 'agents.revoke':
+      mockAgents = { ...mockAgents, keys: p.id ? mockAgents.keys.filter((k) => k.id !== p.id) : [] };
+      return mockAgents;
     case 'connectors.status':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (p.refresh) connectors = { ...connectors, checkedAt: iso() };

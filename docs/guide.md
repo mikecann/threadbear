@@ -1103,7 +1103,7 @@ service out, its row's arrow opens its page on the gateway, where Disconnect
 is, or ask a thread to remove it from the gateway.
 
 **Hiding rows you don't use**: hover over a service, a suggestion under
-Add a service, or Connect Grok Bot, and click the **×** at its end. It only
+Add a service, or Connect an agent, and click the **×** at its end. It only
 leaves this panel: a hidden service is still on the gateway and agents can
 still use it (sign it out on its page to stop that), and it no longer
 lights the plug's dot. A **+ hidden** menu at the bottom of the panel lists
@@ -1111,45 +1111,61 @@ what you hid; pick one, or Show all, to bring it back. While Grok Bot has a
 live key its row stays, so Revoke is always there. What's hidden is kept on
 this Mac.
 
-### Letting Grok Bot use Threadbear
+### Letting Grok Bot, Notion and other agents use Threadbear
 
 With the Outside agents experiment on and your runner syncing to your
 backend (Settings > Phone & browser), the Connectors panel has **Agents
-that use Threadbear**. Grok Bot, xAI's agent, runs in the cloud, so it reaches
+that use Threadbear**. These agents run in the cloud, so they reach
 Threadbear through your backend rather than this Mac.
 
-1. Click **Connect Grok Bot**. Tick **Can start Ask threads and message
-   them** if you want it to do more than read, and **Can read all my
-   threads** if it should see yours, not only the ones it started.
-2. Click **Make key**. The panel lists the boxes of Grok Bot's form, each
+1. Click **Connect an agent** and pick **Grok Bot**, **Notion** or
+   **Slack**. Each says what it needs first, and its guide link opens that
+   app's own page on adding an MCP server.
+   - **Grok Bot** is xAI's agent. On a team plan, your admin's connector
+     policy has to allow servers by address.
+   - **Notion** works with its Custom Agents, on the Business or
+     Enterprise plan. A workspace admin turns on custom MCP servers first,
+     in Settings > Connections.
+   - **Slack** can't connect yet. Slackbot only connects to servers that
+     sign in with OAuth or Slack's own sign-in, and Threadbear's backend
+     uses a key.
+2. Tick **Can start Ask threads and message them** if you want it to do
+   more than read, and **Can read all my threads** if it should see yours,
+   not only the ones it started.
+3. Click **Make key**. The panel lists the boxes of that app's form, each
    with a copy button. The key itself is never shown, only copied, so it
    doesn't end up in a screenshot. Copy what you need before you close the
    panel: after that the key is gone, and you'd make a new one.
-3. In Grok Bot, open **Connect apps**, then **Add a custom connector**, and
-   fill it in:
-   - **Name**: `threadbear`.
-   - **Type**: **Remote HTTPS** (not Command, which runs a program on
-     your own computer).
-   - **Server URL**: the server address from the panel, ending in `/mcp`.
-   - **HTTP headers**: `Authorization` in the left box, and in the right
-     box `Bearer `, a space, then the key. The panel's Header value copies
-     all of that in one go.
-   - **Client ID**: leave it empty. It's for services you sign in to in a
-     browser, and the key does that here.
+4. Fill in the app's form:
+   - In **Grok Bot**, open **Connect apps**, then **Add a custom
+     connector**. **Name**: `threadbear`. **Type**: **Remote HTTPS** (not
+     Command, which runs a program on your own computer). **Server URL**:
+     the address from the panel, ending in `/mcp`. **HTTP headers**:
+     `Authorization` in the left box, and in the right box `Bearer `, a
+     space, then the key; the panel's Header value copies all of that in
+     one go. Leave **Client ID** empty: it's for services you sign in to
+     in a browser, and the key does that here.
+   - In **Notion**, open your Custom Agent's settings, then **Tools &
+     Access**, **Add connection**, **Custom MCP server**. Give it the name
+     and server address from the panel, pick header-based auth rather than
+     OAuth, and add the header: `Authorization`, with the panel's Header
+     value.
 
-   Save it, then ask Grok Bot to list your Threadbear threads. The panel's
-   Grok Bot row says "Used just now".
+   Save it, then ask the agent to list your Threadbear threads. Its row in
+   the panel says "Used just now".
 
 Threads it starts always run in Ask mode, so every tool asks you first,
-and show "started from Grok Bot". Its messages say they're from Grok Bot,
-not you. It can only message threads it started, and only while they stay
-in Ask mode: switch one to Full access and it stops. It never sees
-approvals, secrets, schedules or archived threads, and it's held to a few
-calls a minute and ten new threads a day. Keys expire after 30 days. If
-one leaks, or you lose it, click **Revoke** on its row and Connect Grok Bot
-again for a new one. **Revoke** ends a key on its next call, and turning
-the experiment off ends every key. Then remove the connector in Grok Bot's
-Connect apps too. What Grok Bot reads goes to xAI.
+and show who started them ("started from Grok Bot"). Its messages say
+which agent sent them, not you. It can only message threads it started,
+and only while they stay in Ask mode: switch one to Full access and it
+stops. It never sees approvals, secrets, schedules or archived threads,
+and it's held to a few calls a minute and ten new threads a day. Keys
+expire after 30 days. If one leaks, or you lose it, click **Revoke** on
+its row and Connect an agent again for a new one. **Revoke** ends a key
+on its next call, and turning the experiment off ends every key. Then
+remove the connection in the agent's own settings too. What an agent
+reads goes to the company that runs it (xAI for Grok Bot, Notion for
+Notion).
 
 ## The prompts macOS shows you
 <!-- slug: macos-prompts -->

@@ -64,7 +64,7 @@ struct ActivityBar: View {
             // "off" when none is set up (most people, as the gateway is
             // optional), and a panel saying only that is no use.
             // With Connectors setup or Outside agents on, also before there's
-            // a gateway, as the panel then has Set up or Connect Grok Bot.
+            // a gateway, as the panel then has Set up or Connect an agent.
             if ConnectorsText.showsIcon(app.connectors, agents: app.outsideAgents) {
                 ConnectorsActivityButton()
             }

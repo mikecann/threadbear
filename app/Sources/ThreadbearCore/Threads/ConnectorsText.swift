@@ -207,6 +207,7 @@ public enum ConnectorsText {
     /// so Revoke is always in reach.
     public enum Hidden {
         public static let defaultsKey = "connectorsHidden"
+        /// Connect an agent (it was Connect Grok Bot, so the id stays).
         public static let grokBot = "agent:grok-bot"
 
         public static func service(_ id: String) -> String { "service:\(id)" }
@@ -239,7 +240,7 @@ public enum ConnectorsText {
                 }
             }
             if hidden.contains(grokBot), let agents, agents.on, agents.reason == nil {
-                items.append(Item(id: grokBot, title: "Grok Bot"))
+                items.append(Item(id: grokBot, title: "Connect an agent"))
             }
             return items
         }

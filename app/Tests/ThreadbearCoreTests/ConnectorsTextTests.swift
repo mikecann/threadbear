@@ -168,7 +168,7 @@ final class ConnectorsTextTests: XCTestCase {
         XCTAssertEqual(ConnectorsText.shown(status.catalog, hiding: hidden).map(\.id), ["linear"])
 
         let on = AgentsList(on: true, url: "https://x.convex.site/mcp")
-        XCTAssertEqual(H.items(hidden, status: status, agents: on).map(\.title), ["Notion", "Cloudflare", "Slack", "Grok Bot"],
+        XCTAssertEqual(H.items(hidden, status: status, agents: on).map(\.title), ["Notion", "Cloudflare", "Slack", "Connect an agent"],
                        "in the panel's order, and nothing for a service the gateway dropped")
         XCTAssertEqual(H.items(hidden, status: status, agents: AgentsList(on: false)).map(\.title), ["Notion", "Cloudflare", "Slack"])
         XCTAssertEqual(H.items([], status: status, agents: on), [])
