@@ -7,6 +7,30 @@ import Foundation
 /// connecting or in error, which usually sorts itself out (as Updates'
 /// dots go, 27 Oct).
 public enum ConnectorsText {
+    /// Whether the activity bar has the Connectors icon: a gateway it
+    /// watches, Set up on offer, or outside agents on.
+    public static func showsIcon(_ s: ConnectorsStatus?, agents: AgentsList?) -> Bool {
+        if let s, s.state != "off" || s.canSetUp { return true }
+        return agents?.on == true
+    }
+
+    /// When a key was last used, in a few words.
+    public static func lastUsed(_ k: AgentKey, now: Date = Date()) -> String {
+        if k.expired { return "Expired" }
+        guard let at = k.lastUsedAt.flatMap(ConnectorsStatus.parseDate) else { return "Not used yet" }
+        let mins = Int(now.timeIntervalSince(at) / 60)
+        if mins < 2 { return "Used just now" }
+        if mins < 60 { return "Used \(mins) minutes ago" }
+        if mins < 48 * 60 { return "Used \(mins / 60) hours ago" }
+        return "Used \(mins / 1440) days ago"
+    }
+
+    /// What a key may do, in a few words.
+    public static func scopeLine(_ k: AgentKey) -> String {
+        let reads = k.readAll ? "reads all your threads" : "reads threads it started"
+        return k.scope == "write" ? "Starts Ask threads, \(reads)" : "Read only, \(reads)"
+    }
+
     /// The services that need Mike to sign in again.
     public static func signedOut(_ s: ConnectorsStatus?) -> [ConnectorService] {
         guard let s, s.state == "ok" else { return [] }

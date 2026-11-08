@@ -67,7 +67,9 @@ struct ConnectorsPanel: View {
                     .tip("What this panel shows")
                     .popover(isPresented: $aboutShown, arrowEdge: .bottom) { ConnectorsAbout(status: status) }
                 }
-                if let line = ConnectorsText.emptyLine(status), status?.services.isEmpty ?? true {
+                if status?.canSetUp == true {
+                    ConnectorsSetUpCard()
+                } else if let line = ConnectorsText.emptyLine(status), status?.services.isEmpty ?? true {
                     Text(line)
                         .font(.system(size: zoomed(12)))
                         .foregroundStyle(status?.state == "unreachable" ? .primary : .secondary)
@@ -76,11 +78,24 @@ struct ConnectorsPanel: View {
                 ForEach(status?.services ?? []) { service in
                     ConnectorRow(service: service)
                 }
+                if let status, status.state == "ok", !status.catalog.isEmpty {
+                    Divider().padding(.vertical, zoomed(2))
+                    AddServiceSection(catalog: status.catalog)
+                }
+                if let agents = app.outsideAgents, agents.on {
+                    Divider().padding(.vertical, zoomed(2))
+                    OutsideAgentsSection(agents: agents)
+                }
             }
             .padding(zoomed(16))
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .onAppear { app.refreshConnectors() }
+        .onAppear {
+            app.refreshConnectors()
+            app.loadOutsideAgents()
+        }
+        // A key is shown once: closing the panel puts it away for good.
+        .onDisappear { app.agentJustConnected = nil }
     }
 }
 
@@ -169,4 +184,292 @@ private struct ConnectorsAbout: View {
     }
 
     private var host: String? { ConnectorsText.host(status) }
+}
+
+// MARK: Connectors setup (an experiment)
+
+/// No gateway yet: what one is for, and Set up, which starts a thread that
+/// installs plugbear on this Mac (runner/src/connectors-catalog.ts).
+private struct ConnectorsSetUpCard: View {
+    @Environment(AppModel.self) private var app
+    @State private var aboutShown = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: zoomed(8)) {
+            Text("Share one sign-in for Notion, Slack and other services with every login and agent, with a check before anything is sent.")
+                .font(.system(size: zoomed(12)))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: zoomed(6)) {
+                Button("Set up") { app.setUpConnectors() }
+                    .controlSize(.small)
+                    .busy(app.isBusy(BusyKey.setUpConnectors))
+                    .tip("Start a thread that installs the Connectors gateway on this Mac")
+                Button { aboutShown.toggle() } label: {
+                    Image(systemName: "info.circle").font(.system(size: zoomed(11)))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .tip("What Set up does")
+                .popover(isPresented: $aboutShown, arrowEdge: .bottom) {
+                    InfoText(lines: [
+                        "A thread installs plugbear, a small gateway of your own, on this Mac. It listens only on this Mac, at 127.0.0.1:8795.",
+                        "It wires each of your logins to it, so a service signed in once works for all of them, and Codex and the Grok CLI too.",
+                        "Sends, posts and deletes wait for your OK on its approval page, and it keeps a log of every call. Sign-ins stay in the gateway, never in Threadbear.",
+                        "The thread asks you before anything that needs a password, and says what it changed.",
+                    ])
+                }
+            }
+        }
+    }
+}
+
+/// Services the gateway doesn't have yet, each with Add, and any other MCP
+/// server by its address. Each Add starts a short thread.
+private struct AddServiceSection: View {
+    @Environment(AppModel.self) private var app
+    let catalog: [ConnectorCatalogEntry]
+    @State private var otherShown = false
+    @State private var url = ""
+    @State private var name = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: zoomed(10)) {
+            Text("Add a service")
+                .font(.system(size: zoomed(11), weight: .medium))
+                .foregroundStyle(.tertiary)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(catalog) { entry in
+                CatalogRow(entry: entry)
+            }
+            if otherShown {
+                VStack(alignment: .leading, spacing: zoomed(6)) {
+                    TextField("https://example.com/mcp", text: $url)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                        .tip("The server's https address")
+                    TextField("Name", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                        .tip("What to call it")
+                    HStack(spacing: zoomed(6)) {
+                        Button("Add") {
+                            app.addConnector(url: url.trimmingCharacters(in: .whitespaces), title: name)
+                        }
+                        .controlSize(.small)
+                        .disabled(!url.lowercased().hasPrefix("https://"))
+                        .busy(app.isBusy(BusyKey.addConnector(url.trimmingCharacters(in: .whitespaces))))
+                        .tip("Start a thread that adds this server to the gateway")
+                        Button("Cancel") { otherShown = false }
+                            .controlSize(.small)
+                            .tip("Don't add a server")
+                    }
+                    Text("Only public https servers. Anything else is refused before a thread starts.")
+                        .font(.system(size: zoomed(11)))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Button("Other MCP server...") { otherShown = true }
+                    .buttonStyle(.link)
+                    .font(.system(size: zoomed(12)))
+                    .tip("Add any MCP server by its https address")
+            }
+        }
+    }
+}
+
+private struct CatalogRow: View {
+    @Environment(AppModel.self) private var app
+    let entry: ConnectorCatalogEntry
+    @State private var noteShown = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: zoomed(8)) {
+            VStack(alignment: .leading, spacing: zoomed(2)) {
+                Text(entry.title)
+                    .font(.system(size: zoomed(12)))
+                    .lineLimit(1)
+                if !entry.blurb.isEmpty {
+                    Text(entry.blurb)
+                        .font(.system(size: zoomed(11)))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: zoomed(6))
+            if let note = entry.setupNote {
+                Button { noteShown.toggle() } label: {
+                    Image(systemName: "info.circle").font(.system(size: zoomed(11)))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .tip("What \(entry.title) needs first")
+                .popover(isPresented: $noteShown, arrowEdge: .bottom) { InfoText(lines: [note]) }
+            }
+            Button("Add") { app.addConnector(id: entry.id) }
+                .controlSize(.small)
+                .busy(app.isBusy(BusyKey.addConnector(entry.id)))
+                .tip("Start a thread that adds \(entry.title) to the gateway")
+        }
+    }
+}
+
+// MARK: Outside agents (an experiment)
+
+/// Agents in the cloud that use Threadbear through the backend's /mcp:
+/// each key with what it may do and Revoke, and Connect Grok Bot, which
+/// makes a key and shows it once.
+private struct OutsideAgentsSection: View {
+    @Environment(AppModel.self) private var app
+    let agents: AgentsList
+    @State private var write = false
+    @State private var readAll = false
+    @State private var formShown = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: zoomed(10)) {
+            Text("Agents that use Threadbear")
+                .font(.system(size: zoomed(11), weight: .medium))
+                .foregroundStyle(.tertiary)
+                .accessibilityAddTraits(.isHeader)
+            if let reason = agents.reason {
+                Text(reason)
+                    .font(.system(size: zoomed(12)))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(agents.keys) { key in
+                AgentKeyRow(key: key)
+            }
+            if let made = app.agentJustConnected {
+                NewKeyBox(made: made)
+            } else if agents.reason == nil {
+                if formShown {
+                    VStack(alignment: .leading, spacing: zoomed(6)) {
+                        Toggle("Can start Ask threads and message them", isOn: $write)
+                            .toggleStyle(.checkbox)
+                            .tip("Threads it starts always ask you before any tool runs")
+                        Toggle("Can read all my threads", isOn: $readAll)
+                            .toggleStyle(.checkbox)
+                            .tip("Without this it reads only threads it started. Archived threads are never shown.")
+                        HStack(spacing: zoomed(6)) {
+                            Button("Make key") { app.connectAgent(name: "Grok Bot", write: write, readAll: readAll) }
+                                .controlSize(.small)
+                                .busy(app.isBusy(BusyKey.connectAgent))
+                                .tip("Make a key for Grok Bot, shown once")
+                            Button("Cancel") { formShown = false }
+                                .controlSize(.small)
+                                .tip("Don't make a key")
+                        }
+                    }
+                    .font(.system(size: zoomed(12)))
+                } else {
+                    Button("Connect Grok Bot") { formShown = true }
+                        .controlSize(.small)
+                        .tip("Let Grok Bot list, read and start threads here through your backend")
+                }
+            }
+            if agents.keys.count > 1 {
+                Button("Revoke all") { app.revokeAgent(nil) }
+                    .buttonStyle(.link)
+                    .font(.system(size: zoomed(11)))
+                    .busy(app.isBusy(BusyKey.revokeAgent(nil)))
+                    .tip("End every agent's key now")
+            }
+        }
+        .onChange(of: app.agentJustConnected == nil) { _, gone in if !gone { formShown = false } }
+    }
+}
+
+private struct AgentKeyRow: View {
+    @Environment(AppModel.self) private var app
+    let key: AgentKey
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: zoomed(8)) {
+            VStack(alignment: .leading, spacing: zoomed(2)) {
+                Text(key.name)
+                    .font(.system(size: zoomed(12)))
+                    .lineLimit(1)
+                Text(ConnectorsText.scopeLine(key))
+                    .font(.system(size: zoomed(11)))
+                    .foregroundStyle(.secondary)
+                Text(ConnectorsText.lastUsed(key))
+                    .font(.system(size: zoomed(11)))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: zoomed(6))
+            Button("Revoke") { app.revokeAgent(key.id) }
+                .controlSize(.small)
+                .busy(app.isBusy(BusyKey.revokeAgent(key.id)))
+                .tip("End this key: its next call is refused")
+        }
+    }
+}
+
+/// The address and the key, once, with what to do in Grok Bot.
+private struct NewKeyBox: View {
+    @Environment(AppModel.self) private var app
+    let made: AgentConnected
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: zoomed(8)) {
+            Text("Copy both now. The key isn't shown again once this panel closes.")
+                .font(.system(size: zoomed(12), weight: .medium))
+                .fixedSize(horizontal: false, vertical: true)
+            CopyLine(label: "Server", value: made.url, tip: "Copy the server address")
+            CopyLine(label: "Key", value: made.secret, tip: "Copy the key")
+            Text("In Grok Bot, open Connect apps, add a custom MCP server by its address, and give it the key as a bearer token. Then ask it to list your Threadbear threads.")
+                .font(.system(size: zoomed(11)))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Done") { app.agentJustConnected = nil }
+                .controlSize(.small)
+                .tip("Put the key away")
+        }
+        .padding(zoomed(10))
+        .background(RoundedRectangle(cornerRadius: zoomed(6)).fill(Color.secondary.opacity(0.08)))
+    }
+}
+
+private struct CopyLine: View {
+    @Environment(AppModel.self) private var app
+    let label: String
+    let value: String
+    let tip: String
+
+    var body: some View {
+        HStack(spacing: zoomed(6)) {
+            Text(label)
+                .font(.system(size: zoomed(11)))
+                .foregroundStyle(.secondary)
+                .frame(width: zoomed(42), alignment: .leading)
+            Text(value)
+                .font(.system(size: zoomed(11), design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+            Button { app.copyToPasteboard(value) } label: {
+                Image(systemName: "doc.on.doc").font(.system(size: zoomed(11)))
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .tip(tip)
+        }
+    }
+}
+
+private struct InfoText: View {
+    let lines: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: zoomed(8)) {
+            ForEach(lines, id: \.self) { Text($0) }
+        }
+        .font(.system(size: zoomed(12)))
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: zoomed(280), alignment: .leading)
+        .padding(zoomed(14))
+    }
 }

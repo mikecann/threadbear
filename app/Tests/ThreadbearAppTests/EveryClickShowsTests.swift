@@ -27,6 +27,8 @@ final class EveryClickShowsTests: XCTestCase {
         "answerSecret", "checkClis", "updateCli", "setCliPolicy", "createSchedule", "updateSchedule",
         "deleteSchedule", "setRunnerOrder", "runSchedule", "createProject", "updateProject", "setProjectIcon",
         "mergeProject", "deleteProject", "deleteThread", "setThreadProjects", "runLibrarian", "updateLibrarian", "savePools",
+        // Connectors setup and Outside agents (Protocol/Connectors.swift).
+        "connectorsSetup", "connectorsAdd", "agentsConnect", "agentsRevoke",
     ]
 
     /// Functions that show their click some other way, and how.
@@ -57,6 +59,7 @@ final class EveryClickShowsTests: XCTestCase {
         "Projects.swift confirmedMerge": "the project goes at once",
         "Projects.swift setProjects": "the chips change at once",
         "Projects.swift setLibrarianPaused": "the button and switch change at once",
+        "ConnectorsModel.swift addConnector": "through addConnector(key:), which runs it in whileBusy(BusyKey.addConnector) and the Add button spins",
     ]
 
     private var sources: URL {

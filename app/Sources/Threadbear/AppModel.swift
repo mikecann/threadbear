@@ -466,6 +466,13 @@ final class AppModel {
     /// `connectors.updated`. Nil from a runner that doesn't know about it,
     /// and then the activity bar has no Connectors icon.
     var connectors: ConnectorsStatus?
+    /// Outside agents (Grok Bot) and their keys, once `agents.list` has
+    /// answered (docs/protocol.md, "Outside agents"). Nil from a runner
+    /// that doesn't know about them.
+    var outsideAgents: AgentsList?
+    /// A key just made, shown once in the Connectors panel and gone when it
+    /// closes. Never written anywhere.
+    var agentJustConnected: AgentConnected?
     /// The project page showing in the detail area instead of the thread.
     /// Selecting a thread (or a new one) closes it.
     var openProjectId: String? {

@@ -89,4 +89,35 @@ final class ConnectorsTextTests: XCTestCase {
         XCTAssertNil(ConnectorsText.manageURL(ConnectorsStatus(state: "ok", url: "file:///etc")))
         XCTAssertNil(ConnectorsText.serviceURL(ConnectorsStatus(state: "off"), fine))
     }
+
+    // Connectors setup and Outside agents (experiments).
+
+    func testSetUpAndTheCatalogDecodeLenientlyAndOlderRunnersMeanNeither() throws {
+        let old = try status(#"{"state":"off","services":[]}"#)
+        XCTAssertFalse(old.canSetUp)
+        XCTAssertEqual(old.catalog, [])
+        XCTAssertFalse(ConnectorsText.showsIcon(old, agents: nil))
+        let offer = try status(#"{"state":"off","services":[],"canSetUp":true}"#)
+        XCTAssertTrue(ConnectorsText.showsIcon(offer, agents: nil))
+        let ok = try status(#"{"state":"ok","services":[],"catalog":[{"id":"slack","title":"Slack","blurb":"b","setupNote":"n"},{"title":"no id"},{"id":"notion"}]}"#)
+        XCTAssertEqual(ok.catalog.map(\.id), ["slack", "notion"])
+        XCTAssertEqual(ok.catalog[1].title, "notion")
+        XCTAssertEqual(ok.catalog[0].setupNote, "n")
+        // Outside agents on shows the icon with no gateway at all.
+        XCTAssertTrue(ConnectorsText.showsIcon(old, agents: AgentsList(on: true)))
+        XCTAssertFalse(ConnectorsText.showsIcon(nil, agents: AgentsList(on: false)))
+    }
+
+    func testAgentKeysReadAsWhatTheyMayDoAndWhenLastUsed() throws {
+        let list = try JSONDecoder().decode(AgentsList.self, from: Data(#"{"on":true,"url":"https://x.convex.site/mcp","keys":[{"id":"k1","name":"Grok Bot","scope":"write","readAll":false,"expiresAt":"2026-12-08T00:00:00Z","expired":false},{"name":"no id"}]}"#.utf8))
+        XCTAssertEqual(list.keys.map(\.id), ["k1"])
+        let key = list.keys[0]
+        XCTAssertEqual(ConnectorsText.scopeLine(key), "Starts Ask threads, reads threads it started")
+        XCTAssertEqual(ConnectorsText.scopeLine(AgentKey(id: "r", name: "R", readAll: true)), "Read only, reads all your threads")
+        XCTAssertEqual(ConnectorsText.lastUsed(key), "Not used yet")
+        let now = Date()
+        let used = AgentKey(id: "u", name: "U", lastUsedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-600)))
+        XCTAssertEqual(ConnectorsText.lastUsed(used, now: now), "Used 10 minutes ago")
+        XCTAssertEqual(ConnectorsText.lastUsed(AgentKey(id: "e", name: "E", expired: true)), "Expired")
+    }
 }

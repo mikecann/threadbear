@@ -63,7 +63,9 @@ struct ActivityBar: View {
             // Only once the runner has said it watches a gateway. It says
             // "off" when none is set up (most people, as the gateway is
             // optional), and a panel saying only that is no use.
-            if let connectors = app.connectors, connectors.state != "off" {
+            // With Connectors setup or Outside agents on, also before there's
+            // a gateway, as the panel then has Set up or Connect Grok Bot.
+            if ConnectorsText.showsIcon(app.connectors, agents: app.outsideAgents) {
                 ConnectorsActivityButton()
             }
             // Only with more than one runner: a panel of just this Mac
