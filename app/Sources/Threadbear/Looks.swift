@@ -276,6 +276,8 @@ final class GitHubActivity {
     }
 
     private(set) var states: [String: State] = [:]
+    /// Years showing a saved or earlier copy because the last fetch failed.
+    private(set) var stale: Set<String> = []
     @ObservationIgnored private var fetchedAt: [String: Date] = [:]
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var session: URLSession = .shared
@@ -283,40 +285,67 @@ final class GitHubActivity {
     static func key(_ user: String, _ year: Int) -> String { "\(GitHubUser.clean(user).lowercased())/\(year)" }
 
     func state(user: String, year: Int) -> State? { states[Self.key(user, year)] }
+    func isStale(user: String, year: Int) -> Bool { stale.contains(Self.key(user, year)) }
+    func isFetching(user: String, year: Int) -> Bool { tasks[Self.key(user, year)] != nil }
+
+    /// The last answer for a year, kept in `looks/` so the card has
+    /// something to show at launch and while GitHub or the service is down.
+    private static func cacheFile(_ user: String, _ year: Int) -> URL {
+        Looks.folder.appendingPathComponent("github-\(GitHubUser.clean(user).lowercased())-\(year).json")
+    }
 
     func load(user: String, year: Int, force: Bool = false) {
         let key = Self.key(user, year)
         guard let url = GitHubContributions.url(user: user, year: year), tasks[key] == nil else { return }
+        if states[key] == nil, let data = try? Data(contentsOf: Self.cacheFile(user, year)),
+           let saved = try? GitHubContributions.parse(data, year: year) {
+            states[key] = .loaded(saved)
+            fetchedAt[key] = (try? Self.cacheFile(user, year).resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        }
         let thisYear = Calendar.current.component(.year, from: Date())
         if !force, case .loaded = states[key] {
-            if year < thisYear { return }
+            if year < thisYear, fetchedAt[key] != nil { return }
             if let at = fetchedAt[key], Date().timeIntervalSince(at) < 3600 { return }
         }
-        if states[key] == nil || force { states[key] = .loading }
+        // A refresh keeps what's showing until the answer comes back.
+        if states[key] == nil { states[key] = .loading }
+        if case .failed = states[key] { states[key] = .loading }
         var request = URLRequest(url: url, timeoutInterval: 20)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let session = self.session
+        let file = Self.cacheFile(user, year)
         tasks[key] = Task { [weak self] in
             let result: State
+            var fresh: Data?
             do {
                 let (data, response) = try await session.data(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 200
                 do {
                     result = .loaded(try GitHubContributions.parse(data, year: year))
-                } catch GitHubContributions.ParseError.service {
-                    result = .failed("GitHub has no user called \(GitHubUser.clean(user)).")
+                    fresh = data
+                } catch GitHubContributions.ParseError.service(let message) {
+                    result = .failed(GitHubContributions.failure(status: status, serviceMessage: message, user: user))
                 } catch {
-                    result = .failed(status == 200 ? "GitHub's answer couldn't be read." : "GitHub answered \(status). Try again in a bit.")
+                    result = .failed(status == 200 ? "GitHub's answer couldn't be read." : GitHubContributions.failure(status: status, serviceMessage: nil, user: user))
                 }
             } catch {
-                result = .failed("Couldn't reach GitHub: \(error.localizedDescription)")
+                result = .failed("Couldn't reach GitHub. Check you're online and try again.")
             }
             guard let self else { return }
             self.tasks[key] = nil
-            // A refresh that fails keeps what was already showing.
-            if case .failed = result, case .loaded = self.states[key] { return }
+            if case .failed = result, case .loaded = self.states[key] {
+                self.stale.insert(key)
+                return
+            }
             self.states[key] = result
-            if case .loaded = result { self.fetchedAt[key] = Date() }
+            if case .loaded = result {
+                self.fetchedAt[key] = Date()
+                self.stale.remove(key)
+                if let fresh {
+                    try? FileManager.default.createDirectory(at: Looks.folder, withIntermediateDirectories: true)
+                    try? fresh.write(to: file, options: .atomic)
+                }
+            }
         }
     }
 }

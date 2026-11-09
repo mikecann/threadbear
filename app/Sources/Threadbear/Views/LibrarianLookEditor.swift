@@ -353,6 +353,11 @@ private struct PictureWell: View {
                     .aspectRatio(contentMode: fill ? .fill : .fit)
                     .frame(maxWidth: .infinity, maxHeight: zoomed(120))
                     .clipShape(RoundedRectangle(cornerRadius: zoomed(8), style: .continuous))
+                    // Clipping only hides a filled photo's overflow; it still
+                    // takes clicks. A tall photo's hidden top reached up over
+                    // Picture and swallowed every click there (8 Nov), so the
+                    // well takes clicks only inside its own box.
+                    .contentShape(RoundedRectangle(cornerRadius: zoomed(8), style: .continuous))
             } else {
                 Text(empty)
                     .font(.system(size: TypeScale.label))

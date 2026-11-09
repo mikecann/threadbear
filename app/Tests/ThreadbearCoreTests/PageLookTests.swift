@@ -169,4 +169,13 @@ final class PageLookTests: XCTestCase {
         XCTAssertTrue(old.greetingClock)
         XCTAssertEqual(old.hiddenAbout, [])
     }
+
+    func testGitHubTroubleOnlyBlamesTheNameWhenItIsTheName() {
+        XCTAssertEqual(GitHubContributions.failure(status: 504, serviceMessage: "GitHub: Gateway timeout.", user: "waynesutton"),
+                       "GitHub isn't answering right now. Try again in a few minutes.")
+        XCTAssertEqual(GitHubContributions.failure(status: 500, serviceMessage: nil, user: "waynesutton"),
+                       "GitHub isn't answering right now. Try again in a few minutes.")
+        XCTAssertEqual(GitHubContributions.failure(status: 404, serviceMessage: nil, user: "nobody-here"), "GitHub has no user called nobody-here.")
+        XCTAssertEqual(GitHubContributions.failure(status: 200, serviceMessage: "User not found", user: "x"), "GitHub has no user called x.")
+    }
 }

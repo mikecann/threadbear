@@ -334,6 +334,18 @@ public struct GitHubContributions: Equatable, Sendable {
         case service(String)
     }
 
+    /// What to say when a year couldn't be fetched. Only a real "no such
+    /// user" says the name is wrong; the service timing out on GitHub
+    /// ("GitHub: Gateway timeout.", 8 Nov) or any other trouble says to try
+    /// again, as the name is likely fine.
+    public static func failure(status: Int, serviceMessage: String?, user: String) -> String {
+        let message = (serviceMessage ?? "").lowercased()
+        if status == 404 || message.contains("not found") || message.contains("no user") || message.contains("does not exist") {
+            return "GitHub has no user called \(GitHubUser.clean(user))."
+        }
+        return "GitHub isn't answering right now. Try again in a few minutes."
+    }
+
     public static func parse(_ data: Data, year: Int) throws -> GitHubContributions {
         if let error = try? JSONDecoder().decode([String: String].self, from: data), let message = error["error"] {
             throw ParseError.service(message)

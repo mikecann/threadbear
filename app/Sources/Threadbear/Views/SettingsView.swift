@@ -842,6 +842,8 @@ private struct LookSettings: View {
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 56, height: 32)
                                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                // A clipped photo's hidden overflow still takes clicks.
+                                .allowsHitTesting(false)
                         }
                         Button(background.isEmpty ? "Choose…" : "Replace…") { choose() }
                             .tip("Pick a photo from your Mac. A copy is kept, so the original can move")

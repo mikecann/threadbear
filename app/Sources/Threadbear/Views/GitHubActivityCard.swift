@@ -100,7 +100,11 @@ struct GitHubActivityCard: View {
     }
 
     private var readout: String {
-        guard let day = hovered else { return "@\(name)'s public contributions" }
+        guard let day = hovered else {
+            return activity.isStale(user: name, year: year)
+                ? "GitHub isn't answering right now, so this is the last copy"
+                : "@\(name)'s public contributions"
+        }
         let when = Self.dayTitle(day.date)
         switch day.count {
         case 0: return "No contributions on \(when)"
@@ -122,7 +126,7 @@ struct GitHubActivityCard: View {
                 .disabled(year >= thisYear)
                 .tip("The year after")
             Button { activity.load(user: name, year: year, force: true) } label: { Image(systemName: "arrow.clockwise") }
-                .disabled(activity.state(user: name, year: year) == .loading)
+                .disabled(activity.isFetching(user: name, year: year))
                 .tip("Fetch this year from GitHub again")
         }
         .buttonStyle(.borderless)
