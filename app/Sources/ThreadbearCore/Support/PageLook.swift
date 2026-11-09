@@ -1,12 +1,27 @@
 import Foundation
 
+/// What a customizable page's picture and background are made of, so the
+/// Customize panels' Picture and Background sections work on any page's
+/// look (LibrarianLook, ScheduledLook) rather than being copied per page.
+public protocol PictureLook: Equatable {
+    var picture: LibrarianLook.Picture { get set }
+    var pictureFile: String? { get set }
+    var pictureSize: LibrarianLook.PictureSize { get set }
+    var background: String? { get set }
+    var backgroundDim: Double { get set }
+    var backgroundFocus: BackdropFocus { get set }
+    /// Puts the picture back on the page after it was hidden, as choosing
+    /// a new one should.
+    mutating func showPicture()
+}
+
 /// How the Librarian's page is laid out when Settings > General > Look
 /// has "Customize the Librarian page" on: which picture it shows, a
 /// background picture behind it, where each part sits (top, middle or
 /// bottom) and which parts and numbers show. Kept on this Mac
 /// (UserDefaults, as JSON), never sent to the runner. Every field decodes
 /// on its own, so a look saved by an older or newer build still loads.
-public struct LibrarianLook: Codable, Equatable, Sendable {
+public struct LibrarianLook: Codable, Equatable, Sendable, PictureLook {
     /// The parts of the page, in the order they stack within a place.
     public enum Block: String, CaseIterable, Codable, Sendable, Identifiable {
         case greeting, picture, about, quote, numbers, activity, github, settings
@@ -134,6 +149,8 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     }
 
     public init() {}
+
+    public mutating func showPicture() { setShown(true, for: .picture) }
 
     public static let standard = LibrarianLook()
 

@@ -34,4 +34,31 @@ final class LooksBindingTests: XCTestCase {
         look.wrappedValue.picture = .own
         XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "the picture just chosen is still there")
     }
+
+    func testTheScheduledPagesLookKeepsChangesInARowAndItsOwnFiles() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "LooksBindingTests-\(UUID().uuidString)"))
+        try FileManager.default.createDirectory(at: Looks.folder, withIntermediateDirectories: true)
+        let librarianFile = Looks.folder.appendingPathComponent("picture-librarian-test.png")
+        let scheduledFile = Looks.folder.appendingPathComponent("picture-scheduled-test.png")
+        try Data("x".utf8).write(to: librarianFile)
+        try Data("x".utf8).write(to: scheduledFile)
+        defer {
+            try? FileManager.default.removeItem(at: librarianFile)
+            try? FileManager.default.removeItem(at: scheduledFile)
+        }
+        Looks.librarianBinding(defaults).wrappedValue.pictureFile = librarianFile.lastPathComponent
+        let look = Looks.scheduledBinding(defaults)
+        look.wrappedValue.pictureFile = scheduledFile.lastPathComponent
+        look.wrappedValue.picture = .own
+        look.wrappedValue.setPlace(.bottom, for: .numbers)
+        let saved = Looks.scheduledLook(defaults)
+        XCTAssertEqual(saved.pictureFile, scheduledFile.lastPathComponent)
+        XCTAssertEqual(saved.picture, .own)
+        XCTAssertEqual(saved.place(.numbers), .bottom)
+        // Reset deletes the Scheduled page's copy, never the Librarian's.
+        look.wrappedValue = .standard
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scheduledFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: librarianFile.path))
+        XCTAssertEqual(Looks.librarianLook(defaults).pictureFile, librarianFile.lastPathComponent)
+    }
 }

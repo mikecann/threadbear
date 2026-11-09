@@ -875,6 +875,15 @@ folded one shows how many are under it. Its page
 says what's coming up next with a few numbers: how many are on, due in the
 next day, repeating, set by threads, paused, and how often they've run.
 
+With Customize the Scheduled page on (Settings › General › Look, off by
+default), the page gets a Customize button at its top right, like the
+Librarian page's. Its panel keeps the bear, uses a picture of your own or
+has none, and sets its size; puts a photo behind the page, with Position
+and Fade as on the Librarian page; moves the picture, the title and status,
+and the numbers to the top, middle or bottom, or hides them; and picks
+which numbers show. Turning the switch off puts the page back as it ships
+and keeps your changes; Reset to the standard page clears them.
+
 A schedule's message brings an archived thread out of the archive while it
 runs. If the run ends with nothing for you, the thread goes back into the
 archive, so a watcher you've put away only lands in your inbox when it has
@@ -1578,8 +1587,8 @@ it back. Fade lays the window's own colour over it so text stays
 readable in light and dark, and Show behind open threads too puts it behind
 every thread's transcript as well, a little more faded. The picture is
 copied, scaled down, into Threadbear's data folder (`looks/`), so the
-original can move; Remove deletes the copy. The Librarian page has its own
-background and layout (The librarian, above).
+original can move; Remove deletes the copy. The Librarian and Scheduled
+pages have their own backgrounds and layouts (The librarian and Schedules).
 
 ### A ding when a thread is done
 

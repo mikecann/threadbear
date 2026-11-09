@@ -104,8 +104,8 @@ File references are where to look.
   remembers what it's said about dialogs on the screen (below).
 - **Pictures for the Look settings:** pictures you choose under
   Settings > General > Look (the main window's background, and the
-  Librarian page's picture and background when Customize the Librarian page is on; both off
-  by default) are copied, scaled down, into `looks/` in the data folder.
+  Librarian and Scheduled pages' pictures and backgrounds when their
+  Customize switches are on; all off by default) are copied, scaled down, into `looks/` in the data folder.
   Removing or replacing one deletes its copy. The rest of those settings
   are in the app's own settings, and none of it is sent anywhere
   (`app/Sources/Threadbear/Looks.swift`), except as below for a profile page.

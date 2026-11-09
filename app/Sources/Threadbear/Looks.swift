@@ -4,8 +4,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 import ThreadbearCore
 
-/// Pictures of the user's own on Threadbear's pages: the Librarian page's
-/// picture and background (Customize the Librarian page) and the main
+/// Pictures of the user's own on Threadbear's pages: the Librarian and
+/// Scheduled pages' pictures and backgrounds (their Customize switches) and the main
 /// window's background behind a new thread. Both are Settings > General >
 /// Look switches, off by default, kept on this Mac (UserDefaults) and
 /// never sent to the runner. Chosen pictures are copied into the data
@@ -17,6 +17,10 @@ enum Looks {
     static let librarianOnKey = "librarianLookOn"
     /// The Librarian page's LibrarianLook, as JSON.
     static let librarianKey = "librarianLook"
+    /// Settings > General > Look: "Customize the Scheduled page".
+    static let scheduledOnKey = "scheduledLookOn"
+    /// The Scheduled page's ScheduledLook, as JSON.
+    static let scheduledKey = "scheduledLook"
     /// Settings > General > Look: "Background picture in the main window".
     static let mainBackgroundOnKey = "mainBackgroundOn"
     /// The main window background's file name in `looks/`.
@@ -58,8 +62,31 @@ enum Looks {
     static func saveLibrarianLook(_ look: LibrarianLook, _ defaults: UserDefaults = .standard) {
         let old = librarianLook(defaults)
         defaults.set(look.data(), forKey: librarianKey)
-        // A picture the look no longer uses goes with it.
-        for file in [old.pictureFile, old.background].compactMap({ $0 }) where file != look.pictureFile && file != look.background {
+        removeUnused(old: old, new: look)
+    }
+
+    // MARK: The Scheduled page's look
+
+    static func scheduledLook(_ defaults: UserDefaults = .standard) -> ScheduledLook {
+        ScheduledLook.load(defaults.data(forKey: scheduledKey))
+    }
+
+    /// Read fresh on every get, for the same reason as librarianBinding.
+    static func scheduledBinding(_ defaults: UserDefaults = .standard) -> Binding<ScheduledLook> {
+        Binding(get: { scheduledLook(defaults) }, set: { saveScheduledLook($0, defaults) })
+    }
+
+    static func saveScheduledLook(_ look: ScheduledLook, _ defaults: UserDefaults = .standard) {
+        let old = scheduledLook(defaults)
+        defaults.set(look.data(), forKey: scheduledKey)
+        removeUnused(old: old, new: look)
+    }
+
+    /// A picture a page's look no longer uses goes with it. Each page's
+    /// files are its own (every copy gets a new name), so one page never
+    /// deletes another's.
+    private static func removeUnused(old: some PictureLook, new: some PictureLook) {
+        for file in [old.pictureFile, old.background].compactMap({ $0 }) where file != new.pictureFile && file != new.background {
             remove(file)
         }
     }
@@ -200,7 +227,7 @@ struct BackdropPicture: View {
 
 /// The places a background photo is drawn.
 enum BackdropSlot: Hashable {
-    case main, librarian
+    case main, librarian, scheduled
 }
 
 /// The size each background was last drawn at, for Position's preview.
