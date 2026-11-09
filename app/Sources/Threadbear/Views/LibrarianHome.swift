@@ -320,8 +320,8 @@ private struct LibrarianQuote: View {
                 .tileBackground(onPicture, radius: zoomed(12))
                 .id(quote.id)
                 .transition(.opacity)
-                .contextMenu {
-                    Button("Copy Quote") {
+                .iconContextMenu {
+                    Button("Copy Quote", systemImage: "doc.on.doc") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString("\u{201C}\(quote.text)\u{201D}\n\(quote.author)", forType: .string)
                     }
