@@ -125,6 +125,9 @@ private struct CustomizedLibrarianPage: View {
                 }
                 .frame(maxWidth: zoomed(620), alignment: .leading)
             }
+        case .activity:
+            ThreadbearActivityCard()
+                .frame(maxWidth: zoomed(760), alignment: .leading)
         case .github:
             GitHubActivityCard(user: look.githubUser)
                 .frame(maxWidth: zoomed(760), alignment: .leading)

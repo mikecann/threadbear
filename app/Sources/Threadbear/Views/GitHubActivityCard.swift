@@ -39,10 +39,10 @@ struct GitHubActivityCard: View {
                 HStack(spacing: zoomed(6)) {
                     readoutText
                     Spacer(minLength: zoomed(12))
-                    legend
+                    Self.legend
                 }
                 VStack(alignment: .leading, spacing: zoomed(6)) {
-                    legend
+                    Self.legend
                     readoutText
                 }
             }
@@ -74,7 +74,8 @@ struct GitHubActivityCard: View {
             .truncationMode(.tail)
     }
 
-    private var legend: some View {
+    /// Less to More under the calendar, shared with Threadbear activity.
+    static var legend: some View {
         HStack(spacing: zoomed(4)) {
             Text("Less")
             ForEach(0..<5, id: \.self) { level in
@@ -190,6 +191,9 @@ struct ContributionGrid: View {
     let pitch: CGFloat
     @Binding var hovered: GitHubContributions.Day?
     let open: (GitHubContributions.Day) -> Void
+    /// What a square counts, for VoiceOver: GitHub's contributions, or
+    /// Threadbear activity's threads.
+    var unit: (one: String, many: String) = ("contribution", "contributions")
 
     static var largest: CGFloat { zoomed(13) }
     static var smallest: CGFloat { zoomed(8) }
@@ -237,7 +241,7 @@ struct ContributionGrid: View {
             if let day = day(at: point, weeks: weeks) { open(day) }
         }
         .accessibilityElement()
-        .accessibilityLabel("\(contributions.total) contributions in \(String(contributions.year))")
+        .accessibilityLabel("\(contributions.total) \(contributions.total == 1 ? unit.one : unit.many) in \(String(contributions.year))")
     }
 
     private func day(at point: CGPoint, weeks: [[GitHubContributions.Day?]]) -> GitHubContributions.Day? {

@@ -108,12 +108,13 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
     }
 
     /// The web page's cards top to bottom, from where the Librarian page
-    /// puts its parts: the numbers with Threadbear activity just under them,
-    /// GitHub activity where it sits, and projects at the bottom.
+    /// puts its parts: the numbers, Threadbear activity (just under the
+    /// numbers unless moved on its own), GitHub activity where it sits, and
+    /// projects at the bottom.
     public static func cardOrder(_ look: LibrarianLook) -> [String] {
         let cards: [(String, LibrarianLook.Place, Int)] = [
             ("numbers", look.place(.numbers), 0),
-            ("activity", look.place(.numbers), 1),
+            ("activity", look.place(.activity), 1),
             ("github", look.place(.github), 2),
             ("projects", .bottom, 3),
         ]

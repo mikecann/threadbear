@@ -9,7 +9,7 @@ import Foundation
 public struct LibrarianLook: Codable, Equatable, Sendable {
     /// The parts of the page, in the order they stack within a place.
     public enum Block: String, CaseIterable, Codable, Sendable, Identifiable {
-        case greeting, picture, about, quote, numbers, github, settings
+        case greeting, picture, about, quote, numbers, activity, github, settings
         public var id: String { rawValue }
 
         public var title: String {
@@ -19,6 +19,8 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
             case .about: "Title and status"
             case .quote: "Quote of the day"
             case .numbers: "Numbers"
+            // Short enough for its row in Layout; the card says Threadbear activity.
+            case .activity: "Thread activity"
             case .github: "GitHub activity"
             case .settings: "Settings"
             }
@@ -96,6 +98,9 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     /// the skips last the day and start again the next.
     public var quoteDay: String = ""
     public var quoteSkips = 0
+    /// A year of the threads you started (ThreadActivity). Off until
+    /// turned on, like the greeting.
+    public var activityShown = false
 
     /// How far today's quote has been moved on.
     public func quoteSkips(on day: String) -> Int { quoteDay == day ? quoteSkips : 0 }
@@ -134,14 +139,23 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public static func defaultPlace(_ block: Block) -> Place {
         switch block {
         case .greeting, .picture, .about, .quote: .top
-        case .numbers, .github: .middle
+        case .numbers, .activity, .github: .middle
         case .settings: .bottom
         }
     }
 
-    public func place(_ block: Block) -> Place { places[block.rawValue] ?? Self.defaultPlace(block) }
+    /// Threadbear activity goes with the numbers until it's moved on its
+    /// own, as the profile page always had it just under them.
+    public func place(_ block: Block) -> Place {
+        if let place = places[block.rawValue] { return place }
+        return block == .activity ? place(.numbers) : Self.defaultPlace(block)
+    }
 
     public mutating func setPlace(_ place: Place, for block: Block) {
+        if block == .activity {
+            places[block.rawValue] = place
+            return
+        }
         places[block.rawValue] = place == Self.defaultPlace(block) ? nil : place
     }
 
@@ -149,6 +163,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public func shows(_ block: Block) -> Bool {
         if block == .greeting { return greetingShown }
         if block == .quote { return quoteShown }
+        if block == .activity { return activityShown }
         guard !hidden.contains(block) else { return false }
         if block == .about { return hiddenAbout.count < AboutPart.allCases.count }
         if block == .github { return !GitHubUser.clean(githubUser).isEmpty }
@@ -165,6 +180,10 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
             quoteShown = shown
             return
         }
+        if block == .activity {
+            activityShown = shown
+            return
+        }
         if shown { hidden.remove(block) } else { hidden.insert(block) }
     }
 
@@ -176,7 +195,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public var isStandard: Bool { self == .standard }
 
     private enum CodingKeys: String, CodingKey {
-        case picture, pictureFile, pictureSize, background, backgroundDim, backgroundFocus, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout, quoteShown, quoteDay, quoteSkips
+        case picture, pictureFile, pictureSize, background, backgroundDim, backgroundFocus, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout, quoteShown, quoteDay, quoteSkips, activityShown
     }
 
     public init(from decoder: Decoder) throws {
@@ -201,6 +220,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         quoteShown = (try? c.decode(Bool.self, forKey: .quoteShown)) ?? false
         quoteDay = (try? c.decode(String.self, forKey: .quoteDay)) ?? ""
         quoteSkips = max(0, (try? c.decode(Int.self, forKey: .quoteSkips)) ?? 0)
+        activityShown = (try? c.decode(Bool.self, forKey: .activityShown)) ?? false
         hiddenAbout = Set(((try? c.decode([String].self, forKey: .hiddenAbout)) ?? []).compactMap(AboutPart.init(rawValue:)))
     }
 
@@ -222,6 +242,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         try c.encode(quoteShown, forKey: .quoteShown)
         try c.encode(quoteDay, forKey: .quoteDay)
         try c.encode(quoteSkips, forKey: .quoteSkips)
+        try c.encode(activityShown, forKey: .activityShown)
         try c.encode(hiddenAbout.map(\.rawValue).sorted(), forKey: .hiddenAbout)
     }
 

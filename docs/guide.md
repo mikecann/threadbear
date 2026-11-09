@@ -791,8 +791,9 @@ picture of your own or have none, and pick its size; put a photo behind the
 page, drag it in Position to choose which part shows (it starts with its
 bottom edge on the window's), and fade it so the text stays readable in
 light and dark; move each
-part (a greeting, the picture, the title and status, a quote, the numbers, GitHub
-activity and Settings) to the top, middle or bottom, or hide it; hide the
+part (a greeting, the picture, the title and status, a quote, the numbers,
+Threadbear activity, GitHub activity and Settings) to the top, middle or
+bottom, or hide it; hide the
 title, the line under it or the status line on their own; and pick which
 numbers show. Greet me puts "Good morning, Wayne" at the top (afternoon
 from 12, evening from 5 pm, night from 10 pm, by your Mac's clock), with
@@ -806,6 +807,13 @@ right-click copies it. The quotes ship with Threadbear, so nothing is
 fetched, and none are from politicians, religious figures or tech
 founders. Put it at the top, middle or bottom under Layout like any other
 part. Drop a picture from Finder on its spot in the panel, or choose one.
+Thread activity (off until you turn it on under Layout) adds the
+Threadbear activity card your profile page can show: a year of days shaded
+by how many threads you started each day, worked out on your Mac from your
+threads, with threads in a private folder left out. Hover a day for its
+count and step back through the years with the arrows. It sits with the
+numbers until you move it, and where you put it is where it goes on your
+profile page too.
 GitHub activity shows a year of your public contributions, as on your
 GitHub profile, once you type your user name: step through the years with
 the arrows, hover a day for its count, and click one to open that day on
@@ -824,7 +832,7 @@ activity (a year of days shaded by the threads you started), GitHub
 activity, the numbers you pick (threads this year, active days, longest
 streak, projects, models used), the projects you tick (title and thread
 count only) and the month you started. Every part starts off. The cards go
-in the order the Librarian page has its numbers and GitHub activity. Until
+in the order the Librarian page has its numbers, Threadbear activity and GitHub activity. Until
 Publish my profile page is on, only you can see it, in a browser signed in
 to your Threadbear site, with a line saying so. Published, Show it on my
 site's front page makes it what visitors see at your site's address; when

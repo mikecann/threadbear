@@ -197,14 +197,21 @@ struct LibrarianLookEditor: View {
         switch block {
         case .github: "Show your GitHub activity. Needs a user name, below"
         case .quote: "A quote a day, changing at 4 am, with a button for another"
+        case .activity: "Threadbear activity: a year of days shaded by how many threads you started each day, as on your profile page. Threads in a private folder aren't counted"
         default: "Show or hide \(block.title.lowercased()) on the page"
         }
     }
 
-    /// Whether the switch for a part is on. Greeting has its own flag, as
-    /// it starts off; the rest are on unless hidden.
+    /// Whether the switch for a part is on. Greeting, quote and Threadbear
+    /// activity have flags of their own, as they start off; the rest are on
+    /// unless hidden.
     private func shown(_ block: LibrarianLook.Block) -> Bool {
-        block == .greeting ? look.greetingShown : !look.hidden.contains(block)
+        switch block {
+        case .greeting: look.greetingShown
+        case .quote: look.quoteShown
+        case .activity: look.activityShown
+        default: !look.hidden.contains(block)
+        }
     }
 
     private func show(_ on: Bool, _ block: LibrarianLook.Block) {
