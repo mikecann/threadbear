@@ -194,6 +194,14 @@ struct ThreadbearApp: App {
                         .shortcut(.settings)
                 }
             }
+            // Quit Threadbear asks first, unless "Don't ask again" was ticked
+            // (QuitPrompt). The app's own quits don't come through here.
+            CommandGroup(replacing: .appTermination) {
+                IconMenuItems {
+                    Button("Quit Threadbear", systemImage: "xmark.square") { QuitPrompt.quit() }
+                        .shortcut(.quit)
+                }
+            }
         }
     }
 }

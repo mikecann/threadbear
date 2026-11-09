@@ -1036,6 +1036,7 @@ key:
 - Show Hibernating: `showHibernating`, no key
 - Show Archived: `showArchived`, no key
 - Settings: `settings`, ⌘,
+- Quit Threadbear: `quit`, ⌘Q
 - Zoom In: `zoomIn`, ⌘=
 - Zoom Out: `zoomOut`, ⌘-
 - Actual Size: `actualSize`, ⌘0
@@ -1565,8 +1566,9 @@ you turn it on, and it stays on your Mac.
   its version, the threads that are busy, and any restart or update on the
   way.
 - `threadbear` in Terminal opens the app, and quitting it with ⌘Q is always
-  safe, since your threads keep running without it. If the app says it
-  can't reach the runner, click Start runner.
+  safe, since your threads keep running without it. Quit asks first, with
+  a Don't ask again box; Settings > General > Quitting turns asking back
+  on. If the app says it can't reach the runner, click Start runner.
 - Threadbear > About Threadbear says which commit your copy was built from,
   along with a few numbers about your threads.
 

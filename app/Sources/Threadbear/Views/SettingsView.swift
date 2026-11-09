@@ -100,6 +100,7 @@ private struct GeneralSettings: View {
     @AppStorage(CompletionSound.enabledKey) private var dingOn = false
     @AppStorage(CompletionSound.dingKey) private var ding = CompletionSound.Ding.chime.rawValue
     @AppStorage(CompletionSound.volumeKey) private var dingVolume = CompletionSound.defaultVolume
+    @AppStorage(QuitPrompt.askKey) private var askBeforeQuitting = true
 
     var body: some View {
         if app.runnerSettings == nil {
@@ -131,6 +132,13 @@ private struct GeneralSettings: View {
             }
             .tip("Light or dark for Threadbear, whatever the Mac is set to")
             .onChange(of: appearance) { _, new in new.apply() }
+        }
+
+        SettingsSection("Quitting",
+                        about: "Quit Threadbear (⌘Q or the Threadbear menu) asks first, so a stray ⌘Q doesn't close the app. Ticking Don't ask again turns this off; turn it back on here. Your threads keep running on the runner while the app is closed.",
+                        ask: "change it for you.") {
+            Toggle("Ask before quitting", isOn: $askBeforeQuitting)
+                .tip("Ask to confirm when you quit Threadbear")
         }
 
         SettingsSection("Notifications",
