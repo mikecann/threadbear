@@ -10,7 +10,9 @@ struct ProfilePageSection: View {
     @Environment(AppModel.self) private var app
     let look: LibrarianLook
     @State private var draft = ProfilePageSettings()
-    @State private var loaded = false
+    /// What the runner last had, as the draft started from it: the draft
+    /// follows the runner until it's edited, then keeps the edits.
+    @State private var baseline: ProfilePageSettings?
     @State private var confirmRemove = false
 
     private var saving: Bool { app.isBusy(BusyKey.saveProfilePage) }
@@ -35,12 +37,29 @@ struct ProfilePageSection: View {
                 saveSection
             }
         }
-        .onAppear { app.loadProfilePage() }
-        .onChange(of: app.profilePage) { _, new in
-            guard !loaded, let new else { return }
-            loaded = true
-            if let saved = new.profile { draft = saved } else { draft.name = NSFullUserName() }
+        // The app may already hold the runner's answer from an earlier
+        // opening, and asking again then changes nothing, so the draft takes
+        // what's held at once as well as what comes back.
+        .onAppear {
+            if let held = app.profilePage { adopt(held) }
+            app.loadProfilePage()
         }
+        .onChange(of: app.profilePage) { _, new in
+            if let new { adopt(new) }
+        }
+    }
+
+    private func adopt(_ status: ProfilePageStatus) {
+        let fresh = status.profile ?? Self.blank
+        if let baseline, !same(baseline, draft), !same(fresh, draft) { return }
+        draft = fresh
+        baseline = fresh
+    }
+
+    private static var blank: ProfilePageSettings {
+        var s = ProfilePageSettings()
+        s.name = NSFullUserName()
+        return s
     }
 
     // MARK: About you
@@ -49,7 +68,7 @@ struct ProfilePageSection: View {
         Section {
             Toggle("Publish my profile page", isOn: $draft.published)
                 .tip(draft.published ? "Public: anyone with the link can see it once you Save" : "Private: only you, signed in to your Threadbear site, can see it")
-            TextField("Handle", text: Binding(get: { draft.handle }, set: { draft.handle = ProfilePageSettings.cleanHandle($0) }), prompt: Text("wayne"))
+            TextField("Handle", text: Binding(get: { draft.handle }, set: { draft.handle = ProfilePageSettings.cleanHandle($0) }), prompt: Text("Required"))
                 .tip("Your page's address: lowercase letters, numbers and single hyphens, 3 to 30 of them")
             if let handleProblem {
                 Text(handleProblem)
@@ -186,7 +205,11 @@ struct ProfilePageSection: View {
                         .tip("Delete your page, its pictures and its handle from your Convex backend")
                 }
             }
-            if let problem = status?.problem {
+            if draft.handle.isEmpty {
+                Text("Type a handle above to save.")
+                    .font(.system(size: TypeScale.label))
+                    .foregroundStyle(.secondary)
+            } else if let problem = status?.problem {
                 Text(problem)
                     .font(.system(size: TypeScale.label))
                     .foregroundStyle(.red)
@@ -203,8 +226,8 @@ struct ProfilePageSection: View {
         .confirmationDialog("Take your profile page down?", isPresented: $confirmRemove) {
             Button("Take it down", role: .destructive) {
                 app.removeProfilePage()
-                draft = ProfilePageSettings()
-                draft.name = NSFullUserName()
+                draft = Self.blank
+                baseline = nil
             }
         } message: {
             Text("Its page, pictures and handle are deleted from your Convex backend. Your Librarian page doesn't change.")
