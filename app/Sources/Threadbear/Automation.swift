@@ -1688,7 +1688,6 @@ private final class AutomationDrag: NSObject, NSDraggingInfo {
     var springLoadingHighlight: NSSpringLoadingHighlight { .none }
     func resetSpringLoading() {}
 }
-#endif
 
 extension Automation {
     /// A click through the window as a real one goes, without the pointer.
@@ -1707,3 +1706,4 @@ extension Automation {
         return "ok"
     }
 }
+#endif
