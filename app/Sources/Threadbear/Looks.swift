@@ -46,6 +46,15 @@ enum Looks {
         LibrarianLook.load(defaults.data(forKey: librarianKey))
     }
 
+    /// The look as a binding for the Customize panel. It reads the saved
+    /// look each time rather than the page's @AppStorage copy, which only
+    /// catches up on the next redraw: choosing your own picture makes three
+    /// changes in a row, and reading the stale copy made the second and
+    /// third undo the first and delete the new picture (8 Nov).
+    static func librarianBinding(_ defaults: UserDefaults = .standard) -> Binding<LibrarianLook> {
+        Binding(get: { librarianLook(defaults) }, set: { saveLibrarianLook($0, defaults) })
+    }
+
     static func saveLibrarianLook(_ look: LibrarianLook, _ defaults: UserDefaults = .standard) {
         let old = librarianLook(defaults)
         defaults.set(look.data(), forKey: librarianKey)

@@ -69,7 +69,12 @@ struct LibrarianLookEditor: View {
                     }
                     .tip("Pick a picture from your Mac. A copy is kept, so the original can move")
                     if look.pictureFile != nil {
-                        Button("Remove") { look.pictureFile = nil; look.picture = .bear }
+                        Button("Remove") {
+                            var next = look
+                            next.pictureFile = nil
+                            next.picture = .bear
+                            look = next
+                        }
                             .tip("Go back to the bear and delete the copy")
                     }
                 }
@@ -116,9 +121,12 @@ struct LibrarianLookEditor: View {
             return
         }
         problem = nil
-        look.pictureFile = name
-        look.picture = .own
-        look.setShown(true, for: .picture)
+        // One change, so the new file and the choice land together.
+        var next = look
+        next.pictureFile = name
+        next.picture = .own
+        next.setShown(true, for: .picture)
+        look = next
     }
 
     // MARK: Background

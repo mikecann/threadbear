@@ -42,7 +42,8 @@ private struct CustomizedLibrarianPage: View {
     private var look: LibrarianLook { LibrarianLook.load(saved) }
 
     private var lookBinding: Binding<LibrarianLook> {
-        Binding(get: { LibrarianLook.load(saved) }, set: { Looks.saveLibrarianLook($0) })
+        // `saved` above still redraws the page when the look changes.
+        Looks.librarianBinding()
     }
 
     var body: some View {
