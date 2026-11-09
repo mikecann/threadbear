@@ -343,7 +343,13 @@ test('pictures go to the CLI where their [Picture N] markers are, the rest befor
 // Without this the CLI nudged the model after every end_turn ("[Your
 // previous response had no visible output...]") and a throwaway line
 // landed under the real answer (28 Oct 2026).
-test('end_turn is a terminal MCP tool for the CLI, so its result ends the turn without a nudge', () => {
+test('end_turn is a terminal MCP tool for the CLI, so its result ends the turn without a nudge', (t) => {
+  // A run from inside Claude Code's desktop app inherits its own list.
+  const inherited = process.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS;
+  delete process.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS;
+  t.after(() => {
+    if (inherited !== undefined) process.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS = inherited;
+  });
   const { state } = start();
   assert.equal(state.options.env.CLAUDE_CODE_TERMINAL_MCP_TOOLS, 'mcp__threadbear__end_turn');
   assert.equal(terminalMcpTools(undefined), 'mcp__threadbear__end_turn');
@@ -569,7 +575,7 @@ test('a queued allow asks again if the input changed or the file now runs as cod
   release({ decision: 'deny' });
   assert.equal((await changed).behavior, 'deny');
   // The helper now runs as code (an earlier call made it so): a card that shows it all.
-  codeFiles.add(`${dir}/helper.ts`);
+  codeFiles.add(path.resolve(dir, 'helper.ts')); // the adapter asks about the resolved path, with backslashes on Windows
   cards = approvals.length;
   const asCode = state.options.canUseTool('Write', { file_path: `${dir}/helper.ts`, content: 'one' }, opts('w1'));
   await new Promise((r) => setImmediate(r));
@@ -598,7 +604,7 @@ test('more calls joining a waiting card leave the ones it shows as they were', a
   await new Promise((r) => setImmediate(r));
   assert.deepEqual(approvals[0].queued?.map((c) => c.itemId), ['w1']);
   // The helper becomes code while the card waits, then more calls stream in.
-  codeFiles.add(helper.file_path);
+  codeFiles.add(path.resolve(helper.file_path));
   await call('r1', 'Read', { file_path: `${dir}/a.txt` });
   await call('b1', 'Bash', { command: 'ls' });
   const grown = outputs.filter((o) => o.kind === 'approvalQueue').at(-1);
@@ -633,7 +639,7 @@ test('two cards listing the same call: each answer holds for the call as its own
   await new Promise((r) => setImmediate(r));
   assert.ok(!/code/.test(approvals[0].queued!.find((c) => c.itemId === 'w1')!.title), 'card A shows it as text');
   // The helper becomes code, and a parallel call's card opens listing it too.
-  codeFiles.add(helper.file_path);
+  codeFiles.add(path.resolve(helper.file_path));
   const b = state.options.canUseTool('mcp__other__b', { q: 2 }, opts('m2'));
   await new Promise((r) => setImmediate(r));
   assert.match(approvals[1].queued!.find((c) => c.itemId === 'w1')!.title, /code/, 'card B shows it as code');

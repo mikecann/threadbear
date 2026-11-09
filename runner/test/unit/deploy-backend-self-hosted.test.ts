@@ -1,12 +1,16 @@
 // runner/scripts/deploy-backend.mjs with a self-hosted backend
 // (docs/self-hosting.md): it deploys with the admin URL and key rather than
 // a deploy key, and won't guess when both kinds of credential are here.
-import { test } from 'node:test';
+
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
+import { testSkippedOnWindows } from '../helpers/platform.ts';
+
+// deploy-backend.mjs deploys Mike's own Convex backend with a PATH of /usr/bin:/bin and the Mac's tools, and is not ported to Windows.
+const test = testSkippedOnWindows("deploy-backend.mjs deploys Mike's own Convex backend from a Mac (its PATH is /usr/bin:/bin), and isn't ported to Windows");
 
 const repo = path.resolve(import.meta.dirname, '../../..');
 

@@ -6,6 +6,13 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from '../helpers/fakes.ts';
+import { skipOnWindows } from '../helpers/platform.ts';
+
+// Two tests look a background job up by the pid bash gives it ($!). On Windows
+// that is an MSYS pid, which is not the Windows pid process.kill takes: it is
+// "gone" only when no other process has the number (a flake on GitHub's runner
+// found it, 8 Nov). The script is for check.sh's Swift steps on a Mac anyway.
+const MSYS_PIDS = skipOnWindows("bash's background pids are MSYS pids, not the Windows pids process.kill looks up");
 
 const SCRIPT = path.join(import.meta.dirname, '..', '..', '..', 'scripts', 'limit-step.mjs');
 
@@ -48,7 +55,7 @@ test('a step that keeps printing still stops at the total limit', () => {
   assert.match(r.stdout, /no test was running\. Last line: tick/);
 });
 
-test('what a step started goes too, even in a process group of its own', () => {
+test('what a step started goes too, even in a process group of its own', MSYS_PIDS, () => {
   // As swift test starts xctest: `set -m` gives each background job its own group.
   const dir = tmpDir('limit-step-');
   const pidFile = path.join(dir, 'pid');
@@ -59,7 +66,7 @@ test('what a step started goes too, even in a process group of its own', () => {
   assert.equal(alive(pid), false, 'the frozen process is gone');
 });
 
-test('a process that ignores SIGTERM goes too, even when the step itself stops at once', () => {
+test('a process that ignores SIGTERM goes too, even when the step itself stops at once', MSYS_PIDS, () => {
   const dir = tmpDir('limit-step-');
   const pidFile = path.join(dir, 'pid');
   // The ignored signal carries through exec; the bash above it dies on SIGTERM.

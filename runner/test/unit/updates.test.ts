@@ -15,7 +15,9 @@ import { FakeClock } from '../../src/clock.ts';
 import { nullLogger } from '../../src/log.ts';
 import type { CliStatus, Provider } from '../../src/protocol.ts';
 import { testConfig, tmpDir } from '../helpers/fakes.ts';
+import { IS_WINDOWS, NO_CODEX_COPIES_ON_WINDOWS, cmdAware, fakeProgram } from '../helpers/platform.ts';
 
+const runExec: Exec = cmdAware(defaultExec);
 const NATIVE = ['node_modules', '@openai', 'codex-darwin-arm64', 'vendor', 'aarch64-apple-darwin', 'bin', 'codex'];
 const REQUIRED = ['turn/start', 'turn/steer'];
 
@@ -28,6 +30,31 @@ function script(file: string, body: string): void {
 // link to 2.1.311 unless R/locked exists, when it says another Claude holds
 // the installer's lock and exits 0, as the real one does.
 function fakeClaude(root: string): { claudePath: string; calls: () => number } {
+  const calls = () => (fs.existsSync(path.join(root, 'claude-calls')) ? fs.readFileSync(path.join(root, 'claude-calls'), 'utf8').split('\n').filter((l) => l === 'update').length : 0);
+  if (IS_WINDOWS) {
+    // No link on Windows: claude.exe is the program, `claude update` replaces
+    // it in place and --version says which it is. The stand-in keeps its
+    // version in a file.
+    const state = path.join(root, 'claude-version');
+    fs.writeFileSync(state, '2.1.310');
+    const body = `import fs from 'node:fs';
+const root = ${JSON.stringify(root)};
+const state = ${JSON.stringify(state)};
+const args = process.argv.slice(2);
+fs.appendFileSync(root + '/claude-calls', args.join(' ') + '\\n');
+const fail = (m, c) => { console.error(m); process.exit(c); };
+if (args[0] === '--version') console.log(fs.readFileSync(state, 'utf8') + ' (Claude Code)');
+if (args[0] === 'update') {
+  if (process.env.CLAUDE_CONFIG_DIR) fail('CLAUDE_CONFIG_DIR leaked', 3);
+  if (fs.realpathSync(process.cwd()) !== fs.realpathSync(root + '/home/run')) fail('wrong cwd ' + process.cwd(), 4);
+  if (fs.existsSync(root + '/locked')) { console.log('Another Claude process (PID 4242) is currently running'); process.exit(0); }
+  const from = fs.readFileSync(state, 'utf8');
+  fs.writeFileSync(state, '2.1.311');
+  console.log('Successfully updated from ' + from + ' to version 2.1.311');
+}
+`;
+    return { claudePath: fakeProgram(path.join(root, 'bin'), 'claude', body), calls };
+  }
   const versions = path.join(root, 'share', 'versions');
   const link = path.join(root, 'bin', 'claude');
   for (const v of ['2.1.310', '2.1.311']) {
@@ -47,7 +74,7 @@ esac`,
   }
   fs.mkdirSync(path.dirname(link), { recursive: true });
   fs.symlinkSync(path.join(versions, '2.1.310'), link);
-  return { claudePath: link, calls: () => (fs.existsSync(path.join(root, 'claude-calls')) ? fs.readFileSync(path.join(root, 'claude-calls'), 'utf8').split('\n').filter((l) => l === 'update').length : 0) };
+  return { claudePath: link, calls };
 }
 
 // R/node/bin/npm: `npm install --prefix DIR ... @openai/codex@V` lays out a
@@ -129,7 +156,7 @@ function setup(o: { latest?: Partial<Record<Provider, string>>; env?: NodeJS.Pro
   // No real process list unless a test brings its own: this Mac's has nothing
   // to do with these temp folders, and at background priority ps can outlast
   // cleanupCodex's 10 s limit, which skips the cleanup a test then checks (2 Nov).
-  const exec: Exec = o.exec ?? ((cmd, args, opts) => (cmd === '/bin/ps' ? Promise.resolve({ code: 0, stdout: '', stderr: '' }) : defaultExec(cmd, args, opts)));
+  const exec: Exec = o.exec ?? ((cmd, args, opts) => (cmd === '/bin/ps' ? Promise.resolve({ code: 0, stdout: '', stderr: '' }) : runExec(cmd, args, opts)));
   const make = () =>
     new CliUpdates({ cfg, log: nullLogger, clock, hooks, env, execPath: npm.execPath, fetchText, exec, random: () => 0, notice: (_l, m) => void notices.push(m), codex: { resolve, checkSurface, testedVersion: '0.164.0' } });
   const u = make();
@@ -160,7 +187,8 @@ test('claude: a check finds it behind; update() returns at once, then succeeds a
   assert.deepEqual([after.installedVersion, after.status, after.update?.state], ['2.1.311', 'current', 'succeeded']);
   assert.deepEqual(n.hooks.released, [['claude', '2.1.311']]);
   assert.ok(n.changes.some((c) => of(c, 'claude').update?.state === 'running') && n.changes.some((c) => of(c, 'claude').update?.state === 'succeeded'));
-  assert.equal(fs.readlinkSync(n.claude.claudePath), path.join(n.root, 'share', 'versions', '2.1.311'));
+  if (IS_WINDOWS) assert.equal(fs.readFileSync(path.join(n.root, 'claude-version'), 'utf8'), '2.1.311');
+  else assert.equal(fs.readlinkSync(n.claude.claudePath), path.join(n.root, 'share', 'versions', '2.1.311'));
   // The auto one did the same by itself.
   assert.equal(of(t.u.list(), 'claude').installedVersion, '2.1.311');
   assert.deepEqual(t.hooks.released, [['claude', '2.1.311']]);
@@ -194,7 +222,7 @@ test('claude: an update that exits 0 without moving the link waits and retries, 
   assert.equal(of(t.u.list(), 'claude').update?.state, 'succeeded');
 });
 
-test('nothing installs while a runner restart is pending; it runs once the restart is out of the way', async () => {
+test('nothing installs while a runner restart is pending; it runs once the restart is out of the way', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup();
   t.hooks.pending = true;
   t.u.update('codex', { version: '0.165.0' });
@@ -209,7 +237,7 @@ test('nothing installs while a runner restart is pending; it runs once the resta
   assert.equal(of(t.u.list(), 'codex').installedVersion, '0.165.0');
 });
 
-test('codex: the first start installs the latest into its own copy and activates it', async () => {
+test('codex: the first start installs the latest into its own copy and activates it', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup();
   assert.equal(t.u.codexBinary(), path.join(path.dirname(t.npm.execPath), 'codex'), 'the fallback until a copy exists');
   t.u.start();
@@ -229,7 +257,7 @@ test('codex: the first start installs the latest into its own copy and activates
   assert.equal(resolve(t.u.codexBinary()).native, true);
 });
 
-test('codex: a version whose schema lacks a method we use is held; the first start falls back to the tested one; force installs it anyway', async () => {
+test('codex: a version whose schema lacks a method we use is held; the first start falls back to the tested one; force installs it anyway', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup({ latest: { codex: '0.166.0' } });
   fs.writeFileSync(path.join(t.root, 'drop-0.166.0'), '');
   t.u.check('codex');
@@ -252,7 +280,7 @@ test('codex: a version whose schema lacks a method we use is held; the first sta
   assert.deepEqual(t.npm.installs(), ['0.166.0', '0.164.0']);
 });
 
-test('codex: new names only still activate, and are recorded', async () => {
+test('codex: new names only still activate, and are recorded', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup();
   fs.writeFileSync(path.join(t.root, 'add-0.165.0'), '');
   t.u.update('codex', { version: '0.165.0' });
@@ -262,7 +290,7 @@ test('codex: new names only still activate, and are recorded', async () => {
   assert.deepEqual(act?.added, ['thread/brandNew']);
 });
 
-test('codex: "Go back" swaps current to the kept previous version with no download', async () => {
+test('codex: "Go back" swaps current to the kept previous version with no download', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup();
   t.u.update('codex', { version: '0.164.0' });
   await t.u.settled();
@@ -278,7 +306,7 @@ test('codex: "Go back" swaps current to the kept previous version with no downlo
   assert.deepEqual(t.hooks.released, [['codex', '0.164.0']]);
 });
 
-test('codex: going back holds the version left behind, so a check doesn\'t put it back; a newer one or force still installs', async () => {
+test('codex: going back holds the version left behind, so a check doesn\'t put it back; a newer one or force still installs', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup();
   t.u.update('codex', { version: '0.164.0' });
   await t.u.settled();
@@ -322,7 +350,7 @@ test('codex: going back holds the version left behind, so a check doesn\'t put i
   assert.deepEqual(t.npm.installs(), ['0.164.0', '0.165.0', '0.166.0', '0.165.0']);
 });
 
-test('codex: a failed install leaves no .partial folder and changes nothing', async () => {
+test('codex: a failed install leaves no .partial folder and changes nothing', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup();
   t.u.update('codex', { version: '0.164.0' });
   await t.u.settled();
@@ -343,7 +371,7 @@ test('codex: a failed install leaves no .partial folder and changes nothing', as
   assert.ok(!fs.existsSync(path.join(t.tools, '0.170.0.partial')));
 });
 
-test('codex: an old version is deleted only once nothing runs it', async () => {
+test('codex: an old version is deleted only once nothing runs it', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   let psOut = '';
   const exec: Exec = (cmd, args, opts) => (cmd === '/bin/ps' ? Promise.resolve({ code: 0, stdout: psOut, stderr: '' }) : defaultExec(cmd, args, opts));
   const t = setup({ exec });
@@ -370,7 +398,7 @@ test('codex: an old version is deleted only once nothing runs it', async () => {
   assert.deepEqual(fs.readdirSync(t.tools).filter((n) => /^\d/.test(n)).sort(compareVersions), ['0.165.0', '0.166.0']);
 });
 
-test('codex: a session running on the old binary carries on while the new version activates', async () => {
+test('codex: a session running on the old binary carries on while the new version activates', NO_CODEX_COPIES_ON_WINDOWS, async () => {
   const t = setup();
   t.u.update('codex', { version: '0.164.0' });
   await t.u.settled();

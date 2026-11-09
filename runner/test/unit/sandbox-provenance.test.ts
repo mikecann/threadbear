@@ -18,6 +18,7 @@ import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import { Scheduler } from '../../src/schedules.ts';
 import { nullLogger } from '../../src/log.ts';
 import { dockerRun } from '../../src/sandbox.ts';
+import { skipOnWindows } from '../helpers/platform.ts';
 import type { ApprovalDecision, PermissionMode } from '../../src/protocol.ts';
 
 function setup(opts: { callerIn?: 'box' | 'host'; mode?: PermissionMode } = {}) {
@@ -211,7 +212,7 @@ test("a Full thread outside any sandbox may move a sandboxed one's login, as wit
   assert.match(JSON.stringify(r.card.input), /\/outside\/private\.png/);
 });
 
-test('the docker run refuses a folder that is no longer in a sandbox folder, rather than mounting where a link points', () => {
+test('the docker run refuses a folder that is no longer in a sandbox folder, rather than mounting where a link points', skipOnWindows('Sandboxes mount a path at the same path in a Linux container, which a Windows path cannot be'), () => {
   const sb = { folders: ['/home/mike/sandboxed'], image: 'img', docker: 'docker' };
   const ctx = (to: string) => ({ threadId: 't', home: '/home/mike', uid: 1, gid: 1, exists: () => true, realpath: (p: string) => (p === '/home/mike/sandboxed/demo' ? to : p) });
   assert.ok(dockerRun({ command: '/c', args: [], cwd: '/home/mike/sandboxed/demo', env: {} }, sb, ctx('/home/mike/sandboxed/demo')));

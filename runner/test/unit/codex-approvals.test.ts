@@ -7,6 +7,7 @@ import {
   commandRule,
   plainArgv,
   refusal,
+  ruleMayCover,
   ruleFor,
   shellWords,
   unwrapShell,
@@ -18,6 +19,7 @@ import path from 'node:path';
 import { dynamicToolSpecs, NAMESPACE_DESCRIPTION_MAX, type ToolDefinition } from '../../src/adapters/codex/tools.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
 import { nullLogger } from '../../src/log.ts';
+import { IS_WINDOWS, shPath, skipOnWindows } from '../helpers/platform.ts';
 import type { QuestionAnswer, QuestionRequest, ToolApprovalAnswer, ToolApprovalRequest } from '../../src/adapters/types.ts';
 import type { CommandExecutionRequestApprovalParams } from '../../src/adapters/codex/types.ts';
 
@@ -102,7 +104,17 @@ const req = (command: string, extra: Partial<CommandExecutionRequestApprovalPara
 
 const CWD = '/work/proj';
 
-test('rules: exactly the command shown, in its folder, never Codex\'s proposed prefix', () => {
+// "Always allow" covers only the system's own programs in /bin and /usr/bin, run
+// through zsh: Windows has neither, so there nothing is vouched for (see the
+// Windows test below) and these tests, which use touch and ls, can't apply.
+const NO_RULES_ON_WINDOWS = skipOnWindows("Always allow covers only the system's own programs in /bin and /usr/bin, which Windows doesn't have");
+
+test('on Windows no command gets an Always allow rule: no program there can be vouched for', { skip: IS_WINDOWS ? false : 'Windows only' }, () => {
+  for (const cmd of ['touch b.txt', 'ls -la', 'grep -n x f', 'cat a']) assert.equal(ruleFor(req(cmd), CWD), null, cmd);
+  assert.equal(ruleMayCover(['ls']), false);
+});
+
+test('rules: exactly the command shown, in its folder, never Codex\'s proposed prefix', NO_RULES_ON_WINDOWS, () => {
   assert.equal(ruleFor(req('touch b.txt', { proposedExecpolicyAmendment: ['touch', 'b.txt'] }), CWD), commandRule(['touch', 'b.txt'], CWD));
   // F6/F16: the amendment can be shorter than the command; the rule never is.
   assert.equal(ruleFor(req('ls -la src', { proposedExecpolicyAmendment: ['ls'] }), CWD), commandRule(['ls', '-la', 'src'], CWD));
@@ -121,7 +133,7 @@ test('rules: exactly the command shown, in its folder, never Codex\'s proposed p
   assert.equal(ruleFor(req('touch a; touch b'), CWD), null);
 });
 
-test('an exact rule covers only that command in that folder; old prefix and folderless rules cover nothing', () => {
+test('an exact rule covers only that command in that folder; old prefix and folderless rules cover nothing', NO_RULES_ON_WINDOWS, () => {
   const rules = [commandRule(['touch', 'b.txt'], CWD), commandRule(['ls', 'src'], CWD)];
   assert.equal(commandAllowed(req('touch b.txt'), rules, CWD), true);
   assert.equal(commandAllowed(req('touch b.txt c.txt'), rules, CWD), false, 'more than the card showed');
@@ -199,7 +211,7 @@ function harness(rules: string[] = []) {
     note: (t) => notes.push(t),
     cwd: () => '/work/proj',
     itemPaths: (id) => (id === 'fc-3' ? ['/work/proj/a.ts', '/work/proj/b.ts', '/work/proj/c.ts'] : id === 'fc-1' ? ['/work/proj/a.txt'] : id === 'fc-p' ? ['.threadbear/patches/x.ts'] : undefined),
-    runsAsCode: (f) => f.includes('/.threadbear/'),
+    runsAsCode: (f) => shPath(f).includes('/.threadbear/'),
     callTool: async () => ({ contentItems: [{ type: 'inputText', text: 'ok' }], success: true }),
     now: () => 1_793_000_000_000,
   };
@@ -223,7 +235,7 @@ function harness(rules: string[] = []) {
 
 const flush = () => new Promise((r) => setImmediate(r));
 
-test('command approvals: allow, deny and expire map to accept, decline and cancel', async () => {
+test('command approvals: allow, deny and expire map to accept, decline and cancel', NO_RULES_ON_WINDOWS, async () => {
   const h = harness();
   h.a.handle(0, 'item/commandExecution/requestApproval', req('touch b.txt', { reason: 'Allow creating b.txt?', commandActions: [{ type: 'unknown', command: 'touch b.txt' }] }), { fromChild: false });
   await flush();
@@ -243,7 +255,7 @@ test('command approvals: allow, deny and expire map to accept, decline and cance
   );
 });
 
-test('"Always allow" keeps a runner rule, answers the next match itself, and asks again for anything chained', async () => {
+test('"Always allow" keeps a runner rule, answers the next match itself, and asks again for anything chained', NO_RULES_ON_WINDOWS, async () => {
   const h = harness();
   h.answerWith(async () => ({ decision: 'allowAlways' }));
   h.a.handle(0, 'item/commandExecution/requestApproval', req('touch b.txt', { proposedExecpolicyAmendment: ['touch', 'b.txt'], availableDecisions: ['accept', { acceptWithExecpolicyAmendment: { execpolicy_amendment: ['touch', 'b.txt'] } }, 'cancel'] }), { fromChild: false });
@@ -276,7 +288,7 @@ test('"Always allow" keeps a runner rule, answers the next match itself, and ask
 // Daybreak (7 Nov 2026, "Codex Always rules cover mutable package and build
 // launchers"): even the exact `npm test` runs whatever package.json and the
 // tests say next time, so a launcher never gets Always allow at all.
-test('"Always allow" is offered only for a program whose words say what it does; launchers ask every time', async () => {
+test('"Always allow" is offered only for a program whose words say what it does; launchers ask every time', NO_RULES_ON_WINDOWS, async () => {
   const h = harness();
   h.answerWith(async () => ({ decision: 'allowAlways' }));
   const launchers = [
@@ -530,7 +542,7 @@ test('a command goes on its card whole; one too long to show is declined with no
 // Codex review, 7 Nov 2026: the list went by name, so a `grep` found first on
 // PATH, or a link from /usr/local/bin into the repo, kept an exact rule while
 // the repo changed what it ran.
-test('a rule goes by the file a name really runs: the system\'s own, read each time', () => {
+test('a rule goes by the file a name really runs: the system\'s own, read each time', NO_RULES_ON_WINDOWS, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-prog-'));
   const fake = path.join(dir, 'grep');
   fs.writeFileSync(fake, '#!/bin/sh\n', { mode: 0o755 });
@@ -555,7 +567,7 @@ test('a rule goes by the file a name really runs: the system\'s own, read each t
   }
 });
 
-test("a legacy command only loses a wrapper that's the system's shell: a repo's bin/bash is what runs", async () => {
+test("a legacy command only loses a wrapper that's the system's shell: a repo's bin/bash is what runs", NO_RULES_ON_WINDOWS, async () => {
   const h = harness([commandRule(['ls'], CWD)]);
   h.answerWith(async () => ({ decision: 'deny' }));
   h.a.handle(0, 'execCommandApproval', { conversationId: 'c', callId: 'k', command: ['/bin/zsh', '-lc', 'ls'], cwd: CWD }, { fromChild: false });

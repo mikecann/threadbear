@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
+import { escapeRegExp } from '../helpers/platform.ts';
 import { Projects } from '../../src/projects.ts';
 import { FakeClock } from '../../src/clock.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
@@ -219,14 +220,16 @@ test('a thread lowered mid-turn still counts its turn\'s access for messages', a
 
 test('ask: move_thread asks before moving a thread with more access, or one a schedule check follows', async () => {
   const s = setup('ask');
+  // (Windows resolves /tmp/x onto the drive the thread's folder is on, as C:\tmp\x.)
+  const attacker = path.resolve(s.h.runner.get(s.other.id).cwd, '/tmp/attacker-repo');
   const r = await withCard(s, 'deny', 'move_thread', { threadId: s.other.id, folder: '/tmp/attacker-repo' });
   assert.equal(r.error, true);
-  assert.match(r.card.title, /^Move "Other work", which has Full access, to \/tmp\/attacker-repo/);
-  assert.notEqual(s.h.runner.get(s.other.id).cwd, '/tmp/attacker-repo');
+  assert.match(r.card.title, new RegExp(`^Move "Other work", which has Full access, to ${escapeRegExp(attacker)}`));
+  assert.notEqual(s.h.runner.get(s.other.id).cwd, attacker);
   // This thread itself: free, unless a schedule's check runs in its folder.
   assert.equal((await withCard(s, null, 'move_thread', { folder: '.' })).error, false);
   await s.sched.create({ text: 'poll', cron: '@hourly', threadId: s.me.id, check: 'node poll.js', title: 'Poller' });
-  const self = await withCard(s, 'deny', 'move_thread', { folder: '/tmp/attacker-repo' });
+  const self = await withCard(s, 'deny', 'move_thread', { folder: attacker });
   assert.equal(self.error, true);
   assert.match(self.card.title, /the schedule "Poller" runs its shell check/);
   s.sched.stop();

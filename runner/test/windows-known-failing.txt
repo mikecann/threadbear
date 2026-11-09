@@ -1,0 +1,9 @@
+# Unit test files that fail on Windows today (first measured 6 Nov 2026: 1,312 of
+# 1,539 tests passed). scripts/test-windows.mjs runs everything else as a hard
+# check and these as a report. Take a file off this list when it passes there.
+#
+# Empty since 6 Nov 2026: every file passes on Windows, or skips what Windows
+# doesn't have with a reason (Threadbear's own copies of Codex, the Mac-only
+# features, process groups, lsof handovers, the symlinked current release). The
+# Codex adapter, app-server and normaliser tests run there. A file that fails
+# there again goes back on this list, with a comment beside it saying why.

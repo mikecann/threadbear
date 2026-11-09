@@ -5,8 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { makeHarness, tmpDir } from '../helpers/fakes.ts';
+import { sh, shPath } from '../helpers/platform.ts';
 import { checkSummary } from '../helpers/protocol-check.ts';
 import { PATIENCE_MS } from '../helpers/patience.ts';
 import { anyOpen, childLooseEnds, scheduleLooseEnds, worktreeLooseEnds } from '../../src/loose-ends.ts';
@@ -25,10 +25,6 @@ Object.assign(process.env, {
 
 const END_TURN = 'mcp__threadbear__end_turn';
 
-function sh(cwd: string, cmd: string): string {
-  return execFileSync('/bin/sh', ['-c', cmd], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-}
-
 // A repo on main with a thread's worktree beside it, on its own branch.
 function repoWithWorktree(): WorktreeRecord {
   const root = fs.realpathSync(tmpDir('tb-loose-'));
@@ -36,7 +32,7 @@ function repoWithWorktree(): WorktreeRecord {
   fs.mkdirSync(main);
   sh(main, 'git init -q -b main && printf "node_modules\\n" > .gitignore && echo one > a.txt && git add -A && git commit -qm init');
   const wt = path.join(root, 'slot-1');
-  sh(main, `git worktree add -q -b thread/abcd1234 ${wt} main`);
+  sh(main, `git worktree add -q -b thread/abcd1234 ${shPath(wt)} main`);
   return { repo: 'proj', mainCheckout: main, path: wt, branch: 'thread/abcd1234', base: sh(main, 'git rev-parse main') };
 }
 

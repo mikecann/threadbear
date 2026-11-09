@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
+import { SHELL, shPath } from '../helpers/platform.ts';
 import { loadPatchSet } from '../../src/patches.ts';
 import { checkDigest, PatchTrust, patchHash, type PatchGate } from '../../src/patch-trust.ts';
 import { claudeCommands } from '../../src/claude-trust.ts';
@@ -31,6 +32,9 @@ function write(folder: string, files: Record<string, string>): void {
 function repo(files: Record<string, string>, links: Record<string, string> = {}): string {
   const dir = fs.realpathSync(tmpDir());
   git(dir, 'init', '-q');
+  // Windows git often converts line endings on checkout (autocrlf), and a
+  // worktree's copy of a script would then differ in bytes from the main one.
+  git(dir, 'config', 'core.autocrlf', 'false');
   write(dir, files);
   for (const [name, to] of Object.entries(links)) {
     fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
@@ -47,7 +51,7 @@ const patchFile = (dir: string) => path.join(dir, '.threadbear', 'patches', 't.t
 // A thread in `dir`, whose patch is trusted as it stands, on a real store.
 async function trustedThread(dir: string) {
   const trust = new PatchTrust({ file: path.join(tmpDir(), 'patch-trust.json') });
-  const h = makeHarness(undefined, {}, { panelsRoot: fs.realpathSync(tmpDir()), patchTrust: trust, actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 5000 });
+  const h = makeHarness(undefined, {}, { panelsRoot: fs.realpathSync(tmpDir()), patchTrust: trust, actionShell: SHELL, actionTimeoutMs: 5000 });
   assert.ok(trust.trust(patchFile(dir), patchHash(patchFile(dir)).hash));
   const { thread } = h.runner.create({ text: 'hi', accountId: 'claude-3', cwd: dir });
   await tick();
@@ -298,7 +302,7 @@ test('Codex review 2: npx -c, empty PATH entries, a package with no git or node_
   // Sourcing a script outside the repo can change this shell.
   const outside = fs.realpathSync(tmpDir());
   write(outside, { 'enter.sh': 'cd /tmp\n' });
-  const sourced = checkDigest(`. ${outside}/enter.sh; ./check.sh`, repo({ 'check.sh': '#!/bin/sh\n' }));
+  const sourced = checkDigest(`. ${shPath(outside)}/enter.sh; ./check.sh`, repo({ 'check.sh': '#!/bin/sh\n' }));
   assert.match(sourced.problem ?? '', /sources .*outside the repo/);
   assert.ok(sourced.files.includes(path.join(outside, 'enter.sh')), 'hashed all the same');
 });
@@ -545,10 +549,10 @@ test('schedule check: a script outside the repo, run by its path, is bound too, 
   write(outside, { 'poll.sh': '#!/bin/sh\n. "$(dirname "$0")/lib.sh"\n', 'lib.sh': 'echo\n', 'poll.py': 'print(1)\n' });
   const cwd = repo({ 'x.txt': '' });
   for (const [check, change] of [
-    [`${outside}/poll.sh`, 'poll.sh'],
-    [`${outside}/poll.sh --flag`, 'lib.sh'],
-    [`sh ${outside}/poll.sh`, 'lib.sh'],
-    [`/usr/bin/python3 ${outside}/poll.py`, 'poll.py'],
+    [`${shPath(outside)}/poll.sh`, 'poll.sh'],
+    [`${shPath(outside)}/poll.sh --flag`, 'lib.sh'],
+    [`sh ${shPath(outside)}/poll.sh`, 'lib.sh'],
+    [`/usr/bin/python3 ${shPath(outside)}/poll.py`, 'poll.py'],
   ] as const) {
     const before = checkDigest(check, cwd);
     fs.appendFileSync(path.join(outside, change), '# changed\n');
@@ -558,16 +562,16 @@ test('schedule check: a script outside the repo, run by its path, is bound too, 
   // sources ./helper.sh sources the check folder's.
   write(outside, { 'rel.sh': '#!/bin/sh\n. ./helper.sh\n', 'helper.sh': 'echo fine\n' });
   const here = repo({ 'helper.sh': 'echo fine\n' });
-  const seen = checkDigest(`${outside}/rel.sh`, here);
+  const seen = checkDigest(`${shPath(outside)}/rel.sh`, here);
   // It's another repo's file to the script, so that's bound but can't be vouched for further.
   assert.match(seen.problem ?? '', /sources .*helper\.sh/);
   fs.appendFileSync(path.join(here, 'helper.sh'), '# changed\n');
-  assert.notEqual(checkDigest(`${outside}/rel.sh`, here).hash, seen.hash);
+  assert.notEqual(checkDigest(`${shPath(outside)}/rel.sh`, here).hash, seen.hash);
   // And after a cd it can follow, from there.
   const there = repo({ 'helper.sh': 'echo fine\n' });
-  const hop = checkDigest(`cd ${there} && ${outside}/rel.sh`, here);
+  const hop = checkDigest(`cd ${shPath(there)} && ${shPath(outside)}/rel.sh`, here);
   fs.appendFileSync(path.join(there, 'helper.sh'), '# changed\n');
-  assert.notEqual(checkDigest(`cd ${there} && ${outside}/rel.sh`, here).hash, hop.hash);
+  assert.notEqual(checkDigest(`cd ${shPath(there)} && ${shPath(outside)}/rel.sh`, here).hash, hop.hash);
   // A system program isn't: an OS update isn't a change to approve.
   assert.deepEqual(checkDigest('/bin/ls -l', cwd).files, []);
 });
@@ -705,8 +709,9 @@ test('Codex review: a thread moved while the card was up approves nothing, even 
 test('Codex review 3: a folder by a link retargeted while the card was up approves nothing', async () => {
   const dir = repo({ 'A/check.sh': '#!/bin/sh\necho\n', 'B/check.sh': '#!/bin/sh\necho\n' }, { link: 'A' });
   const made = askTools(dir, 'ask', () => {
-    fs.rmSync(path.join(dir, 'link'));
-    fs.symlinkSync('B', path.join(dir, 'link'));
+    // (recursive: Windows takes a link to a folder for a folder, which rm leaves unless told.)
+    fs.rmSync(path.join(dir, 'link'), { recursive: true });
+    fs.symlinkSync('B', path.join(dir, 'link'), 'dir');
   });
   const r = await made.call('schedule_message', { text: 'Look', cron: '*/5 * * * *', new_thread: true, runner: 'runner', folder: path.join(dir, 'link'), check: './check.sh' });
   assert.equal(r.isError, true);

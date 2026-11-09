@@ -31,16 +31,21 @@
 // Not followed: programs on PATH and packages, as installed. What one of
 // those loads from the repo by its own rules (a test runner's tests, a
 // build's config) is past this, as node_modules is for patch files.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { isBuiltin } from 'node:module';
+import { IS_WINDOWS, realPathSync, slashes } from './platform.ts';
 import { bareImport, inNodeModules, linkedPackages, packageFiles } from './tracked-packages.ts';
 
 // `outside`: with FollowOptions.outside, the scripts it runs or loads that
 // aren't the repo's, which a schedule's check binds too (patch-trust.ts).
 // Each with the folders it runs from, as its own relative paths are those.
-export type ScriptReach = { files: string[]; missing: string[]; problem?: string; outside?: { file: string; dirs: string[] }[] };
+// `refused`: a Windows UNC or device path it won't resolve (windowsSpelling),
+// which could be a file of the repo's under another name: a command that
+// names one can't have its files hashed, even where `problem` is let go.
+export type ScriptReach = { files: string[]; missing: string[]; problem?: string; refused?: string; outside?: { file: string; dirs: string[] }[] };
 
 // The most of one file patch trust reads (a patch, a helper, a script, a
 // config file); it reads one bigger than this not at all, and fails closed.
@@ -50,11 +55,18 @@ export const MAX_READ_BYTES = 32 * 1024 * 1024;
 // kept, so what was scanned for what it runs is what's hashed (and, for a
 // patch's own code, what's imported). `prints` is each file's stat taken
 // before its read, and `links` each path as it was named with the real
-// path it led to then, so a cached hash can tell a file was changed (a
-// write moves ctime, which can't be set back; a replace moves the inode)
+// path it led to then, so a cached hash can tell a file was changed (on
+// macOS and Linux a write moves ctime, which can't be set back; a replace
+// moves the inode; on Windows `sums` is what's compared, see same())
 // or a symlink on the way to it retargeted.
 export class Reads {
   readonly prints = new Map<string, string>();
+  // Windows only: the SHA-256 of each file's bytes as read. NTFS keeps a
+  // ChangeTime of its own, but a program can set it, with the write times,
+  // by handle (SetFileInformationByHandle), so an edit at the same size
+  // with its times put back kept the fingerprint above. The bytes can't be
+  // put back without the hash changing.
+  private readonly sums = new Map<string, string>();
   readonly bytes = new Map<string, Buffer>();
   readonly links = new Map<string, string>();
   // What a config file (an .npmrc, a Makefile) was read as, by kind and
@@ -66,7 +78,7 @@ export class Reads {
   real(p: string): string | undefined {
     let r: string | undefined;
     try {
-      r = fs.realpathSync(p);
+      r = realPathSync(p);
     } catch {
       r = undefined;
     }
@@ -119,6 +131,7 @@ export class Reads {
       return undefined;
     }
     this.prints.set(real, print);
+    if (IS_WINDOWS) this.sums.set(real, sha256(b));
     this.bytes.set(real, b);
     return b;
   }
@@ -129,6 +142,9 @@ export class Reads {
     for (const [p, print] of this.prints) {
       try {
         if (fingerprint(p) !== print) return false;
+        // The stat can be made to match (see sums): on Windows the bytes
+        // are read again too. Patches and their scripts are small.
+        if (IS_WINDOWS && sha256(fs.readFileSync(p)) !== this.sums.get(p)) return false;
       } catch {
         return false;
       }
@@ -136,7 +152,7 @@ export class Reads {
     for (const [p, real] of this.links) {
       let now = '';
       try {
-        now = fs.realpathSync(p);
+        now = realPathSync(p);
       } catch {
         // missing
       }
@@ -147,8 +163,10 @@ export class Reads {
 }
 
 // What changes when a file's content can have: its inode (a replace), size,
-// mtime, and ctime, which every write and chmod moves and nothing can set
-// back (utimes moves it too).
+// mtime, and ctime, which every write and chmod moves and nothing on macOS
+// or Linux can set back (utimes moves it too). On NTFS a program can set it
+// back, so on Windows this only finds the quick change and Reads.same()
+// reads the bytes as well.
 export function fingerprint(p: string): string {
   const st = fs.statSync(p);
   return `${st.dev}:${st.ino}:${st.size}:${st.mtimeMs}:${st.ctimeMs}:${st.mode}`;
@@ -193,6 +211,10 @@ const JS_RUNNERS = ['node', 'tsx', 'ts-node', 'bun', 'deno'];
 // Languages whose loads this can't follow: running a file or code in one
 // fails closed.
 const OTHER_LANGS = /^(python[0-9.]*|ruby|perl|php|lua|osascript|pwsh|powershell|fish|csh|tcsh|Rscript|expect|tclsh|uv|uvx|poetry|pipenv|rake|bundle|parallel)$/;
+// Windows' own (checked as well there, by the lower-case name with the
+// extension off): the command interpreter, the Python launcher, the script
+// hosts, and wsl and conhost, which run another command line.
+const WINDOWS_LANGS = /^(cmd|py|pyw|pythonw|rscript|wscript|cscript|mshta|wsl|conhost)$/;
 // Shell words that run their argument as code, or change what a command
 // name means, which can't be followed.
 const UNFOLLOWABLE: Record<string, string> = {
@@ -229,9 +251,30 @@ const LOADING_FLAG = /(^|\s)(-r|-e|-p|--require|--import|--loader|--experimental
 const LIFECYCLE = ['preinstall', 'install', 'postinstall', 'prepublish', 'preprepare', 'prepare', 'postprepare', 'prepack', 'postpack', 'prepublishOnly', 'publish', 'postpublish', 'dependencies'];
 const PATH_SENTINEL = '\u0000PATH';
 
+// A package's bin folder, in either spelling of a path.
+const BIN_FOLDER = /[\\/]node_modules[\\/]\.bin[\\/]?$/;
+
+// The entries of a PATH value. Colons divide them, but on Windows a drive
+// letter has one too (`C:\app\node_modules\.bin:/usr/bin`), and that isn't a
+// division. An empty entry is kept: it means the current folder.
+function splitPathList(v: string): string[] {
+  if (!IS_WINDOWS) return v.split(':');
+  const out: string[] = [];
+  for (let rest = v; ; ) {
+    const drive = /^[A-Za-z]:[\\/][^:]*/.exec(rest);
+    const colon = rest.indexOf(':');
+    const end = drive ? drive[0].length : colon === -1 ? rest.length : colon;
+    out.push(rest.slice(0, end));
+    if (end >= rest.length) return out;
+    rest = rest.slice(end + 1);
+  }
+}
+
 // Extensions of files that run as code: a shell's, Node's, or a language
 // this can't follow (which fails closed when one runs).
-export const RUNNABLE_EXT = [...SHELL_EXT, ...JS_EXT, '.py', '.rb', '.pl'];
+// A PowerShell script and the two kinds of batch file are code on Windows
+// only: elsewhere a file called x.bat is data until it has a #! or a mode.
+export const RUNNABLE_EXT = [...SHELL_EXT, ...JS_EXT, '.py', '.rb', '.pl', ...(IS_WINDOWS ? ['.ps1', '.bat', '.cmd'] : [])];
 
 // Whether a file a patch or script only names (a string, an argument) is
 // code, and so goes in the hash: a runnable extension, the executable bit
@@ -256,6 +299,55 @@ export function looksRunnable(file: string): boolean {
   } catch {
     return false;
   }
+}
+
+// A program's name as the tables above know it. On Windows a program is
+// found whatever its case and with or without its extension, so `node.exe`,
+// `NODE.EXE` and `npm.cmd` are node and npm (each of which took patch trust
+// past `node -e` and a package.json's scripts: the Windows port's review).
+// Elsewhere the name is the name.
+export function programName(name: string, windows: boolean = IS_WINDOWS): string {
+  return windows ? name.toLowerCase().replace(/\.(exe|cmd|bat|com)$/, '') : name;
+}
+
+// Whether a program is a language or launcher on Windows that runs a script
+// patch trust can't follow (the OTHER_LANGS of the platform).
+function isOtherLang(name: string): boolean {
+  return OTHER_LANGS.test(name) || (IS_WINDOWS && WINDOWS_LANGS.test(name));
+}
+
+// A word that names a path, as Git Bash (which runs a patch's commands on
+// Windows) reads it, as the Windows path it is. Git Bash takes `/c/x/y`
+// (and `/C/x/y`, and a Cygwin-style `/cygdrive/c/x/y`) as C:\x\y and
+// `/tmp` as the temp folder, and a file: URL's `/C:/x/y` is C:\x\y, none of
+// which a Windows path.resolve reads that way: it put them on the current
+// drive, outside the repo, so a script run by one of those spellings was
+// never hashed. Windows has more ways to say the same drive: the extended
+// `//?/C:/x` and `//./C:/x`, and this machine's own admin share
+// (`//localhost/C$/x`, `//127.0.0.1/C$/x`, `//<this computer>/C$/x`), which
+// are mapped to C:\x too. Any other path that starts with two slashes
+// (`//host/share`, `//?/UNC/host/share`, `\\host\share`) is refused: it can
+// name any file on the machine through a network name or a device, and patch
+// trust can't tell which. (A bare `//`, as in a string that starts with a
+// comment, names no host and is left alone.) Everything else comes back as
+// it was; 8.3 short names, other cases and the like are settled by the real
+// path (platform.ts's realPath). Pure: `tmp` is where /tmp is, `host` this
+// computer's name.
+export function windowsSpelling(v: string, where: { tmp?: string; host?: string } = {}): { path: string } | { refuse: string } {
+  const win = path.win32;
+  const onDrive = (letter: string, rest: string | undefined) => ({ path: win.normalize(`${letter.toUpperCase()}:\\${rest ?? ''}`) });
+  if (/^[\\/]{2}[^\\/\s]/.test(v)) {
+    const extended = /^[\\/]{2}[?.][\\/]([A-Za-z]):(?:[\\/](.*))?$/s.exec(v);
+    if (extended) return onDrive(extended[1]!, extended[2]);
+    const share = /^[\\/]{2}([^\\/]+)[\\/]([A-Za-z])\$(?:[\\/](.*))?$/s.exec(v);
+    const own = ['localhost', '127.0.0.1', '[::1]', '::1', (where.host ?? os.hostname()).toLowerCase()];
+    if (share && own.includes(share[1]!.toLowerCase())) return onDrive(share[2]!, share[3]);
+    return { refuse: 'a network or device path (a name starting with two slashes)' };
+  }
+  const drive = /^\/(?:cygdrive\/)?([A-Za-z])(?:\/(.*))?$/s.exec(v) ?? /^\/([A-Za-z]):(?:[\\/](.*))?$/s.exec(v);
+  if (drive) return onDrive(drive[1]!, drive[2]);
+  if (v === '/tmp' || v.startsWith('/tmp/')) return { path: win.join(where.tmp ?? os.tmpdir(), v.slice('/tmp/'.length)) };
+  return { path: v };
 }
 
 // ---- a shell lexer: enough of POSIX sh, bash and zsh to see what runs ----
@@ -650,6 +742,7 @@ class Reach {
   missing = new Set<string>();
   outside = new Map<string, Set<string>>();
   problem?: string;
+  refused?: string;
   // The package folders whose node_modules/.bin a package script has first
   // on PATH, while one is being followed.
   private binDirs: string[] = [];
@@ -673,7 +766,7 @@ class Reach {
 
   private rel(file: string): string {
     const r = path.relative(this.o.top, file);
-    return r && !r.startsWith('..') ? r : file;
+    return r && !r.startsWith('..') ? slashes(r) : file;
   }
 
   private fail(ctx: Ctx | undefined, line: number | undefined, what: string): void {
@@ -977,8 +1070,11 @@ class Reach {
     }
     this.namedIn(text, file, ctx);
     // A string naming a file of the repo's (`spawnSync('bash', ['scripts/x.sh'])`).
-    for (const s of scan.strings) {
-      if (s.length > 300 || !/[./]/.test(s) || /[\s\0]/.test(s) || /^[a-z]+:/i.test(s)) continue;
+    for (const raw of scan.strings) {
+      if (raw.length > 300 || !/[./]/.test(raw) || /[\s\0]/.test(raw) || (IS_WINDOWS ? /^[a-z]{2,}:/i : /^[a-z]+:/i).test(raw)) continue;
+      const spelled = IS_WINDOWS ? windowsSpelling(raw) : { path: raw };
+      if (!('path' in spelled)) continue;
+      const s = spelled.path;
       const bases = path.isAbsolute(s) ? [''] : [path.dirname(file), ...dirs, this.o.top];
       for (const b of bases) {
         const p = path.resolve(b, s);
@@ -1132,10 +1228,28 @@ class Reach {
     return undefined;
   }
 
+  // `v` as a path to look at: on Windows, the drive and temp spellings Git
+  // Bash reads (windowsSpelling) as the paths they are. A UNC or device
+  // path is the problem itself (this.problem is set, and what's returned
+  // is undefined), so whatever the caller does next, it fails closed.
+  private spell(v: string, ctx: Ctx | undefined, line?: number): string | undefined {
+    if (!IS_WINDOWS) return v;
+    const s = windowsSpelling(v);
+    if ('refuse' in s) {
+      const shown = v.length > 80 ? v.slice(0, 80) + '...' : v;
+      this.refused ??= `${shown}, ${s.refuse}`;
+      this.fail(ctx, line, `names ${shown}, ${s.refuse}, which patch trust can't follow.`);
+      return undefined;
+    }
+    return s.path;
+  }
+
   private abs(v: string, ctx: Ctx): string[] | undefined {
-    if (path.isAbsolute(v)) return [path.normalize(v)];
+    const w = this.spell(v, ctx);
+    if (w === undefined) return undefined;
+    if (path.isAbsolute(w)) return [path.normalize(w)];
     if (ctx.lost) return undefined;
-    return [...ctx.dirs].map((d) => path.resolve(d, v));
+    return [...ctx.dirs].map((d) => path.resolve(d, w));
   }
 
   // Hashes every file of the repo's a word names.
@@ -1143,7 +1257,12 @@ class Reach {
     const vals = this.values(w, ctx);
     for (const v of vals ?? []) {
       if (!v || v.length > 1024 || v.includes('\n') || v === PATH_SENTINEL) continue;
-      for (const p of (path.isAbsolute(v) ? [v] : ctx.lost ? [] : [...ctx.dirs].map((d) => path.resolve(d, v)))) {
+      // An argument only names a file; a UNC one isn't looked for (a
+      // program that runs it is refused where it runs, in abs).
+      const spelled = IS_WINDOWS ? windowsSpelling(v) : { path: v };
+      if (!('path' in spelled)) continue;
+      const s = spelled.path;
+      for (const p of (path.isAbsolute(s) ? [s] : ctx.lost ? [] : [...ctx.dirs].map((d) => path.resolve(d, s)))) {
         if (isFile(p)) this.follow(p, 'named', ctx);
       }
     }
@@ -1160,14 +1279,14 @@ class Reach {
     if (name === 'PATH' || name === 'path') {
       // An empty entry is the current folder (a leading or trailing `:`, or
       // `::`), so it's left in to be refused, as `.` is (Codex's review, 7 Nov).
-      const entries = vals?.flatMap((v) => (name === 'PATH' ? v.split(':') : v.split(' ')));
-      const ok = entries?.every((e) => e === PATH_SENTINEL || /\/node_modules\/\.bin\/?$/.test(e) || (path.isAbsolute(e) && !this.inRepo(e)));
+      const entries = vals?.flatMap((v) => (name === 'PATH' ? splitPathList(v) : v.split(' ')));
+      const ok = entries?.every((e) => e === PATH_SENTINEL || BIN_FOLDER.test(e) || (path.isAbsolute(e) && !this.inRepo(e)));
       if (!ok || append) return this.fail(ctx, line, "puts a folder on PATH that patch trust can't vouch for, so it can't tell what a command name runs.");
       // A package's bin folder, as a package script has first on PATH:
       // a name after this may be a program of the repo's, committed or a
       // workspace's, not an installed one (Codex's review, 7 Nov).
       for (const e of entries ?? []) {
-        if (e === PATH_SENTINEL || !/\/node_modules\/\.bin\/?$/.test(e)) continue;
+        if (e === PATH_SENTINEL || !BIN_FOLDER.test(e)) continue;
         const bins = this.abs(e, ctx);
         if (!bins) return this.fail(ctx, line, "puts a package's bin folder on PATH after a cd patch trust couldn't follow, so it can't tell what a command name runs.");
         for (const bin of bins) {
@@ -1217,7 +1336,7 @@ class Reach {
     for (const w of words) {
       if (RESERVED.has(bareOf(w) ?? '') || this.assignment(w)) continue;
       const v = this.str(w, ctx);
-      return v === undefined ? undefined : path.basename(v);
+      return v === undefined ? undefined : programName(path.basename(v));
     }
     return undefined;
   }
@@ -1234,7 +1353,7 @@ class Reach {
     const loads = (into !== undefined && (into === '.' || into === 'source')) || cmd.words.some((w) => {
       // Past a wrapper too (`env bash`, `command bash`, `nice sh`).
       const v = litOf(w);
-      return v !== undefined && SHELLS.includes(path.basename(v));
+      return v !== undefined && SHELLS.includes(programName(path.basename(v)));
     });
     for (const r of cmd.redirs) {
       if (!r.target) continue;
@@ -1289,7 +1408,8 @@ class Reach {
     if (this.problem) return;
     // A path: the repo's file runs (followed), or a program outside it,
     // treated by its name (/bin/sh is sh).
-    if (name.includes('/')) {
+    // On Windows a quoted `C:\repo\evil.sh` is a path too, though it has no /.
+    if (name.includes('/') || (IS_WINDOWS && name.includes('\\'))) {
       const targets = this.abs(name, ctx);
       if (!targets) return this.fail(ctx, line, `runs ${name} after a cd patch trust couldn't follow (${ctx.lost}), so it can't tell which file that is.`);
       const inRepo = targets.filter((t) => this.inRepo(t));
@@ -1328,7 +1448,8 @@ class Reach {
     return v && v.length === 1 ? v[0] : undefined;
   }
 
-  private program(name: string, args: Word[], ctx: Ctx, line: number, extra: boolean): void {
+  private program(called: string, args: Word[], ctx: Ctx, line: number, extra: boolean): void {
+    const name = programName(called);
     const a = (i: number) => this.str(args[i], ctx);
     if (Object.hasOwn(UNFOLLOWABLE, name)) return this.fail(ctx, line, `${UNFOLLOWABLE[name]}, which patch trust can't follow.`);
     if (name === 'hash' && args.some((w) => /^-\w*p/.test(this.str(w, ctx) ?? ''))) return this.fail(ctx, line, 'maps a command name to a file (`hash -p`), which patch trust can\'t follow.');
@@ -1408,7 +1529,7 @@ class Reach {
     if (['npx', 'bunx', 'pnpx'].includes(name)) return this.npx(args, ctx, line);
     if (name === 'make' || name === 'gmake') return this.make(args, ctx, line);
     if (name === 'awk' || name === 'gawk' || name === 'nawk' || name === 'mawk') return this.awk(args, ctx, line);
-    if (OTHER_LANGS.test(name)) return this.fail(ctx, line, `runs ${name}, whose loads patch trust can't follow.`);
+    if (isOtherLang(name)) return this.fail(ctx, line, `runs ${name}, whose loads patch trust can't follow.`);
     // Anything else: a program on PATH, a builtin or a function in the
     // script (whose body was read with the rest).
     // A function only once it's defined (by line: a call before it runs the program).
@@ -1727,7 +1848,9 @@ class Reach {
     if (!rc) return;
     if ('problem' in rc && rc.problem) return this.fail(undefined, undefined, `${this.rel(file)} ${rc.problem}`);
     if (!('paths' in rc)) return;
-    for (const s of rc.paths) {
+    for (const given of rc.paths) {
+      const s = this.spell(given, ctx);
+      if (s === undefined) return;
       const p = path.resolve(path.dirname(file), s);
       if (isFile(p)) this.follow(p, 'load', ctx);
     }
@@ -1952,8 +2075,11 @@ class Reach {
       if (s === undefined) return this.fail(ctx, line, "runs make with words worked out as it runs, which patch trust can't follow.");
       const v = opt(s);
       if (v) {
-        const val = v.value ?? this.str(args[++i], ctx);
-        if (val === undefined) return this.fail(ctx, line, "runs make with a folder or file worked out as it runs, which patch trust can't follow.");
+        const given = v.value ?? this.str(args[++i], ctx);
+        if (given === undefined) return this.fail(ctx, line, "runs make with a folder or file worked out as it runs, which patch trust can't follow.");
+        // `-f -` is the input, which isn't a path to turn into another.
+        const val = given === '-' ? given : this.spell(given, ctx, line);
+        if (val === undefined) return;
         // Each -C from the one before (`-C sub -C nested` is sub/nested).
         if (v.flag === 'C') dirs = dirs && (path.isAbsolute(val) ? [path.normalize(val)] : dirs.map((d) => path.resolve(d, val)));
         // `-f -` reads the Makefile from make's input, as `sh < file` does.
@@ -2012,7 +2138,9 @@ class Reach {
         for (const f of inc[1]!.trim().split(/\s+/)) {
           if (/[$*?]/.test(f)) return this.fail(mctx, n + 1, "includes a makefile worked out as it runs, which patch trust can't follow.");
           // Where make looks: the folder, then each -I folder in turn.
-          const where = path.isAbsolute(f) ? [f] : [dir, ...incDirs.map((i) => path.resolve(dir, i))].map((b) => path.resolve(b, f));
+          const named = this.spell(f, mctx, n + 1);
+          if (named === undefined) return;
+          const where = path.isAbsolute(named) ? [named] : [dir, ...incDirs.map((i) => path.resolve(dir, i))].map((b) => path.resolve(b, named));
           if (f === '-' || where.some(readsInput)) return this.fail(mctx, n + 1, "includes a makefile that reads from its input or another open file, which patch trust can't follow.");
           const p = where.find(isFile);
           if (p) this.makefile(p, dir, ctx, line, incDirs);
@@ -2228,7 +2356,7 @@ function realOrNearest(p: string): string {
   let rest = '';
   for (let d = p; ; d = path.dirname(d)) {
     try {
-      return path.join(fs.realpathSync(d), rest);
+      return path.join(realPathSync(d), rest);
     } catch {
       // not there: one up
     }
@@ -2242,15 +2370,31 @@ function realOrNearest(p: string): string {
 // (`sh /dev/stdin < ./steps.txt`), which isn't the path it was given.
 const INPUT_PATH = /^\/(dev\/(stdin|tty|fd\/\d+)|proc\/(self|thread-self|\d+)\/fd\/\d+)$/;
 
+// A Windows path as Git Bash names it: forward slashes, and the drive
+// dropped, as Windows reads /dev/stdin as C:\dev\stdin and path.normalize
+// makes it \dev\stdin. (A real C:\dev\stdin is refused too: fails closed.)
+export function asBashPath(p: string): string {
+  return path.posix.normalize(p.replace(/\\/g, '/').replace(/^[A-Za-z]:(?=\/)/, ''));
+}
+
 // Whether running or sourcing `p` reads what to run from the process's
 // input: one of those paths, or anything there that isn't a plain file
 // (a link to one, in the repo or not, a fifo, a device).
 export function readsInput(p: string): boolean {
-  if (INPUT_PATH.test(path.normalize(p))) return true;
+  if (INPUT_PATH.test(IS_WINDOWS ? asBashPath(p) : path.normalize(p))) return true;
   try {
-    if (INPUT_PATH.test(fs.realpathSync(p))) return true;
+    if (INPUT_PATH.test(IS_WINDOWS ? asBashPath(realPathSync(p)) : realPathSync(p))) return true;
   } catch {
     // not there, or a link to nowhere
+  }
+  // A link to /dev/stdin made on Windows points nowhere (C:\dev\stdin), but
+  // Git Bash, which runs the script, has a /dev/stdin to read.
+  if (IS_WINDOWS) {
+    try {
+      if (fs.lstatSync(p).isSymbolicLink() && INPUT_PATH.test(asBashPath(fs.readlinkSync(p)))) return true;
+    } catch {
+      // not there
+    }
   }
   let st: fs.Stats;
   try {
@@ -2267,7 +2411,7 @@ export function shebangReadsElsewhere(text: string): boolean {
   const m = /^#![ \t]*(\S+)([^\n]*)/.exec(text);
   if (!m) return false;
   const words = m[2]!.trim().split(/[ \t]+/).filter(Boolean);
-  if (path.basename(m[1]!) === 'env' && words.some((w) => /^(-[a-zA-Z]*S|--split-string)/.test(w))) return true;
+  if (programName(path.basename(m[1]!)) === 'env' && words.some((w) => /^(-[a-zA-Z]*S|--split-string)/.test(w))) return true;
   return words.some((w) => /^[-+][a-zA-Z]*[sci]/.test(w));
 }
 
@@ -2291,6 +2435,10 @@ function awkPrintsToCommand(prog: string): boolean {
 function mayRun(p: string): boolean {
   const ext = path.extname(p).toLowerCase();
   return !ext || RUNNABLE_EXT.includes(ext);
+}
+
+function sha256(data: Buffer): string {
+  return crypto.createHash('sha256').update(data).digest('hex');
 }
 
 function isFile(p: string): boolean {
@@ -2325,9 +2473,9 @@ export function kindOf(file: string, text: string, running: boolean): 'shell' | 
   if (text.slice(0, 512).includes('\0')) return 'binary';
   const shebang = /^#!\s*(\S+)(?:\s+(.*))?/.exec(text);
   if (shebang) {
-    const prog = path.basename(shebang[1]!);
+    const prog = programName(path.basename(shebang[1]!));
     const words = prog === 'env' ? (shebang[2] ?? '').split(/\s+/).filter((w) => !w.startsWith('-') && !w.includes('=')) : [prog];
-    const p = words[0] ?? '';
+    const p = programName(words[0] ?? '');
     if (SHELLS.includes(p)) return 'shell';
     if (JS_RUNNERS.includes(p)) return 'js';
     return 'other';
@@ -2347,7 +2495,7 @@ export function reachOf(file: string, opts: FollowOptions): ScriptReach {
     // A bug here mustn't let the script through: it fails closed.
     r.problem ??= `couldn't be followed (${(e as Error).message}).`;
   }
-  return { files: [...r.files], missing: [...r.missing], ...(r.problem ? { problem: r.problem } : {}), ...outsideOf(r) };
+  return { files: [...r.files], missing: [...r.missing], ...(r.problem ? { problem: r.problem } : {}), ...(r.refused ? { refused: r.refused } : {}), ...outsideOf(r) };
 }
 
 // The same for a command a patch writes (an action's `run`, a live
@@ -2362,7 +2510,7 @@ export function reachOfCommand(command: string, label: string, opts: FollowOptio
   } catch (e) {
     r.problem ??= `couldn't be followed (${(e as Error).message}).`;
   }
-  return { files: [...r.files], missing: [...r.missing], ...(r.problem ? { problem: r.problem } : {}), ...outsideOf(r) };
+  return { files: [...r.files], missing: [...r.missing], ...(r.problem ? { problem: r.problem } : {}), ...(r.refused ? { refused: r.refused } : {}), ...outsideOf(r) };
 }
 
 function outsideOf(r: Reach): { outside?: { file: string; dirs: string[] }[] } {

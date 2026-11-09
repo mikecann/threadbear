@@ -16,6 +16,7 @@ import type { Config } from './config.ts';
 import { CONVEX_BIN } from './convex-keys.ts';
 import { convexEnv, readConvexAdmin, SELF_HOSTED_ENV_FILE, type ConvexAdmin } from './convex-admin.ts';
 import { convexPoster, forbiddenText, readSyncKey, type Post } from './sync.ts';
+import { chmodSafe } from './platform.ts';
 
 type Run = { ok: boolean; out: string; err: string };
 type Ssh = (host: string, command: string, input?: string) => Run;
@@ -211,7 +212,7 @@ function adminOf(home: string): ConvexAdmin | undefined {
 function writeKeyFile(file: string, key: string): void {
   const tmp = `${file}.${process.pid}.new`;
   fs.writeFileSync(tmp, key + '\n', { mode: 0o600 });
-  fs.chmodSync(tmp, 0o600);
+  chmodSafe(tmp, 0o600);
   fs.renameSync(tmp, file);
 }
 
@@ -347,7 +348,7 @@ async function add(name: string | undefined, f: Flags, call: (kind: 'query' | 'm
     const file = path.resolve(f.out);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, made.key + '\n', { mode: 0o600 });
-    fs.chmodSync(file, 0o600);
+    chmodSafe(file, 0o600);
     print(`Made a key for runner ${made.runnerId} (${name.trim()}) and wrote it to ${file}. Put it on that Mac as secrets/convex-key in Threadbear's data folder (owner only), then delete this copy and restart that runner (tb restart there).`);
     return 0;
   }

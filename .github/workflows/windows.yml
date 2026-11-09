@@ -1,0 +1,147 @@
+name: windows
+
+# The runner's unit tests, on Windows (docs/on-your-mac.md, "On Windows").
+#
+# It only runs when something under runner/ changes, and by hand:
+#   gh workflow run windows.yml --ref <branch>
+#
+# The job is allowed to fail without failing the workflow (continue-on-error),
+# because upstream.ts holds a release back while any workflow's run on the
+# commit is red, and a Windows test should not hold back a Mac release. A red
+# job still shows in the run, with its log. Take the line out to make Windows
+# a check that blocks.
+
+on:
+  push:
+    branches: [main]
+    paths: ['runner/**', '.github/workflows/windows.yml']
+  pull_request:
+    branches: [main]
+    paths: ['runner/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to a branch (or an update to a pull request) cancels its older run.
+concurrency:
+  group: windows-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runner:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: runner
+    env:
+      # The skip count is printed in the summary of every run. Over this, a
+      # warning: raise it on purpose when a test is skipped on purpose.
+      SKIP_LIMIT: 200
+    steps:
+      # Before the checkout, so files arrive with the line endings they have in
+      # the repository: the runner's image checks out with CRLF otherwise, and
+      # tests that hash or compare file text would differ from a Mac's.
+      - name: Keep line endings as committed
+        shell: bash
+        working-directory: .
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Node 24 is what the runner's engines field asks for.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: runner/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+
+      # node --test counts a file with no tests in it as one passing test, and
+      # skipped tests are not failures, so a green run alone does not say
+      # tests ran. This step keeps the script's exit code and adds three
+      # checks of its own: the totals must show tests that passed, a file that
+      # ran no tests (it shows up as a line for the file, not for a test) is
+      # named in a warning, and the skip count goes in the run's summary.
+      - name: Unit tests that should pass
+        shell: bash
+        run: |
+          log="$RUNNER_TEMP/unit-tests.log"
+          set +e
+          node scripts/test-windows.mjs 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          # node's totals are lines like "ℹ skipped 179", sometimes in colour
+          total() { sed 's/\x1b\[[0-9;]*m//g' "$log" | awk -v k="$1" '$1 == "ℹ" && $2 == k && $3 ~ /^[0-9]+$/ { n = $3 } END { print n + 0 }'; }
+          tests=$(total tests); passed=$(total pass); failed=$(total fail)
+          cancelled=$(total cancelled); skipped=$(total skipped)
+
+          {
+            echo "### Runner unit tests (expected to pass)"
+            echo
+            echo "$passed passed, $failed failed, $cancelled cancelled and **$skipped skipped**, of $tests tests."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Totals: $tests tests, $passed passed, $failed failed, $cancelled cancelled, $skipped skipped"
+
+          if [ "$tests" -eq 0 ] || [ "$passed" -eq 0 ]; then
+            echo "::error::The run reported $tests tests and $passed passed. The suite did not really run."
+            status=1
+          fi
+          if [ "$skipped" -gt "$SKIP_LIMIT" ]; then
+            echo "::warning::$skipped tests were skipped, over the $SKIP_LIMIT this workflow expects. If that is deliberate, raise SKIP_LIMIT in windows.yml."
+          fi
+          sed 's/\x1b\[[0-9;]*m//g' "$log" | grep -E '^(✔|﹣|✖) [^ ]+\.test\.ts \(' > "$RUNNER_TEMP/empty-files.txt" || true
+          if [ -s "$RUNNER_TEMP/empty-files.txt" ]; then
+            echo "::warning::These test files ran no tests (or did not load), which passes without testing anything: $(sed 's/^[^ ]* \([^ ]*\) .*/\1/' "$RUNNER_TEMP/empty-files.txt" | tr '\n' ' ')"
+          fi
+          exit "$status"
+
+      # The known-failing list is a report: a file on it that still fails does
+      # not fail the run. Each file runs on its own, so one that passes now
+      # can be named (a warning on the run, and in its summary) rather than
+      # staying on the list unnoticed. A list that names a file that does not
+      # exist is an error (the script exits 2), not a pass.
+      - name: Unit tests still known to fail
+        shell: bash
+        run: |
+          list=test/windows-known-failing.txt
+          files=$(sed 's/\r//; s/#.*//; s/^[[:space:]]*//; s/[[:space:]]*$//' "$list" | grep -v '^$' || true)
+          if [ -z "$files" ]; then
+            echo "$list is empty: no file is excused."
+            printf '### Known-failing list\n\nEmpty: no file is excused.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          now=""
+          still=""
+          for f in $files; do
+            echo "::group::$f"
+            set +e
+            node scripts/test-windows.mjs "$f"
+            rc=$?
+            set -e
+            echo "::endgroup::"
+            case $rc in
+            0)
+              now="$now $f"
+              echo "::warning file=runner/$list,title=Listed file now passes::$f passes on Windows. Take it off runner/$list."
+              ;;
+            2)
+              echo "::error file=runner/$list::The known-failing list is not valid (see above)."
+              exit 2
+              ;;
+            *) still="$still $f" ;;
+            esac
+          done
+          {
+            echo "### Known-failing list"
+            echo
+            echo "Still failing:${still:- none}"
+            echo
+            echo "**Now passing, take off the list:**${now:- none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Still failing:${still:- none}"
+          echo "Now passing:${now:- none}"

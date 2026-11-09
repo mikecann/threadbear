@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tmpDir } from '../helpers/fakes.ts';
+import { SHELL, shPath } from '../helpers/platform.ts';
 import { wakeNote, WAKE_NOTE_MAX } from '../../src/wake-note.ts';
 import { toThreadDoc, toMessageDoc, WokeRows, type MessageDoc } from '../../src/sync.ts';
 import { redactSecrets, scrubDoc, scrubText } from '../../src/redaction.ts';
@@ -212,12 +213,12 @@ test('review round 3: output read only up to a limit drops the run it stopped in
   const dir = tmpDir('tb-safe-cut-cmd-');
   const file = path.join(dir, 'long.txt');
   fs.writeFileSync(file, `start postgres://alice:${'p9'.repeat(60_000)}@db\n`);
-  const r = await runCommand(`cat ${JSON.stringify(file)}`, { cwd: dir, env: { ...process.env }, shell: ['/bin/sh', '-c'] });
+  const r = await runCommand(`cat ${JSON.stringify(shPath(file))}`, { cwd: dir, env: { ...process.env }, shell: SHELL });
   assert.equal(r.truncated, true);
   assert.ok(!scrubText(r.text).includes('p9p9p9'), r.text.slice(0, 40));
   // A schedule check whose output's start is cut inside a long password.
   fs.writeFileSync(file, `postgres://alice:${'p9'.repeat(10_000)}@db`);
-  const c = await runCheck({ command: `cat ${JSON.stringify(file)}`, cwd: dir, home: dir, scheduleId: 'long', timeoutMs: 10_000 });
+  const c = await runCheck({ command: `cat ${JSON.stringify(shPath(file))}`, cwd: dir, home: dir, scheduleId: 'long', timeoutMs: 10_000 });
   assert.ok(!scrubText(c.output).includes('p9p9p9'), c.output.slice(0, 40));
 });
 
@@ -238,7 +239,7 @@ test('daybreak 8 Nov: output read up to a limit is not cut at a space inside a q
   const dir = tmpDir('tb-safe-cut-space-');
   const file = path.join(dir, 'out.txt');
   fs.writeFileSync(file, `log\n{"password":"${PASSWORD} suffix","blob":"${'B'.repeat(120_000)}"}\n`);
-  const r = await runCommand(`cat ${JSON.stringify(file)}`, { cwd: dir, env: { ...process.env }, shell: ['/bin/sh', '-c'] });
+  const r = await runCommand(`cat ${JSON.stringify(shPath(file))}`, { cwd: dir, env: { ...process.env }, shell: SHELL });
   assert.equal(r.truncated, true);
   assert.ok(!leaks(r.text), JSON.stringify(r.text.slice(0, 80)));
   // As a hook's message embeds it (runner/patches.ts), with the whole password
@@ -250,7 +251,7 @@ test('daybreak 8 Nov: output read up to a limit is not cut at a space inside a q
   assert.ok(doc && !leaks(doc.text), String(doc?.text).slice(0, 120));
   // The same layout whole (not cut) is still kept and left to the scrub.
   fs.writeFileSync(file, `log\n{"password":"${PASSWORD} suffix","blob":"${'B'.repeat(100)}"}\n`);
-  const whole = await runCommand(`cat ${JSON.stringify(file)}`, { cwd: dir, env: { ...process.env }, shell: ['/bin/sh', '-c'] });
+  const whole = await runCommand(`cat ${JSON.stringify(shPath(file))}`, { cwd: dir, env: { ...process.env }, shell: SHELL });
   assert.equal(whole.truncated, false);
   assert.ok(!leaks(scrubText(whole.text)), scrubText(whole.text));
 });
@@ -260,7 +261,7 @@ test('daybreak 8 Nov: a long run at the end still costs only that run, when noth
   const file = path.join(dir, 'out.txt');
   const lines = Array.from({ length: 1000 }, (_, i) => `line ${i} of an ordinary build log`).join('\n');
   fs.writeFileSync(file, `${lines}\n${'B'.repeat(120_000)}`);
-  const r = await runCommand(`cat ${JSON.stringify(file)}`, { cwd: dir, env: { ...process.env }, shell: ['/bin/sh', '-c'] });
+  const r = await runCommand(`cat ${JSON.stringify(shPath(file))}`, { cwd: dir, env: { ...process.env }, shell: SHELL });
   assert.equal(r.truncated, true);
   assert.match(r.text, /line 999 of an ordinary build log\n$/);
 });

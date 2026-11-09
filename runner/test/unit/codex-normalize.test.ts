@@ -38,12 +38,24 @@ function env(): Env {
   return { cwd, codexHome, media, blobs, ctx: fileContext(cwd, media, blobs) };
 }
 
+// The captures were made on a Mac, with the folders as /work/proj and
+// /codex-home. A string that is a path under one is that path in this
+// machine's own spelling (what Codex would send here: backslashes on Windows,
+// all the way along); in any other string the folder's name is swapped in.
+function localise(s: string, e: Env): string {
+  const roots: [string, string][] = [['/work/proj', e.cwd], ['/codex-home', e.codexHome]];
+  for (const [fake, real] of roots) {
+    if ((s === fake || s.startsWith(fake + '/')) && !/\s/.test(s)) return real + s.slice(fake.length).split('/').join(path.sep);
+  }
+  return roots.reduce((t, [fake, real]) => t.replaceAll(fake, real), s);
+}
+
 function load(name: string, e: Env): Rec[] {
   return fs
     .readFileSync(path.join(FIX, `${name}.ndjson`), 'utf8')
     .split('\n')
     .filter(Boolean)
-    .map((l) => JSON.parse(l.replaceAll('/work/proj', e.cwd).replaceAll('/codex-home', e.codexHome)) as Rec);
+    .map((l) => JSON.parse(l, (_key, v) => (typeof v === 'string' ? localise(v, e) : v)) as Rec);
 }
 
 type Replay = { outs: AdapterOutput[]; normalizers: Record<string, CodexNormalizer> };
@@ -179,7 +191,7 @@ test('multi-file-patch: three edit.diff paths on one item, then one replaced', (
   assert.deepEqual(call.input.paths, ['src/a.ts', 'src/new.ts', 'old.txt'].map((p) => path.join(e.cwd, p)));
   const diffs = evs.filter((x) => x.type === 'edit.diff');
   assert.ok(diffs.every((d) => d.itemId === call.itemId));
-  assert.deepEqual(diffs.slice(0, 3).map((d) => path.relative(e.cwd, d.path)), ['src/a.ts', 'src/new.ts', 'old.txt']);
+  assert.deepEqual(diffs.slice(0, 3).map((d) => path.relative(e.cwd, d.path).split(path.sep).join('/')), ['src/a.ts', 'src/new.ts', 'old.txt']);
   assert.deepEqual(diffs[0].hunks[0].lines, [' const a = 1;', '-const b = 2;', '+const b = 3;', ' const c = 4;']);
   assert.deepEqual(diffs[1].hunks[0].lines, ['+export const n = 1;', '+export const m = 2;']);
   assert.deepEqual(diffs[2].hunks, [{ oldStart: 1, oldLines: 1, newStart: 0, newLines: 0, lines: ['-gone'] }]);
