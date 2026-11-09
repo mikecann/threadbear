@@ -1211,6 +1211,10 @@ final class TranscriptTextView: NSTextView {
         }
         guard hasCard else {
             guard super.writeSelection(to: pboard, types: types) else { return false }
+            // The plain text without the spaces the transcript draws with
+            // (no-break, zero-width, the thin one before a work link's ↑),
+            // which a terminal or code editor would keep as characters.
+            if let plain = pboard.string(forType: .string) { pboard.setString(Self.plainCopy(plain), forType: .string) }
             pboard.addTypes([.html], owner: nil)
             pboard.setString(SelectionHTML.html(selection), forType: .html)
             return true
@@ -1218,10 +1222,16 @@ final class TranscriptTextView: NSTextView {
         return Self.write(Self.wordsWithCards(selection), html: selection, to: pboard)
     }
 
+    /// A copy's plain text: a work link's ↑ marker left off, and odd and
+    /// invisible spaces made plain (PlainPaste).
+    static func plainCopy(_ text: String) -> String {
+        PlainPaste.clean(text.replacingOccurrences(of: "\u{2009}↑", with: ""))
+    }
+
     private static func write(_ text: String, html selection: NSAttributedString, to pboard: NSPasteboard) -> Bool {
         pboard.declareTypes([.string, .html], owner: nil)
         pboard.setString(SelectionHTML.html(selection), forType: .html)
-        return pboard.setString(text, forType: .string)
+        return pboard.setString(plainCopy(text), forType: .string)
     }
 
     private func selectionAction(_ action: SelectionBarWindow.Action) {

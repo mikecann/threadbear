@@ -632,7 +632,22 @@ one), and it keeps running while you look at other threads, so going back
 finds it as you left it. A thread on another Mac or the cloud gets a shell
 on this Mac in your home folder, with a line saying so, and so do an
 archived thread (its worktree may be another thread's by now) and the
-new-thread page. If the shell exits, New Shell starts another. A shell
+new-thread page. Click + beside its tab for another shell, in the folder
+the one you're in has got to, so a dev server can keep running in one
+while you work in the next. ✕ closes a tab and ends its shell, and `exit`
+in one of several closes its tab. Double-click a tab, or right-click it
+and choose Rename…, to give it a name of your own (like Dev server); an
+empty name goes back to the shell's own. Pointing at a web address a
+program printed, like a dev server's `http://localhost:5173/`, underlines
+it, and ⌘-click opens it in your browser. Only http and https open this
+way, so text a program prints can't start another app. Pasting turns
+the no-break and zero-width spaces that copies from the transcript and
+the Markdown preview carry into plain spaces, so a pasted command runs
+as it reads. When you quit, each thread's tabs are remembered: their
+folders, names and the last lines they showed, and ⌘J on that thread
+next time brings them back, starting the shell of the tab you're
+looking at. Your shell keeps its own command history, as in Terminal.
+If the last shell exits, New Shell starts another. A shell
 only starts when you ask for one, with ⌘J or a click on the empty panel,
 so looking through threads with it open starts nothing. A thread's shell
 stops when the thread is archived or deleted, and they all stop when you
