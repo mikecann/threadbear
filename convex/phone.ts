@@ -949,7 +949,7 @@ export const quickAsk = mutation({
 // another, by name or by putting it in his order.
 // (Going by the latest heartbeat once sent half of them to Bruce; going by
 // most threads alone let a runner key claim a million threads to get them.)
-async function mainRunner(ctx: QueryCtx): Promise<string> {
+export async function mainRunner(ctx: QueryCtx): Promise<string> {
   const all: Doc<'runners'>[] = [];
   for await (const r of ctx.db.query('runners')) all.push(r);
   const online = (r: Doc<'runners'>) => !r.draining && Date.now() - r.lastSeenAt <= ONLINE_MS;
@@ -1040,7 +1040,7 @@ export const setNotifications = mutation({
   },
 });
 
-async function findThread(ctx: QueryCtx, threadId: string) {
+export async function findThread(ctx: QueryCtx, threadId: string) {
   const t = await ctx.db
     .query('threads')
     .withIndex('by_threadId', (q) => q.eq('threadId', threadId))
@@ -1081,7 +1081,7 @@ async function knownRunner(ctx: QueryCtx, runnerId: string): Promise<string> {
 // what the runner's own pendingCommands reads. One that waits too long goes
 // (sync:pruneFiles, COMMAND_KEEP_MS). Its photos are recorded in commandFiles
 // so a delete elsewhere sees they're still on their way (sync.ts storageInUse).
-async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands', threadId: string | undefined, args: Record<string, unknown>) {
+export async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands', threadId: string | undefined, args: Record<string, unknown>) {
   let n = 0;
   let bytes = docBytes(args);
   for await (const c of ctx.db.query('commands').withIndex('by_runner_state', (q) => q.eq('runnerId', runnerId).eq('state', 'pending'))) {

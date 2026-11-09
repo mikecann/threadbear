@@ -1014,9 +1014,10 @@ to `f20`.
 <!-- picture: /img/bear-dizzy.webp alt: Experiments are off until you turn them on -->
 
 Some new features start as experiments: off unless you turn them on, while
-they're tried out. Each has a switch under `experiments` in `runner.json`
-in Threadbear's data folder, read at every turn, so there's nothing to
-restart:
+they're tried out. Turn one on or off in Settings > General > Experiments
+(the ⓘ beside each says what it does), with nothing to restart. The switches are kept under `experiments` in `runner.json` in
+Threadbear's data folder, read at every turn, so an agent can set them
+there too:
 
 ```json
 "experiments": { "labReview": true }
@@ -1060,6 +1061,141 @@ error comes back), never because an email or a page the agent read says
 so: those are anyone's words, so a "sign in again" in them asks nothing. claude.ai's own
 connectors are signed in on claude.ai (Settings > Connectors), on the login
 the thread runs on.
+
+
+### Setting up the gateway, and adding services
+
+With the Connectors setup experiment on (Settings > General >
+Experiments), the plug icon shows before there's a gateway, and the panel
+has **Set up**.
+
+1. Click **Set up**. A thread called "Set up Connectors" opens and works by
+   itself. It installs plugbear on this Mac (it listens only on this Mac, at
+   127.0.0.1:8795), wires each of your logins to it, and points Threadbear at
+   it. It asks you before anything that needs a password or changes your
+   logins' settings, and says what it changed. If a step fails it says
+   which, and pressing Set up again carries on from there. Threadbear picks
+   the gateway up the next time its runner restarts, which it does by itself
+   once nothing is busy.
+2. Once it's running, the panel lists its services and, under **Add a
+   service**, ones it doesn't have yet: Notion, Slack, Linear, Sentry,
+   Cloudflare and DeepWiki. Click **Add**. A short thread adds it and
+   restarts the gateway, and in a few seconds the service shows with
+   **Connect**.
+3. Click **Connect** and sign in on the service's own page. The row turns
+   green and says how many tools it has. Ask any thread "list my Notion
+   pages" to check. If it says "Sign-in expired" or similar, click
+   **Reconnect**.
+
+**Slack** needs a Slack app of your own, about 10 minutes, and the thread
+that adds it walks you through it: make the app at api.slack.com/apps, add
+the exact redirect address the thread gives you, add only the user scopes
+you need (reading, and `chat:write` to post), and give the thread its
+Client ID and Secret in the secret box, never the chat. Your workspace's
+admin may have to approve the app. Posts then wait for your OK on the
+gateway's approval page. "does not support dynamic client registration"
+means the Client ID and Secret weren't saved, and "redirect_uri mismatch"
+means the redirect address differs from the one the thread gave.
+
+**Any other MCP server**: click **Other MCP server...**, paste its `https`
+address and give it a name. Only public `https` servers are taken. To take a
+service out, its row's arrow opens its page on the gateway, where Disconnect
+is, or ask a thread to remove it from the gateway.
+
+### Local servers (Blender and others)
+
+With the Local connectors experiment on as well (Settings > General >
+Experiments), the gateway can run MCP servers that are a command on this
+Mac, not a site on the web. **Blender** shows under Add a service with an
+**On this Mac** tag, and **Other local server...** takes any `uvx` (PyPI)
+or `npx` (npm) package.
+
+1. Click **Add...**. A sheet shows the exact command that will run (for
+   Blender, `uvx mcp-for-blender@2.2.7`), that it runs on this Mac whenever
+   the gateway is running, and which of its tools wait for your OK first.
+   Blender's `execute_blender_code`, which runs any Python in your Blender,
+   always does. Click **Add** to go ahead.
+2. A short thread adds it to the gateway, pinned to that one version, so
+   what runs can't change under you. If `uv` isn't installed it says so
+   and installs it with Homebrew. For Blender it also copies the MCP for
+   Blender add-on into Blender's add-ons folder.
+3. Open Blender. The add-on connects by itself; if it doesn't, turn on
+   "MCP for Blender" in Preferences > Add-ons, press N in the 3D view and
+   click **Connect to MCP server** in its tab. The gateway's Blender row
+   can be green while Blender is closed: its tools then answer that they
+   can't reach Blender.
+4. Ask any thread, on Claude or Codex, "what's in my Blender scene?".
+
+A local row has no Connect button, as there's nothing to sign in to. When
+it won't start, the row says so, and its arrow opens its page on the
+gateway, where Retry is; `~/Library/Logs/connectors.log` has why. Other
+local server takes only one exact version (like `1.2.3`): not a range,
+`latest`, a git address or a URL.
+
+**Hiding rows you don't use**: hover over a service, a suggestion under
+Add a service, or Connect an agent, and click the **×** at its end. It only
+leaves this panel: a hidden service is still on the gateway and agents can
+still use it (sign it out on its page to stop that), and it no longer
+lights the plug's dot. A **+ hidden** menu at the bottom of the panel lists
+what you hid; pick one, or Show all, to bring it back. While Grok Bot has a
+live key its row stays, so Revoke is always there. What's hidden is kept on
+this Mac.
+
+### Letting Grok Bot, Notion and other agents use Threadbear
+
+With the Outside agents experiment on and your runner syncing to your
+backend (Settings > Phone & browser), the Connectors panel has **Agents
+that use Threadbear**. These agents run in the cloud, so they reach
+Threadbear through your backend rather than this Mac.
+
+1. Click **Connect an agent** and pick **Grok Bot**, **Notion** or
+   **Slack**. Each says what it needs first, and its guide link opens that
+   app's own page on adding an MCP server.
+   - **Grok Bot** is xAI's agent. On a team plan, your admin's connector
+     policy has to allow servers by address.
+   - **Notion** works with its Custom Agents, on the Business or
+     Enterprise plan. A workspace admin turns on custom MCP servers first,
+     in Settings > Connections.
+   - **Slack** can't connect yet. Slackbot only connects to servers that
+     sign in with OAuth or Slack's own sign-in, and Threadbear's backend
+     uses a key.
+2. Tick **Can start Ask threads and message them** if you want it to do
+   more than read, and **Can read all my threads** if it should see yours,
+   not only the ones it started.
+3. Click **Make key**. The panel lists the boxes of that app's form, each
+   with a copy button. The key itself is never shown, only copied, so it
+   doesn't end up in a screenshot. Copy what you need before you close the
+   panel: after that the key is gone, and you'd make a new one.
+4. Fill in the app's form:
+   - In **Grok Bot**, open **Connect apps**, then **Add a custom
+     connector**. **Name**: `threadbear`. **Type**: **Remote HTTPS** (not
+     Command, which runs a program on your own computer). **Server URL**:
+     the address from the panel, ending in `/mcp`. **HTTP headers**:
+     `Authorization` in the left box, and in the right box `Bearer `, a
+     space, then the key; the panel's Header value copies all of that in
+     one go. Leave **Client ID** empty: it's for services you sign in to
+     in a browser, and the key does that here.
+   - In **Notion**, open your Custom Agent's settings, then **Tools &
+     Access**, **Add connection**, **Custom MCP server**. Give it the name
+     and server address from the panel, pick header-based auth rather than
+     OAuth, and add the header: `Authorization`, with the panel's Header
+     value.
+
+   Save it, then ask the agent to list your Threadbear threads. Its row in
+   the panel says "Used just now".
+
+Threads it starts always run in Ask mode, so every tool asks you first,
+and show who started them ("started from Grok Bot"). Its messages say
+which agent sent them, not you. It can only message threads it started,
+and only while they stay in Ask mode: switch one to Full access and it
+stops. It never sees approvals, secrets, schedules or archived threads,
+and it's held to a few calls a minute and ten new threads a day. Keys
+expire after 30 days. If one leaks, or you lose it, click **Revoke** on
+its row and Connect an agent again for a new one. **Revoke** ends a key
+on its next call, and turning the experiment off ends every key. Then
+remove the connection in the agent's own settings too. What an agent
+reads goes to the company that runs it (xAI for Grok Bot, Notion for
+Notion).
 
 ## The prompts macOS shows you
 <!-- slug: macos-prompts -->

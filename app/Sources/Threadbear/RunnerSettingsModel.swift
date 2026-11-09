@@ -60,12 +60,18 @@ extension AppModel {
             if let v = update.bringIn { shown.bringIn = v }
             if let v = update.pool { shown.models.pool = v }
             if let v = update.privateFolders { shown.models.privateFolders = v }
+            if let v = update.experiments {
+                for i in shown.experiments.indices { if let on = v[shown.experiments[i].id] { shown.experiments[i].on = on } }
+            }
             runnerSettings = shown
         }
         Task {
             do {
                 receive(try await client.settingsUpdate(update))
                 settingsError = nil
+                // Standing instructions' box shows only while its
+                // experiment is on, so ask again rather than wait for a reopen.
+                if update.experiments != nil { loadStandingInstructions() }
             } catch {
                 settingsError = error.localizedDescription
                 AppLog.write("rpc", "settings.update failed: \(error.localizedDescription)")

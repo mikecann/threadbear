@@ -33,6 +33,18 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(settings, RunnerSettings(), "an older runner's key field is ignored")
     }
 
+    func testExperimentsDecodeAndAnUpdateSendsOnlyTheSwitch() throws {
+        let json = #"{"experiments":[{"id":"keepAwake","name":"Keep the Mac awake","does":"Stops `caffeinate`  idle sleep.","on":true},{"name":"no id"},{"id":"x"}]}"#
+        let settings = try JSONDecoder().decode(RunnerSettings.self, from: Data(json.utf8))
+        XCTAssertEqual(settings.experiments.map(\.id), ["keepAwake", "x"], "one with no id is skipped")
+        XCTAssertTrue(settings.experiments[0].on)
+        XCTAssertEqual(settings.experiments[1].name, "x", "a missing name falls back to the id")
+        XCTAssertFalse(settings.experiments[1].on)
+        XCTAssertEqual(SettingsText.experimentAbout(settings.experiments[0].does), "Stops caffeinate idle sleep.")
+        XCTAssertEqual(SettingsUpdate(experiments: ["keepAwake": false]).params, ["experiments": .object(["keepAwake": .bool(false)])])
+        XCTAssertEqual(try JSONDecoder().decode(RunnerSettings.self, from: Data("{}".utf8)).experiments, [], "an older runner sends none")
+    }
+
     func testUpdateSendsOnlyWhatChanged() {
         XCTAssertEqual(SettingsUpdate(idleMinutes: 20).params, ["idleMinutes": .number(20)])
         XCTAssertEqual(SettingsUpdate(followMain: false, pool: "claude").params,

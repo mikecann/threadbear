@@ -218,7 +218,10 @@ default, on for him (Mike asked 6 Nov).
   to take it out (for forks). Check `experimentOn(home, '<id>')` where
   it starts. Put `"experiments": { "<id>": true }` in Mike's
   `runner.json` (`~/Library/Application Support/Threadbear/runner.json`)
-  so it's on for him.
+  so it's on for him. Settings > General > Experiments lists it by
+  itself, with its name and "What it does" behind the ⓘ, so there's
+  nothing to add in the app for its switch (`settings.update`'s
+  `experiments`). Write its name and that text for the people flipping it.
 - Run `npm run experiment-docs` in `runner/` and commit
   `docs/experiments.md` with it: the guide and the forking table point
   there, and `experiment-docs.test.ts` fails while it's out of date. Edit

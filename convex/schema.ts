@@ -608,6 +608,44 @@ export default defineSchema({
     // The audit's live tokens, without reading revoked ones.
     .index('by_revokedAt', ['revokedAt']),
 
+  // Outside agents (Grok Bot) reaching Threadbear through /mcp (mcp.ts,
+  // docs/convex-backend.md "Outside agents"). A table of their own, never
+  // `tokens`: checkPhoneToken takes any row there, so a key kept there would
+  // open every phone:* function, approvals and secrets included.
+  agentKeys: defineTable({
+    hash: v.string(), // SHA-256 of the key; the key itself is shown once
+    name: v.string(), // "Grok Bot"
+    scope: v.union(v.literal('read'), v.literal('write')),
+    readAll: v.boolean(), // may read every thread, not only those it started
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+  }).index('by_hash', ['hash']),
+  // The threads an agent key started: what it may message (and, without
+  // readAll, read). threadId comes from the create command once it's done.
+  agentThreads: defineTable({
+    keyId: v.id('agentKeys'),
+    commandId: v.id('commands'),
+    threadId: v.optional(v.string()),
+  })
+    .index('by_key', ['keyId'])
+    .index('by_command', ['commandId']),
+  // One row a call, no text: for the limits and "last used". Kept 30 days.
+  agentCalls: defineTable({
+    keyId: v.id('agentKeys'),
+    tool: v.string(),
+    threadId: v.optional(v.string()),
+    at: v.number(),
+  })
+    .index('by_key_at', ['keyId', 'at'])
+    .index('by_key_tool_at', ['keyId', 'tool', 'at'])
+    .index('by_at', ['at']),
+  // Calls with a bad key, by IP, so guessing is slow. Kept a day.
+  agentAuthFails: defineTable({ ip: v.string(), at: v.number() })
+    .index('by_ip_at', ['ip', 'at'])
+    .index('by_at', ['at']),
+
   // The runner's projects, schedules and accounts (docs/protocol.md), one
   // row each, replaced as a whole when the runner's list changes.
   projects: defineTable({

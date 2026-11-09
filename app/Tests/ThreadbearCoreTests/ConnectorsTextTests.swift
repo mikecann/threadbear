@@ -89,4 +89,155 @@ final class ConnectorsTextTests: XCTestCase {
         XCTAssertNil(ConnectorsText.manageURL(ConnectorsStatus(state: "ok", url: "file:///etc")))
         XCTAssertNil(ConnectorsText.serviceURL(ConnectorsStatus(state: "off"), fine))
     }
+
+    // Connectors setup and Outside agents (experiments).
+
+    func testSetUpAndTheCatalogDecodeLenientlyAndOlderRunnersMeanNeither() throws {
+        let old = try status(#"{"state":"off","services":[]}"#)
+        XCTAssertFalse(old.canSetUp)
+        XCTAssertEqual(old.catalog, [])
+        XCTAssertFalse(ConnectorsText.showsIcon(old, agents: nil))
+        let offer = try status(#"{"state":"off","services":[],"canSetUp":true}"#)
+        XCTAssertTrue(ConnectorsText.showsIcon(offer, agents: nil))
+        let ok = try status(#"{"state":"ok","services":[],"catalog":[{"id":"slack","title":"Slack","blurb":"b","setupNote":"n"},{"title":"no id"},{"id":"notion"}]}"#)
+        XCTAssertEqual(ok.catalog.map(\.id), ["slack", "notion"])
+        XCTAssertEqual(ok.catalog[1].title, "notion")
+        XCTAssertEqual(ok.catalog[0].setupNote, "n")
+        // Outside agents on shows the icon with no gateway at all.
+        XCTAssertTrue(ConnectorsText.showsIcon(old, agents: AgentsList(on: true)))
+        XCTAssertFalse(ConnectorsText.showsIcon(nil, agents: AgentsList(on: false)))
+    }
+
+    func testALocalGatewayIsThisMac() {
+        XCTAssertEqual(ConnectorsText.host(ConnectorsStatus(state: "ok", url: "http://127.0.0.1:8795")), "This Mac")
+        XCTAssertEqual(ConnectorsText.host(ConnectorsStatus(state: "ok", url: "http://localhost:8795")), "This Mac")
+        XCTAssertEqual(ConnectorsText.host(ConnectorsStatus(state: "ok", url: "https://bruce.tail.ts.net:8443")), "bruce")
+    }
+
+    func testAgentKeysReadAsWhatTheyMayDoAndWhenLastUsed() throws {
+        let list = try JSONDecoder().decode(AgentsList.self, from: Data(#"{"on":true,"url":"https://x.convex.site/mcp","keys":[{"id":"k1","name":"Grok Bot","scope":"write","readAll":false,"expiresAt":"2026-12-08T00:00:00Z","expired":false},{"name":"no id"}]}"#.utf8))
+        XCTAssertEqual(list.keys.map(\.id), ["k1"])
+        let key = list.keys[0]
+        XCTAssertEqual(ConnectorsText.scopeLine(key), "Starts Ask threads, reads threads it started")
+        XCTAssertEqual(ConnectorsText.scopeLine(AgentKey(id: "r", name: "R", readAll: true)), "Read only, reads all your threads")
+        XCTAssertEqual(ConnectorsText.lastUsed(key), "Not used yet")
+        let now = Date()
+        let used = AgentKey(id: "u", name: "U", lastUsedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-600)))
+        XCTAssertEqual(ConnectorsText.lastUsed(used, now: now), "Used 10 minutes ago")
+        XCTAssertEqual(ConnectorsText.lastUsed(AgentKey(id: "e", name: "E", expired: true)), "Expired")
+    }
+
+    /// A new key reads as Grok Bot's "Add a custom connector" form, box by
+    /// box, and the header value is the whole "Bearer <key>", so nobody
+    /// pastes the bare key there (8 Nov).
+    func testANewKeyReadsAsGrokBotsFormWithTheWholeHeaderValue() {
+        let fields = ConnectorsText.agentForm(url: "https://x.convex.site/mcp", secret: "tba_abc")
+        XCTAssertEqual(fields.map(\.label), ["Name", "Type", "Server URL", "Header key", "Header value", "Client ID"])
+        func field(_ label: String) -> ConnectorsText.AgentFormField { fields.first { $0.label == label }! }
+        XCTAssertEqual(field("Name").value, "threadbear")
+        XCTAssertEqual(field("Type").value, "Remote HTTPS")
+        XCTAssertFalse(field("Type").copies)
+        XCTAssertEqual(field("Server URL").value, "https://x.convex.site/mcp")
+        XCTAssertEqual(field("Header key").value, "Authorization")
+        XCTAssertEqual(field("Header value").value, "Bearer tba_abc")
+        XCTAssertTrue(field("Header value").copies)
+        XCTAssertEqual(field("Header value").shown, "Bearer tba_••••••••", "the key is copied, never shown")
+        XCTAssertFalse(fields.contains { $0.shown.contains("abc") })
+        XCTAssertFalse(field("Client ID").copies, "left empty, nothing to copy")
+        XCTAssertEqual(fields.filter { $0.copies }.map(\.label), ["Name", "Server URL", "Header key", "Header value"])
+        XCTAssertTrue(fields.allSatisfy { !$0.tip.isEmpty })
+    }
+
+    /// The panel's × hides a row and its + brings it back (8 Nov). Hiding is
+    /// only how the panel looks, so a hidden service drops out of the dot
+    /// and the tooltip too, and the + only offers rows that would be there.
+    func testHiddenRowsLeaveThePanelAndTheDotAndComeBackFromThePlus() {
+        let out = ConnectorService(id: "notion", title: "Notion", state: "signed_out", connectUrl: "https://x/admin/connect/notion")
+        let broken = ConnectorService(id: "cf", title: "Cloudflare", state: "error")
+        let fine = ConnectorService(id: "deepwiki", title: "DeepWiki", state: "connected")
+        let status = ConnectorsStatus(state: "ok", services: [out, broken, fine],
+                                      catalog: [ConnectorCatalogEntry(id: "slack", title: "Slack"), ConnectorCatalogEntry(id: "linear", title: "Linear")])
+        let H = ConnectorsText.Hidden.self
+        let hidden: Set = [H.service("notion"), H.service("cf"), H.catalog("slack"), H.grokBot, H.service("gone")]
+
+        XCTAssertTrue(ConnectorsText.needsYou(status))
+        XCTAssertFalse(ConnectorsText.needsYou(status, hiding: hidden), "no dot for a row Mike hid")
+        XCTAssertFalse(ConnectorsText.quiet(status, hiding: hidden))
+        XCTAssertEqual(ConnectorsText.tooltip(status, hiding: hidden), "Connectors\nEverything is signed in")
+        XCTAssertEqual(ConnectorsText.shown(status.services, hiding: hidden).map(\.id), ["deepwiki"])
+        XCTAssertEqual(ConnectorsText.shown(status.catalog, hiding: hidden).map(\.id), ["linear"])
+
+        let on = AgentsList(on: true, url: "https://x.convex.site/mcp")
+        XCTAssertEqual(H.items(hidden, status: status, agents: on).map(\.title), ["Notion", "Cloudflare", "Slack", "Connect an agent"],
+                       "in the panel's order, and nothing for a service the gateway dropped")
+        XCTAssertEqual(H.items(hidden, status: status, agents: AgentsList(on: false)).map(\.title), ["Notion", "Cloudflare", "Slack"])
+        XCTAssertEqual(H.items([], status: status, agents: on), [])
+
+        XCTAssertEqual(H.decode(H.encode(hidden)), hidden)
+        XCTAssertEqual(H.decode(""), [])
+        XCTAssertEqual(H.decode("service:a\n\n  \ncatalog:b"), ["service:a", "catalog:b"])
+    }
+
+    // MARK: Local connectors (an experiment)
+
+    func testDecodesLocalEntriesAndServicesAndOlderRunnersUnchanged() throws {
+        let s = try status("""
+        {"state":"ok","url":"http://127.0.0.1:8795","canAddLocal":true,
+         "services":[{"id":"blender","title":"Blender","state":"error","local":true,"stateNote":"Not running. Is uv installed?","message":"Not reachable."},
+                     {"id":"notion","state":"signed_out","connectUrl":"http://127.0.0.1:8795/admin/connect/notion"}],
+         "catalog":[{"id":"blender","title":"Blender","kind":"local","command":"uvx mcp-for-blender@2.2.7","asks":["blender__execute_blender_code"]},
+                    {"id":"linear","title":"Linear"}]}
+        """)
+        XCTAssertTrue(s.canAddLocal)
+        XCTAssertEqual(s.services.map(\.local), [true, false])
+        XCTAssertEqual(s.services[0].stateNote, "Not running. Is uv installed?")
+        XCTAssertTrue(s.catalog[0].isLocal)
+        XCTAssertEqual(s.catalog[0].command, "uvx mcp-for-blender@2.2.7")
+        XCTAssertEqual(s.catalog[0].asks, ["blender__execute_blender_code"])
+        XCTAssertFalse(s.catalog[1].isLocal, "no kind: remote, as older runners send")
+        XCTAssertEqual(s.catalog[1].asks, [])
+        let old = try status(#"{"state":"ok","services":[{"id":"x","state":"error"}],"catalog":[{"id":"y"}]}"#)
+        XCTAssertFalse(old.canAddLocal)
+        XCTAssertFalse(old.services[0].local)
+        XCTAssertNil(old.services[0].stateNote)
+        XCTAssertEqual(old.catalog[0].kind, "remote")
+    }
+
+    func testALocalServiceHasNoConnectButtonAndSaysItRuns() {
+        // Even with a connect URL from the gateway: a command has nothing to sign in to.
+        let broken = ConnectorService(id: "blender", title: "Blender", state: "error", connectUrl: "http://127.0.0.1:8795/admin/connect/blender", local: true, stateNote: "Not running.")
+        XCTAssertNil(ConnectorsText.buttonTitle(broken))
+        XCTAssertEqual(ConnectorsText.stateLine(broken), "Not working")
+        let running = ConnectorService(id: "blender", title: "Blender", state: "connected", local: true)
+        XCTAssertEqual(ConnectorsText.stateLine(running), "Running on this Mac")
+        let remote = ConnectorService(id: "x", title: "X", state: "error", connectUrl: "http://127.0.0.1:8795/admin/connect/x")
+        XCTAssertEqual(ConnectorsText.buttonTitle(remote), "Reconnect")
+        // Its page is still in reach for Retry and Disconnect, and hiding works the same.
+        let status = ConnectorsStatus(url: "http://127.0.0.1:8795", services: [broken])
+        XCTAssertEqual(ConnectorsText.serviceURL(status, broken)?.absoluteString, "http://127.0.0.1:8795/admin/connect/blender")
+        XCTAssertEqual(ConnectorsText.shown(status.services, hiding: [ConnectorsText.Hidden.service("blender")]), [])
+        XCTAssertEqual(ConnectorsText.shown([ConnectorCatalogEntry(id: "blender", title: "Blender", kind: "local")], hiding: [ConnectorsText.Hidden.catalog("blender")]), [])
+    }
+
+    func testOtherLocalServerTakesOnlyOneExactVersion() {
+        typealias L = ConnectorsText.LocalServer
+        XCTAssertTrue(L(launcher: "uvx", package: "mcp-for-blender", version: " 2.2.7 ").isPinned)
+        XCTAssertEqual(L(launcher: "uvx", package: "mcp-for-blender", version: "2.2.7").command, "uvx mcp-for-blender@2.2.7")
+        XCTAssertEqual(L(launcher: "npx", package: "@acme/mcp", version: "1.0.0").command, "npx -y @acme/mcp@1.0.0")
+        XCTAssertTrue(L(launcher: "npx", package: "@acme/mcp", version: "1.0.0-beta.2").isPinned)
+        for v in ["latest", "^1.2.3", "~1.2", ">=1", "1.x", "*", "", "git+https://github.com/x/y", "https://x/y.tgz", "1.2.3; rm -rf ~"] {
+            XCTAssertFalse(L(launcher: "uvx", package: "x", version: v).isPinned, v)
+        }
+        XCTAssertFalse(L(launcher: "npx", package: "x", version: "1.2").isPinned, "npm needs three parts")
+        XCTAssertFalse(L(launcher: "sh", package: "x", version: "1.0.0").isPinned)
+        XCTAssertFalse(L(launcher: "uvx", package: "", version: "1.0.0").isPinned)
+        XCTAssertFalse(L(launcher: "uvx", package: "a b", version: "1.0.0").isPinned)
+    }
+
+    func testTrustLinesSayWhatAsksFirst() {
+        let lines = ConnectorsText.trustLines(command: "uvx mcp-for-blender@2.2.7", asks: ["blender__execute_blender_code"])
+        XCTAssertTrue(lines[0].contains("Runs on this Mac whenever Connectors is running"))
+        XCTAssertTrue(lines[1].contains("blender__execute_blender_code"))
+        XCTAssertTrue(ConnectorsText.trustLines(command: "x", asks: [])[1].hasPrefix("None of its tools ask first"))
+    }
 }
