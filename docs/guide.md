@@ -524,8 +524,10 @@ To get rid of one for good, hover it there and click the trash, or
 right-click it and choose Delete…; after you confirm, it goes to the
 runner's trash folder, with no Undo in the app.
 
-Back and Forward (⌘[ and ⌘], in the Go menu) step through the threads and
-pages you've had open, as a browser does. A mouse's side buttons do the same,
+Back and Forward (⌘[ and ⌘], in the Go menu, or the ‹ and › beside the share
+icon at the top right of a thread) step through the threads and
+pages you've had open, as a browser does. Hover either arrow to see which
+thread it goes to. A mouse's side buttons do the same,
 and so does a trackpad swipe, as in Safari: with natural scrolling right for
 Back and left for Forward, and the other way round without it. A card in the
 middle of the window says which thread or page you'll land on, and fills the

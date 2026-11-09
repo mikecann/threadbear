@@ -329,7 +329,7 @@ struct RootView: View {
                 return nil
             },
             accessory: { panel in
-                if panel == WindowDock.main { return AnyView(HStack(spacing: 0) { ShareButton(); ThreadMenuButton() }) }
+                if panel == WindowDock.main { return AnyView(HStack(spacing: 0) { HistoryButtons(); ShareButton(); ThreadMenuButton() }) }
                 if let id = WindowDock.pinnedThread(panel) { return AnyView(HStack(spacing: 0) { ShareButton(pinned: id); ThreadMenuButton(pinned: id) }) }
                 if let section = WindowDock.section(panel) { return AnyView(DockPaneButtons(section: section)) }
                 return nil
