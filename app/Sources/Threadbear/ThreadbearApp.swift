@@ -284,6 +284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             ActivityRecorder.shared.quit()
+            // Each terminal tab's folder, name and screen, for next launch.
+            Terminals.shared.saveForNextLaunch()
             AppUpdater.shared.applyAtQuit()
         }
     }

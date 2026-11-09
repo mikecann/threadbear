@@ -53,6 +53,12 @@ File references are where to look.
   it on, in that thread's folder. They're its own child processes: a
   thread's shell stops when the thread is archived or deleted, and all of
   them stop when the app quits (`app/Sources/Threadbear/Views/TerminalPanel.swift`).
+  A thread can have several, as tabs. When the app quits it writes
+  `terminals.json` in the data folder, readable only by you: each
+  thread's tabs, their folders, names and the last 400 lines each showed,
+  so they come back the next time you open that thread's Terminal. It
+  reads a shell's folder from macOS (`proc_pidinfo`), and a thread's entry
+  is deleted when the thread is archived or deleted.
 - **Files:** the data folder `~/Library/Application Support/Threadbear`
   (threads, settings, `secrets/`, runner releases, the pinned release key
   `upstream-signers`, and `sync-sent.json`, hashes of what's already in your

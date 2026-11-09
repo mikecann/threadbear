@@ -26,7 +26,9 @@ import ThreadbearCore
 final class Terminals {
     static let shared = Terminals()
 
-    @ObservationIgnored private var sessions: [String: TerminalSession] = [:]
+    /// Each target's shells, as tabs in the order they were opened.
+    @ObservationIgnored private var sessions: [String: [TerminalSession]] = [:]
+    @ObservationIgnored private var selected: [String: UUID] = [:]
     /// Bumped to ask the showing terminal to take the keyboard.
     private(set) var focusTick = 0
 
@@ -34,28 +36,106 @@ final class Terminals {
     /// sessions themselves aren't observed).
     private(set) var generation = 0
 
-    /// The target's shell, if one has been started.
+    /// Where each target's tabs were left when the app last quit, and so
+    /// where they come back (TerminalMemory).
+    @ObservationIgnored let memory: TerminalMemory
+
+    /// `memoryFile`: tests give a temporary one, never the data folder's.
+    init(memoryFile: URL? = nil) {
+        memory = TerminalMemory(file: memoryFile ?? RunnerConfig.dataDir().appendingPathComponent("terminals.json"))
+    }
+    /// The target's showing shell, if one has been started.
     func existing(for target: TerminalTarget) -> TerminalSession? {
         _ = generation
-        return sessions[target.key]
+        guard let tabs = sessions[target.key], !tabs.isEmpty else { return nil }
+        let current = tabs.first { $0.id == selected[target.key] } ?? tabs[tabs.count - 1]
+        current.startIfNeeded()
+        return current
+    }
+
+    /// The target's shells, as tabs.
+    func tabs(for target: TerminalTarget) -> [TerminalSession] {
+        _ = generation
+        return sessions[target.key] ?? []
     }
 
     /// The target's shell, starting one if it has none, and gives it the
-    /// keyboard: ⌘J and a click on the empty panel.
+    /// keyboard: ⌘J and a click on the empty panel. Tabs left open when
+    /// the app last quit come back here, in their folders, with what they
+    /// showed; only the one showing starts its shell straight away.
     @discardableResult
     func open(_ target: TerminalTarget) -> TerminalSession {
         defer { focusTick += 1 }
-        if let s = sessions[target.key] { return s }
-        let s = TerminalSession(target: target)
-        sessions[target.key] = s
+        if let s = existing(for: target) { return s }
+        if let saved = memory.take(target.key), !saved.tabs.isEmpty {
+            let tabs = saved.tabs.enumerated().map { index, tab in
+                TerminalSession(target: target, number: index + 1, restoring: tab)
+            }
+            sessions[target.key] = tabs
+            let pick = tabs[min(max(saved.selected, 0), tabs.count - 1)]
+            selected[target.key] = pick.id
+            pick.startIfNeeded()
+            generation += 1
+            return pick
+        }
+        let s = TerminalSession(target: target, number: 1)
+        s.startIfNeeded()
+        sessions[target.key] = [s]
+        selected[target.key] = s.id
         generation += 1
         return s
     }
 
-    /// Stops a thread's shell (the thread was archived or deleted).
-    func stop(threadId: String) {
-        guard let s = sessions.removeValue(forKey: threadId) else { return }
+    /// Another shell for the target, in a tab of its own, showing.
+    @discardableResult
+    func add(_ target: TerminalTarget) -> TerminalSession {
+        let taken = Set((sessions[target.key] ?? []).map(\.number))
+        let number = (1...).first { !taken.contains($0) } ?? 1
+        // In the folder the showing tab is in now, as a new Terminal tab is.
+        let cwd = existing(for: target)?.currentDirectory
+        let s = TerminalSession(target: target, number: number, cwd: cwd)
+        s.startIfNeeded()
+        sessions[target.key, default: []].append(s)
+        selected[target.key] = s.id
+        generation += 1
+        focusTick += 1
+        return s
+    }
+
+    func select(_ id: UUID, in target: TerminalTarget) {
+        guard sessions[target.key]?.contains(where: { $0.id == id }) == true else { return }
+        selected[target.key] = id
+        generation += 1
+        focusTick += 1
+    }
+
+    /// Closes one tab and ends its shell. The last tab can't be closed
+    /// here: ⌘J hides the panel, and the thread's archive stops it.
+    func close(_ id: UUID, in key: String) {
+        guard var tabs = sessions[key], tabs.count > 1, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let s = tabs.remove(at: index)
+        sessions[key] = tabs
+        if selected[key] == id { selected[key] = tabs[min(index, tabs.count - 1)].id }
         s.stop()
+        generation += 1
+        focusTick += 1
+    }
+
+    /// A shell exited by itself (`exit`): one of several closes its tab, as
+    /// Terminal's does; the last stays, with New Shell over it.
+    fileprivate func exited(_ session: TerminalSession) {
+        let key = session.target.key
+        guard (sessions[key]?.count ?? 0) > 1 else { return }
+        close(session.id, in: key)
+    }
+
+    /// Stops a thread's shells (the thread was archived or deleted), and
+    /// forgets where they were.
+    func stop(threadId: String) {
+        memory.forget(threadId)
+        guard let tabs = sessions.removeValue(forKey: threadId) else { return }
+        selected[threadId] = nil
+        tabs.forEach { $0.stop() }
         generation += 1
     }
 
@@ -66,6 +146,7 @@ final class Terminals {
     /// once the runner's full list comes back after a reconnect.
     func stopArchived(in threads: [String: ThreadSummary]) {
         for key in sessions.keys where threads[key]?.isArchived == true { stop(threadId: key) }
+        memory.forget(where: { threads[$0]?.isArchived == true })
     }
 
     /// The runner's full thread list has come back (on connecting): any
@@ -74,21 +155,39 @@ final class Terminals {
     func stopAll(except threadIds: some Collection<String>) {
         let keep = Set(threadIds)
         for key in sessions.keys where key != "home" && !keep.contains(key) { stop(threadId: key) }
+        memory.forget(where: { $0 != "home" && !keep.contains($0) })
     }
 
-    /// A new shell in place of one that has exited.
+    /// A new shell in place of one that has exited, in the same tab.
     func restart(_ key: String) {
-        guard let old = sessions[key] else { return }
-        let fresh = TerminalSession(target: old.target)
-        sessions[key] = fresh
+        guard var tabs = sessions[key], let index = tabs.firstIndex(where: { $0.id == selected[key] }) ?? tabs.indices.last else { return }
+        let old = tabs[index]
+        let fresh = TerminalSession(target: old.target, number: old.number, cwd: old.currentDirectory)
+        fresh.name = old.name
+        fresh.startIfNeeded()
+        tabs[index] = fresh
+        sessions[key] = tabs
+        selected[key] = fresh.id
         old.stop()
         generation += 1
         focusTick += 1
     }
 
+    /// When the app quits: every tab's folder, name and what it showed, for
+    /// next time.
+    func saveForNextLaunch() {
+        for (key, tabs) in sessions where !tabs.isEmpty {
+            let pick = tabs.firstIndex { $0.id == selected[key] } ?? tabs.count - 1
+            memory.remember(key, TerminalMemory.Saved(tabs: tabs.map { $0.snapshot() }, selected: pick))
+        }
+        memory.save()
+    }
+
     /// For the automation and `dump`: what's running where.
     var debugSummary: [String] {
-        sessions.values.sorted { $0.target.key < $1.target.key }.map { "\($0.target.key) \($0.exited ? "exited" : "running") in \($0.target.cwd)" }
+        sessions.keys.sorted().flatMap { key in
+            (sessions[key] ?? []).map { "\(key) \($0.title(fallback: "Terminal \($0.number)")) \($0.exited ? "exited" : $0.started ? "running" : "waiting") in \($0.currentDirectory ?? $0.target.cwd)" }
+        }
     }
 }
 
@@ -121,22 +220,51 @@ struct TerminalTarget: Equatable {
     }
 }
 
-/// One shell in one pty, and the view that draws it.
+/// One shell in one pty, and the view that draws it: one tab of a
+/// thread's terminal.
 @MainActor
 @Observable
 final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
+    let id = UUID()
     let target: TerminalTarget
-    @ObservationIgnored let view: LocalProcessTerminalView
+    /// Its place among the target's tabs, for the name it has until the
+    /// shell gives it one ("Terminal 2").
+    let number: Int
+    /// A name of his own (double-click the tab, or Rename…).
+    var name: String?
+    @ObservationIgnored let view: ThreadTerminalView
     private(set) var exited = false
     private(set) var title = ""
+    @ObservationIgnored private(set) var started = false
+    @ObservationIgnored private let startIn: String
 
-    init(target: TerminalTarget) {
+    init(target: TerminalTarget, number: Int = 1, cwd: String? = nil, restoring saved: TerminalMemory.Tab? = nil) {
         self.target = target
-        view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
+        self.number = number
+        self.name = saved?.name
+        // A folder it was in last time, or the showing tab's, if it's still there.
+        let wanted = saved?.cwd ?? cwd
+        var isDir: ObjCBool = false
+        if let wanted, FileManager.default.fileExists(atPath: wanted, isDirectory: &isDir), isDir.boolValue {
+            startIn = wanted
+        } else {
+            startIn = target.cwd
+        }
+        view = ThreadTerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 240))
         super.init()
         view.processDelegate = self
         view.font = TerminalStyle.font
         TerminalStyle.apply(to: view)
+        if let saved, !saved.screen.isEmpty {
+            // What it showed when the app quit, above the new prompt.
+            view.feed(text: saved.screen.joined(separator: "\r\n") + "\r\n\u{1B}[2m[Restored from the last time Threadbear was open]\u{1B}[0m\r\n")
+        }
+    }
+
+    /// Starts the shell, once: when the tab is first shown.
+    func startIfNeeded() {
+        guard !started else { return }
+        started = true
         start()
     }
 
@@ -145,7 +273,26 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
         // A login shell ("-zsh" as its name), so it reads your profile and
         // has the PATH Terminal gives you, which an app's own doesn't.
         let name = "-" + (shell as NSString).lastPathComponent
-        view.startProcess(executable: shell, args: [], environment: Self.environment(), execName: name, currentDirectory: target.cwd)
+        view.startProcess(executable: shell, args: [], environment: Self.environment(), execName: name, currentDirectory: startIn)
+    }
+
+    /// The tab's name: his own, else the shell's title, else `fallback`.
+    func title(fallback: String) -> String {
+        if let name, !name.isEmpty { return name }
+        let own = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return own.isEmpty ? fallback : own
+    }
+
+    /// The folder the shell is in now (asked of the system, as a shell
+    /// only says when it's set up to), or where it started.
+    var currentDirectory: String? {
+        guard started, !exited, let pid = view.process?.shellPid, pid > 0 else { return started ? nil : startIn }
+        return TerminalMemory.directory(of: pid) ?? startIn
+    }
+
+    /// What to keep of this tab for next time.
+    func snapshot() -> TerminalMemory.Tab {
+        TerminalMemory.Tab(name: name, cwd: currentDirectory ?? startIn, screen: started ? view.screenText(lastLines: TerminalMemory.linesKept) : [])
     }
 
     static func environment(from base: [String: String] = ProcessInfo.processInfo.environment) -> [String] {
@@ -191,7 +338,10 @@ final class TerminalSession: NSObject, LocalProcessTerminalViewDelegate {
     nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
     nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) {
-        MainActor.assumeIsolated { self.exited = true }
+        MainActor.assumeIsolated {
+            self.exited = true
+            Terminals.shared.exited(self)
+        }
     }
 }
 
@@ -228,6 +378,8 @@ struct TerminalPanel: View {
                     .tip(note)
             }
             if let session {
+                TerminalTabStrip(target: target, tabs: Terminals.shared.tabs(for: target), current: session.id)
+                Divider()
                 ZStack(alignment: .bottom) {
                     TerminalHost(session: session, focusTick: Terminals.shared.focusTick)
                         .dockDragDisabled()
@@ -257,6 +409,126 @@ struct TerminalPanel: View {
                 .tip("Start your login shell in \((target.cwd as NSString).abbreviatingWithTildeInPath)")
             }
         }
+    }
+}
+
+/// The tabs above the terminal: one per shell, + for another, ✕ to close
+/// one. Double-click a tab, or Rename… in its right-click menu, to name it.
+private struct TerminalTabStrip: View {
+    let target: TerminalTarget
+    let tabs: [TerminalSession]
+    let current: UUID
+
+    var body: some View {
+        HStack(spacing: zoomed(2)) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: zoomed(2)) {
+                    ForEach(tabs, id: \.id) { tab in
+                        TerminalTabButton(
+                            tab: tab, selected: tab.id == current, closable: tabs.count > 1,
+                            select: { Terminals.shared.select(tab.id, in: target) },
+                            close: { Terminals.shared.close(tab.id, in: target.key) }
+                        )
+                    }
+                    Button { Terminals.shared.add(target) } label: { Image(systemName: "plus") }
+                        .buttonStyle(RowIconButtonStyle())
+                        .tip("Open another terminal, in the folder this one is in")
+                        .accessibilityLabel("New terminal")
+                }
+                .padding(.horizontal, zoomed(6))
+            }
+        }
+        .frame(height: zoomed(30))
+    }
+}
+
+private struct TerminalTabButton: View {
+    let tab: TerminalSession
+    let selected: Bool
+    let closable: Bool
+    let select: () -> Void
+    let close: () -> Void
+    @State private var hovering = false
+    @State private var renaming = false
+    @State private var draft = ""
+    @FocusState private var fieldFocused: Bool
+
+    private var title: String { tab.title(fallback: "Terminal \(tab.number)") }
+
+    var body: some View {
+        HStack(spacing: zoomed(4)) {
+            if renaming {
+                TextField("Name", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: TypeScale.label, weight: .medium))
+                    .frame(width: zoomed(120))
+                    .focused($fieldFocused)
+                    .onSubmit(commit)
+                    .onExitCommand { renaming = false }
+                    .onChange(of: fieldFocused) { _, focused in if !focused && renaming { commit() } }
+                    .tip("Return keeps the name and Escape leaves it as it was. An empty name goes back to the shell's own")
+            } else {
+                Text(title)
+                    .font(.system(size: TypeScale.label, weight: selected ? .medium : .regular))
+                    .foregroundStyle(selected ? .primary : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: zoomed(160), alignment: .leading)
+            }
+            if closable {
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: zoomed(8.5), weight: .semibold))
+                        .frame(width: zoomed(14), height: zoomed(14))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .opacity(hovering || selected ? 1 : 0)
+                .tip("Close this terminal and end its shell")
+                .accessibilityLabel("Close \(title)")
+            }
+        }
+        .padding(.leading, zoomed(8))
+        .padding(.trailing, zoomed(closable ? 4 : 8))
+        .frame(height: zoomed(22))
+        .background(
+            Color.primary.opacity(selected ? 0.1 : hovering ? 0.05 : 0),
+            in: RoundedRectangle(cornerRadius: zoomed(5))
+        )
+        .contentShape(Rectangle())
+        // Both at once, so a click picks the tab straight away rather than
+        // waiting to see whether a second click is coming.
+        .onTapGesture(perform: select)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { startRenaming() })
+        .onHover { hovering = $0 }
+        .iconContextMenu {
+            Button("Rename…", systemImage: "pencil", action: startRenaming)
+            if tab.name != nil { Button("Use the Shell's Name", systemImage: "arrow.uturn.backward") { tab.name = nil } }
+            if closable {
+                Divider()
+                Button("Close Terminal", systemImage: "xmark", action: close)
+            }
+        }
+        .tip(tab.exited ? "This shell has ended" : "\(title). Double-click to rename it")
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: "Rename") { startRenaming() }
+        .accessibilityAction(named: "Close") { if closable { close() } }
+    }
+
+    private func startRenaming() {
+        select()
+        draft = title
+        renaming = true
+        DispatchQueue.main.async { fieldFocused = true }
+    }
+
+    private func commit() {
+        guard renaming else { return }
+        renaming = false
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        tab.name = name.isEmpty ? nil : String(name.prefix(60))
     }
 }
 
