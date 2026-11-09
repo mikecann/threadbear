@@ -115,10 +115,18 @@ struct ProfilePageSection: View {
                         .tip("Open your profile page in the browser")
                 }
             }
-            TextField("Name", text: $draft.name)
-                .tip("The name at the top of your page")
-            TextField("Bio", text: $draft.bio, prompt: Text("One line about you"))
-                .tip("A line under your name, up to 160 characters")
+            LabeledContent("Name") {
+                TextField("Name", text: $draft.name, prompt: Text("Your name"))
+                    .labelsHidden()
+                    .frame(maxWidth: zoomed(170))
+            }
+            .tip("The name at the top of your page")
+            LabeledContent("Bio") {
+                TextField("Bio", text: $draft.bio, prompt: Text("One line about you"))
+                    .labelsHidden()
+                    .frame(maxWidth: zoomed(170))
+            }
+            .tip("A line under your name, up to 160 characters")
             ForEach(draft.links.indices, id: \.self) { i in
                 HStack {
                     TextField("Title", text: $draft.links[i].title, prompt: Text("GitHub"))

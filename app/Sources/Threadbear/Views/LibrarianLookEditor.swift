@@ -45,7 +45,7 @@ struct LibrarianLookEditor: View {
                 }
                 ProfilePageSection(look: look)
             }
-            .formStyle(.grouped)
+            .formStyle(PanelFormStyle())
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
@@ -76,8 +76,12 @@ struct LibrarianLookEditor: View {
                 .controlSize(.small)
             }
             if look.picture != .none {
-                Picker("Size", selection: $look.pictureSize) {
-                    ForEach(LibrarianLook.PictureSize.allCases) { Text($0.title).tag($0) }
+                LabeledContent("Size") {
+                    Picker("Size", selection: $look.pictureSize) {
+                        ForEach(LibrarianLook.PictureSize.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
                 }
                 .tip("How big the picture is on the page")
             }
@@ -215,7 +219,12 @@ struct LibrarianLookEditor: View {
             Toggle("Greet me", isOn: Binding(get: { look.greetingShown }, set: { show($0, .greeting) }))
                 .tip("Good morning, afternoon, evening or night at the top of the page, by this Mac's clock")
             if look.greetingShown {
-                TextField("Name", text: $greetingName, prompt: Text("No name"))
+                LabeledContent("Name") {
+                    TextField("Name", text: $greetingName, prompt: Text("No name"))
+                        .labelsHidden()
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: zoomed(150))
+                }
                     .onChange(of: greetingName) { _, typed in look.greetingName = typed }
                     .tip("The name it greets you by. Leave it empty for just Good morning")
                 Toggle("Show the date and time", isOn: $look.greetingClock)
@@ -282,7 +291,12 @@ struct LibrarianLookEditor: View {
 
     private var githubSection: some View {
         Section {
-            TextField("User name", text: $githubName, prompt: Text("octocat"))
+            LabeledContent("User name") {
+                TextField("User name", text: $githubName, prompt: Text("octocat"))
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: zoomed(150))
+            }
                 .onSubmit { saveGitHubName() }
                 .onChange(of: githubName) { _, typed in
                     // Saved as it's typed once it's a real name, or cleared.
