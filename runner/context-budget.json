@@ -1,13 +1,13 @@
 {
   "claude": {
-    "instructions": 2733,
+    "instructions": 2728,
     "tools": 35353,
-    "total": 38086
+    "total": 38081
   },
   "codex": {
-    "instructions": 2158,
+    "instructions": 2153,
     "tools": 35452,
-    "total": 37610
+    "total": 37605
   },
   "worktreeInstructions": 498,
   "perTool": {

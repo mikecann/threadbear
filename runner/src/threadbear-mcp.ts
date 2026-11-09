@@ -1981,14 +1981,16 @@ export function guidePath(release: Pick<ReleaseJson, 'checkout'> | undefined = R
 
 // Also in the instructions. A new user's first thread asked "tell me about
 // how this app works", and with nothing to read the agent searched the
-// disk for threadbear*, which set off macOS's Dropbox and Desktop prompts.
+// disk for threadbear*, which set off macOS's Dropbox and Desktop prompts. (The
+// line says "folder permission prompts" without "macOS's", since a runner on
+// Windows or Linux says it to its agents too.)
 // Left out when the guide isn't there (a release from before it, a moved
 // checkout), rather than sending the agent to a file that's missing.
 export function guideLine(file = guidePath(), exists: (p: string) => boolean = fs.existsSync): string {
   if (!exists(file)) return '';
   return (
     `For questions about how Threadbear works or how to use it, read its guide, ${file}; the rest of its docs and its code are in ${path.dirname(path.dirname(file))}. ` +
-    "Don't search the filesystem for Threadbear's files: that sets off macOS's folder permission prompts."
+    "Don't search the filesystem for Threadbear's files: that can set off folder permission prompts."
   );
 }
 
