@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { FakeAccounts, makeHarness, tick, tmpDir } from '../helpers/fakes.ts';
 import { projectDirName } from '../../src/transcripts.ts';
@@ -126,7 +127,7 @@ test('the plan says why a thread has nowhere to go, and finds its repo by origin
   const t = machine([{ id: 'claude-1', provider: 'claude', title: 'T', configDir: tmpDir() }]);
   const base = { title: 'x', home: '/Users/mike', accountId: 'a', permissionMode: 'full', worktree: false, schedules: 0 };
   const plan = (info: Record<string, unknown>, extra: Partial<MoveRow> = {}) => t.runner.planMove(row('t', { info: { ...base, ...info } as never, ...extra }));
-  assert.deepEqual(await plan({ cwd: '/Users/mike/nowhere-at-all', provider: 'claude' }), { problem: "There's no folder " + path.join(process.env.HOME!, 'nowhere-at-all') + ' on T1. Pick one to move it into.' });
+  assert.deepEqual(await plan({ cwd: '/Users/mike/nowhere-at-all', provider: 'claude' }), { problem: "There's no folder " + path.join(os.homedir(), 'nowhere-at-all') + ' on T1. Pick one to move it into.' });
   assert.deepEqual(await plan({ cwd: '/x', provider: 'codex' }), { problem: 'T1 has no Codex login.' });
   assert.deepEqual(await plan({ cwd: '/x', provider: 'claude' }, { accountId: 'nope' }), { problem: 'T1 has no login nope.' });
 

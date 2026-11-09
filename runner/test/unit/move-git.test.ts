@@ -11,7 +11,8 @@ import { changedFiles, packGit, repoKey, unpackGit } from '../../src/move-git.ts
 import { aliasedDir, IS_WINDOWS, NO_SHORT_NAMES } from '../helpers/short-names.ts';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-move-git-')));
-const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'advice.detachedHead=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+// core.autocrlf off: a Windows machine often has it on, and then a checkout reads back with CRLF endings
+const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'advice.detachedHead=false', '-c', 'core.autocrlf=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const write = (dir: string, file: string, text: string) => {
   fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
   fs.writeFileSync(path.join(dir, file), text);
@@ -33,8 +34,8 @@ function repos() {
   execFileSync('git', ['clone', '-q', '--bare', seed, origin]);
   const s = path.join(root, 's');
   const t = path.join(root, 't');
-  execFileSync('git', ['clone', '-q', origin, s]);
-  execFileSync('git', ['clone', '-q', origin, t]);
+  execFileSync('git', ['clone', '-q', '-c', 'core.autocrlf=false', origin, s]);
+  execFileSync('git', ['clone', '-q', '-c', 'core.autocrlf=false', origin, t]);
   return { root, origin, s, t };
 }
 
@@ -141,6 +142,7 @@ test('a repo with no origin sends its whole history', async () => {
   const t = path.join(root, 't');
   fs.mkdirSync(t);
   git(t, 'init', '-q');
+  git(t, 'config', 'core.autocrlf', 'false');
   assert.deepEqual(await unpackGit(t, packed.meta, packed.bundle), { ok: true });
   assert.equal(fs.readFileSync(path.join(t, 'x.txt'), 'utf8'), '1\n');
 });
