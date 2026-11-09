@@ -185,7 +185,9 @@ async function makeWorktreeNow(opts: { cwd: string; threadId: string; patch: Wor
   }
   const base = await gitOut(mainCheckout, ['rev-parse', MAIN]);
   if (!base) return { ok: false, reason: `couldn't read ${MAIN} in ${mainCheckout}` };
-  const patchFile = path.relative(top, realpath(opts.patch.file));
+  // Kept with forward slashes whatever the platform: the record goes in the thread's
+  // file, and a thread can be moved to another machine (path.join reads either)
+  const patchFile = path.relative(top, realpath(opts.patch.file)).split(path.sep).join('/');
   const done = (where: string): MadeWorktree => ({
     ok: true,
     worktree: { repo, mainCheckout, path: where, branch, base, ...(keep ? { keep } : {}), patchFile },
