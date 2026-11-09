@@ -54,9 +54,9 @@ private struct CustomizedLibrarianPage: View {
     var body: some View {
         let look = self.look
         CustomizedPage(backdrop: Looks.image(look.background), dim: look.backgroundDim, focus: look.backgroundFocus, slot: .librarian,
-                       isEmpty: look.layout.isEmpty,
-                       customizeTip: "Change the picture, the background, and where each part of this page sits") {
-            ForEach(look.layout) { block in
+                       filled: Set(look.layout.map(look.place)),
+                       customizeTip: "Change the picture, the background, and where each part of this page sits") { place in
+            ForEach(look.layout.filter { look.place($0) == place }) { block in
                 part(block, look: look)
             }
         } buttons: {

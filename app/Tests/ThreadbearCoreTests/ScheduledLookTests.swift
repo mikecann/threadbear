@@ -11,14 +11,13 @@ final class ScheduledLookTests: XCTestCase {
 
     func testPartsMoveToTopMiddleOrBottom() {
         var look = ScheduledLook()
+        XCTAssertEqual(ScheduledLook.Block.allCases.map(look.place), [.top, .top, .top], "all at the top, as the page ships")
         look.setPlace(.bottom, for: .picture)
-        look.setPlace(.top, for: .numbers)
         XCTAssertEqual(look.layout, [.about, .numbers, .picture])
         look.setPlace(.middle, for: .about)
         XCTAssertEqual(look.layout, [.numbers, .about, .picture])
         // Moving back to where each starts isn't kept as a change.
         look.setPlace(.top, for: .picture)
-        look.setPlace(.middle, for: .numbers)
         look.setPlace(.top, for: .about)
         XCTAssertTrue(look.isStandard)
     }
@@ -50,10 +49,10 @@ final class ScheduledLookTests: XCTestCase {
         look.hiddenNumbers = ["paused"]
         XCTAssertEqual(ScheduledLook.load(look.data()), look)
 
-        let odd = #"{"picture":"hologram","places":{"numbers":"top","rocket":"top","about":"sideways"},"hidden":["picture","greeting"],"backgroundDim":-4,"newThing":1}"#
+        let odd = #"{"picture":"hologram","places":{"numbers":"bottom","rocket":"top","about":"sideways"},"hidden":["picture","greeting"],"backgroundDim":-4,"newThing":1}"#
         let loaded = ScheduledLook.load(Data(odd.utf8))
         XCTAssertEqual(loaded.picture, .bear)
-        XCTAssertEqual(loaded.place(.numbers), .top)
+        XCTAssertEqual(loaded.place(.numbers), .bottom)
         XCTAssertEqual(loaded.place(.about), .top)
         XCTAssertEqual(loaded.hidden, [.picture])
         XCTAssertEqual(loaded.backgroundDim, 0)

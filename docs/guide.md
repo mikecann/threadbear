@@ -881,7 +881,10 @@ Librarian page's. Its panel keeps the bear, uses a picture of your own or
 has none, and sets its size; puts a photo behind the page, with Position
 and Fade as on the Librarian page; moves the picture, the title and status,
 and the numbers to the top, middle or bottom, or hides them; and picks
-which numbers show. Turning the switch off puts the page back as it ships
+which numbers show. On this page the places are where a part sits in the
+window: middle is the middle of the space left, and bottom is the
+window's bottom edge. A page too tall for the window stacks them in order
+and scrolls. Turning the switch off puts the page back as it ships
 and keeps your changes; Reset to the standard page clears them.
 
 A schedule's message brings an archived thread out of the archive while it

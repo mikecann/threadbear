@@ -38,9 +38,9 @@ private struct CustomizedScheduledPage: View {
         // `saved` redraws the page as the panel changes the look.
         let look = ScheduledLook.load(saved)
         CustomizedPage(backdrop: Looks.image(look.background), dim: look.backgroundDim, focus: look.backgroundFocus, slot: .scheduled,
-                       isEmpty: look.layout.isEmpty,
-                       customizeTip: "Change the picture, the background, and where each part of this page sits") {
-            ForEach(look.layout) { block in
+                       filled: Set(look.layout.map(look.place)), pinsPlaces: true,
+                       customizeTip: "Change the picture, the background, and where each part of this page sits") { place in
+            ForEach(look.layout.filter { look.place($0) == place }) { block in
                 part(block, look: look)
             }
         } buttons: {

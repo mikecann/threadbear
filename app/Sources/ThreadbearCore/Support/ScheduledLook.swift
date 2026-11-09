@@ -45,13 +45,11 @@ public struct ScheduledLook: Codable, Equatable, Sendable, PictureLook {
 
     public var isStandard: Bool { self == .standard }
 
-    /// Where a part sits when it hasn't been moved: as the page ships.
-    public static func defaultPlace(_ block: Block) -> Place {
-        switch block {
-        case .picture, .about: .top
-        case .numbers: .middle
-        }
-    }
+    /// Where a part sits when it hasn't been moved: all at the top, so the
+    /// page looks as it ships. Middle and bottom are real places in the
+    /// window on this page (the middle of the space, the bottom edge), so
+    /// anything there would move away from the rest.
+    public static func defaultPlace(_ block: Block) -> Place { .top }
 
     public func place(_ block: Block) -> Place { places[block.rawValue] ?? Self.defaultPlace(block) }
 
