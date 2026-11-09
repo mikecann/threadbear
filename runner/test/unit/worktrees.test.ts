@@ -1146,12 +1146,11 @@ test('the teardown runs once per archive: a delete after it skips it, and a thre
 // that trust.
 function trustedTeardownRepo(log: string) {
   const { main } = makeRepo(PATCH(`{ teardown: "./teardown.sh" }`));
-  commit(main, { 'teardown.sh': `#!/bin/sh\necho "torn down $PWD" >> ${log}\n` }, 'teardown');
-  fs.chmodSync(path.join(main, 'teardown.sh'), 0o755);
-  sh(main, 'git add -A && git commit -qm modes');
+  commit(main, { 'teardown.sh': `#!/bin/sh\necho "torn down $PWD" >> ${shPath(log)}\n` }, 'teardown');
+  markExecutable(main, ['teardown.sh']);
   const trust = new PatchTrust();
   trust.trustCurrent([path.join(main, '.threadbear/patches/checks.ts')]);
-  const h = makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 10_000, patchTrust: trust });
+  const h = makeHarness(undefined, {}, { actionShell: SHELL, actionTimeoutMs: 10_000, patchTrust: trust });
   return { main, trust, h };
 }
 
@@ -1161,7 +1160,8 @@ function trustedTeardownRepo(log: string) {
 // script's own `./helper.sh` ran from beside the link, unhashed. (Beside
 // the repo's top it happened to be hashed anyway, which hid this from the
 // first test of it.) Setup, hooks and actions are bound the same way.
-test('a symlinked patch has its scripts followed from where they run, so a helper beside the link is hashed', async () => {
+const NO_SYMLINK_SWAPS_ON_WINDOWS = skipOnWindows("Making a symlink needs Developer Mode or an administrator on Windows, and Git Bash's ln -s copies instead");
+test('a symlinked patch has its scripts followed from where they run, so a helper beside the link is hashed', NO_SYMLINK_SWAPS_ON_WINDOWS, async () => {
   const dir = fs.realpathSync(tmpDir('tb-td-'));
   const log = path.join(dir, 'log');
   const { main } = makeRepo('');
@@ -1194,7 +1194,7 @@ test('a symlinked patch has its scripts followed from where they run, so a helpe
   }
 });
 
-test("a worktree folder swapped for a link to the main checkout gets no teardown, and the main checkout is left alone", async () => {
+test("a worktree folder swapped for a link to the main checkout gets no teardown, and the main checkout is left alone", NO_SYMLINK_SWAPS_ON_WINDOWS, async () => {
   const dir = fs.realpathSync(tmpDir('tb-td-'));
   const log = path.join(dir, 'log');
   const { main, h } = trustedTeardownRepo(log);
@@ -1232,7 +1232,7 @@ function swapDuringGit(match: string, wt: string, main: string): () => void {
 
 // Codex's second look, 9 Nov: the folder was checked before an await, so a
 // swap while git listed the worktrees passed, and the teardown ran in main.
-test('a worktree folder swapped for a link while the cleanup waits on git gets no teardown', async () => {
+test('a worktree folder swapped for a link while the cleanup waits on git gets no teardown', NO_SYMLINK_SWAPS_ON_WINDOWS, async () => {
   const dir = fs.realpathSync(tmpDir('tb-td-'));
   const log = path.join(dir, 'log');
   const { main, h } = trustedTeardownRepo(log);
@@ -1252,7 +1252,7 @@ test('a worktree folder swapped for a link while the cleanup waits on git gets n
   assert.equal(sh(main, 'git status --porcelain'), '');
 });
 
-test("a worktree folder swapped for a link while the cleanup reads its status never has main's checkout detached or removed", async () => {
+test("a worktree folder swapped for a link while the cleanup reads its status never has main's checkout detached or removed", NO_SYMLINK_SWAPS_ON_WINDOWS, async () => {
   const { main } = makeRepo(PATCH(`{ keep: ["app/.build"] }`));
   const h = harness();
   const { id, w } = await threadWithWorktree(h, main);
@@ -1272,7 +1272,7 @@ test("a worktree folder swapped for a link while the cleanup reads its status ne
 
 // A .git swapped for a fifo (or any git that hangs) used to hold the cleanup,
 // and everything waiting on it, for ever.
-test('git gives up after its time limit, and that counts as a failure', async () => {
+test('git gives up after its time limit, and that counts as a failure', skipOnWindows("The stand-in git is a shell script on PATH, which Windows won't start as git"), async () => {
   const { main } = makeRepo();
   const t = makeBranch(main);
   const realGit = sh('/', 'command -v git');
@@ -1296,7 +1296,7 @@ test('git gives up after its time limit, and that counts as a failure', async ()
   }
 });
 
-test("a worktree's patch swapped for a fifo doesn't hold the runner up: the teardown is skipped, saying so, and the cleanup goes on", async () => {
+test("a worktree's patch swapped for a fifo doesn't hold the runner up: the teardown is skipped, saying so, and the cleanup goes on", skipOnWindows('Windows has no fifos (mkfifo)'), async () => {
   const dir = fs.realpathSync(tmpDir('tb-td-'));
   const log = path.join(dir, 'log');
   const { main, h } = trustedTeardownRepo(log);
@@ -1310,10 +1310,10 @@ test("a worktree's patch swapped for a fifo doesn't hold the runner up: the tear
   assert.deepEqual(lines(log), []);
 });
 
-test('a setup or teardown that ignores SIGTERM still ends at the timeout, so neither the first turn nor the cleanup waits for ever', async () => {
+test('a setup or teardown that ignores SIGTERM still ends at the timeout, so neither the first turn nor the cleanup waits for ever', NO_SIGNALS_ON_WINDOWS, async () => {
   const STUCK = `trap '' TERM; while :; do sleep 0.2; done`;
   const td = makeRepo(PATCH(`{ teardown: "${STUCK}" }`));
-  const h = makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 300 });
+  const h = makeHarness(undefined, {}, { actionShell: SHELL, actionTimeoutMs: 300 });
   const { id, w } = await threadWithWorktree(h, td.main);
   h.runner.update({ threadId: id, archived: true });
   await until(() => notes(h, id).some((n) => n.startsWith('Removed')), 'the cleanup, past the teardown');
@@ -1322,7 +1322,7 @@ test('a setup or teardown that ignores SIGTERM still ends at the timeout, so nei
   assert.ok(!fs.existsSync(w.path));
 
   const su = makeRepo(PATCH(`{ setup: "${STUCK}" }`));
-  const h2 = makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 300 });
+  const h2 = makeHarness(undefined, {}, { actionShell: SHELL, actionTimeoutMs: 300 });
   const { thread } = h2.runner.create({ text: 'Go', accountId: 'claude-3', cwd: su.main });
   await until(() => h2.adapter.sessions.length === 1, 'the first turn, past the setup');
   const setup = h2.events(thread.id).find((e) => e.type === 'action.run' && e.trigger === 'worktree.setup');
