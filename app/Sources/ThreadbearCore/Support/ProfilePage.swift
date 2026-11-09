@@ -35,6 +35,12 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
         }
     }
 
+    /// The parts Customize offers. The background photo is held back for
+    /// now (Wayne, 8 Nov): the runner and site still know it, so putting
+    /// it back is taking it off `heldBack`.
+    public static let heldBack: Set<Part> = [.background]
+    public static var offered: [Part] { Part.allCases.filter { !heldBack.contains($0) } }
+
     public struct Link: Codable, Equatable, Sendable, Identifiable {
         public var title: String
         public var url: String
@@ -85,6 +91,12 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
         var s = self
         s.links = links.filter { Self.linkProblem($0.url) == nil }
         s.home = published && home
+        // A part held back is never sent, even if an older build turned it on.
+        s.show = show.filter { !Self.heldBack.contains($0) }
+        if Self.heldBack.contains(.background) {
+            s.backgroundPath = nil
+            s.backgroundDim = nil
+        }
         return s
     }
 

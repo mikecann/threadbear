@@ -159,17 +159,12 @@ struct ProfilePageSection: View {
 
     private var partsSection: some View {
         Section("What's on it") {
-            ForEach(ProfilePageSettings.Part.allCases) { part in
+            ForEach(ProfilePageSettings.offered) { part in
                 Toggle(part.title, isOn: Binding(get: { draft.shows(part) }, set: { draft.setShown($0, part) }))
                     .tip(part.tip)
             }
             if draft.shows(.github), GitHubUser.clean(look.githubUser).isEmpty {
                 Text("Type your GitHub user name under GitHub activity above.")
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.secondary)
-            }
-            if draft.shows(.background), look.background == nil {
-                Text("Choose a background photo above first.")
                     .font(.system(size: TypeScale.label))
                     .foregroundStyle(.secondary)
             }

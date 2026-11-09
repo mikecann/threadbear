@@ -58,4 +58,16 @@ struct ProfilePageTests {
         let status = try JSONDecoder().decode(ProfilePageStatus.self, from: Data(#"{"profile":null,"url":"https://a.convex.site/profile"}"#.utf8))
         #expect(status.profile == nil && status.url == "https://a.convex.site/profile")
     }
+
+    @Test func backgroundPhotoIsHeldBack() {
+        #expect(!ProfilePageSettings.offered.contains(.background))
+        var settings = ProfilePageSettings()
+        settings.show = [.picture, .background]
+        settings.backgroundPath = "/tmp/b.jpg"
+        settings.backgroundDim = 0.4
+        let sent = settings.sendable
+        #expect(sent.show == [.picture], "an older build's switch doesn't send it")
+        #expect(sent.backgroundPath == nil)
+        #expect(sent.backgroundDim == nil)
+    }
 }

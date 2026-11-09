@@ -31,8 +31,10 @@ extension AppModel {
         var s = settings.sendable
         s.order = ProfilePageSettings.cardOrder(look)
         s.picturePath = Self.profilePicturePath(look)
-        s.backgroundPath = look.background.map { Looks.folder.appendingPathComponent($0).path }
-        s.backgroundDim = look.background == nil ? nil : look.backgroundDim
+        if !ProfilePageSettings.heldBack.contains(.background) {
+            s.backgroundPath = look.background.map { Looks.folder.appendingPathComponent($0).path }
+            s.backgroundDim = look.background == nil ? nil : look.backgroundDim
+        }
         let github = GitHubUser.clean(look.githubUser)
         s.githubUser = github.isEmpty ? nil : github
         if isBusy(BusyKey.saveProfilePage) {

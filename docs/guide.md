@@ -819,7 +819,7 @@ own Threadbear site, at `https://<your deployment>.convex.site/profile`.
 Your site is yours alone, so there's no user name to pick, and your Convex
 backend serves the page, so it needs one (Your phone and a browser). It
 saves as you change it, like the rest of Customize. Give it a name, a line
-about you and up to four links, then turn on each part you want on it: the Librarian page's picture, its background photo, Threadbear
+about you and up to four links, then turn on each part you want on it: the Librarian page's picture, Threadbear
 activity (a year of days shaded by the threads you started), GitHub
 activity, the numbers you pick (threads this year, active days, longest
 streak, projects, models used), the projects you tick (title and thread
