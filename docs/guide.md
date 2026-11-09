@@ -617,6 +617,10 @@ the one you're reading, right-click it in the list and pick Open in New
 Panel.
 
 The View menu has the rest: Show or Hide Threads (⌃⌘S) for the list,
+Collapse or Expand Threads (⌘/), which folds the list away while the bar
+of icons on the left stays, gives its room to the thread, and brings it
+back at the same width (clicking Threads, Scheduled, Projects or
+Librarian in that bar brings it back too),
 Show or Hide Panels (⌥⌘P) for the panels beside the thread, Show or Hide
 Terminal (⌘J), and Reset Panel Layout, which puts everything back how it
 started. Threadbear remembers your layout between launches.
@@ -1040,6 +1044,7 @@ key:
 - Zoom Out: `zoomOut`, ⌘-
 - Actual Size: `actualSize`, ⌘0
 - Show Threads: `toggleThreads`, ⌃⌘S
+- Collapse Threads: `collapseThreads`, ⌘/
 - Show Panels: `togglePanels`, ⌥⌘P
 - Show Terminal: `toggleTerminal`, ⌘J
 - Reset Panel Layout: `resetPanelLayout`, no key

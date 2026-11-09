@@ -84,8 +84,11 @@ struct ThreadbearApp: App {
                         .disabled(zoom.isDefault)
                     Divider()
                     // The sidebar's panel, with the key other Mac apps use.
-                    Button(app.dock.layout.contains(WindowDock.threads) ? "Hide Threads" : "Show Threads", systemImage: "sidebar.left") { app.toggleThreadsPanel() }
+                    Button(app.threadsShowing ? "Hide Threads" : "Show Threads", systemImage: "sidebar.left") { app.toggleThreadsPanel() }
                         .shortcut(.toggleThreads)
+                    // Folds the panel away and back as it was; the activity bar stays.
+                    Button(app.threadsShowing ? "Collapse Threads" : "Expand Threads", systemImage: "sidebar.squares.left") { app.toggleThreadsCollapsed() }
+                        .shortcut(.collapseThreads)
                     // The pane sections (Highlights, a project's panels, Patches)
                     // open in the dock (WindowDock).
                     Button(app.panelsShown ? "Hide Panels" : "Show Panels", systemImage: "sidebar.right") { app.togglePanels() }

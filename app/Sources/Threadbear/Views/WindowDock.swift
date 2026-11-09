@@ -381,6 +381,9 @@ struct RootView: View {
             // A project's panel or Patches only for a thread that has them;
             // the dock keeps their place for the next one that does.
             available: { panel in
+                // Folded away with ⌘/: the main panel takes its room, and it
+                // comes back at the same width (AppModel.threadsCollapsed).
+                if panel == WindowDock.threads { return !app.threadsCollapsed }
                 if let id = WindowDock.pinnedThread(panel) { return app.threads[id] != nil }
                 // A project's page has no Highlights (they're a thread's),
                 // and only the panels its folders give.

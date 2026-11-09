@@ -591,6 +591,14 @@ final class AppModel {
             }
         }
     }
+    /// The Threads panel folded away with ⌘/ (Wayne, 8 Nov). Unlike Hide
+    /// Threads it stays in the dock layout, only unavailable (DockContent),
+    /// so it comes back where it was, as wide as it was, and the main panel
+    /// takes its room meanwhile. Remembered across launches.
+    var threadsCollapsed: Bool = UserDefaults.standard.bool(forKey: AppModel.threadsCollapsedKey) {
+        didSet { UserDefaults.standard.set(threadsCollapsed, forKey: Self.threadsCollapsedKey) }
+    }
+    static let threadsCollapsedKey = "threadsCollapsed"
     /// Inbox sections folded away under their heading, remembered across
     /// launches (Mike asked 27 Oct). Hibernating and Archive start folded.
     var collapsedSections: Set<InboxSection> = AppModel.storedCollapsedSections() {
