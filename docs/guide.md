@@ -639,6 +639,48 @@ stops when the thread is archived or deleted, and they all stop when you
 quit Threadbear. The Terminal is a panel like the others: drag it
 beside the thread, into a tab, or out into a window of its own.
 
+## Git
+
+A thread working in a git repo gets a Git panel on the rail down the
+right, like VS Code's Source Control. It's an experiment for now: turn on
+Git panel in Settings > General > Experiments. The panel is for the repo
+the thread's folder is in, or, for a thread in a folder that isn't a
+repo, the first repo among its projects' folders.
+
+Along the top are the repo, the branch and how far it is from its remote,
+with Fetch, Sync and Push. Below them, write a message and press the one
+button, which changes with what's next: Commit when something's staged,
+Sync with the arrows counting what's to push and pull, or Publish branch
+for a branch the remote doesn't have yet. Its chevron has Commit,
+Commit & Push and Commit & Sync. ⌘↩ commits, ⇧⌘↩ commits and pushes. ✨ in
+the message box has Claude Haiku write the message from what's staged, in
+the style of the repo's recent commits (not in a private folder).
+
+The lists fold: Staged, Changes and Commits. Point at a file for + to
+stage it or − to unstage it, or at a list's heading to do them all. A dot
+marks a commit that isn't pushed yet, and a pushed one opens on the web.
+The panel's button counts what's waiting on you: staged files plus
+commits to push.
+
+Two chips above the message box do the same through the agent: Commit
+staged & push and Sync. They turn up only when there's something to do,
+and the agent writes the message, deals with a rejected push and says
+what it shipped. Saying "commit and push" in your own words does the
+same.
+
+Nothing here force-pushes or skips the repo's hooks, and Push and Sync
+only push to a remote you own: one under your GitHub login (the one `gh`
+is signed in as), or an owner you list in `runner.json`. `"*"` allows any.
+
+```json
+"gitPanel": { "pushOwners": ["you", "your-org"] }
+```
+
+`"chips"` in the same place says when the chips show: `"when-needed"`
+(the default), `"always"` or `"off"`. A repo whose own git settings would
+run something when it's read (a filter or a diff driver) is left alone,
+and the panel says so: ask the agent instead.
+
 ## Highlights
 <!-- slug: highlights -->
 

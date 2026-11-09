@@ -152,6 +152,9 @@ export type RpcServerOptions = {
   // The thread whose CLI a client port's process runs under, if any
   // (peer.ts, docs/protocol.md "Who's really calling").
   callerOfPort?: (port: number) => Promise<string | undefined>;
+  // Plain HTTP pages served beside /rpc (the Git panel's, git-panel.ts):
+  // true when it answered the request, false to leave it to the 404.
+  pages?: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>;
   // Tests shorten these.
   authTimeoutMs?: number;
   maxPendingAuth?: number;
@@ -177,8 +180,15 @@ export class RpcServer {
         res.end('{"ok":true}');
         return;
       }
-      res.writeHead(404);
-      res.end();
+      const notFound = () => {
+        if (res.headersSent) return;
+        res.writeHead(404);
+        res.end();
+      };
+      if (!opts.pages) return notFound();
+      opts.pages(req, res).then((answered) => {
+        if (!answered) notFound();
+      }, notFound);
     });
     // A socket that never finishes its request headers is let go sooner
     // than Node's minute.

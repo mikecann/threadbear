@@ -63,6 +63,7 @@ import { verifiedUrl } from './verified-imports.ts';
 import { inBackground } from './background.ts';
 import { CUT_LOOKAHEAD, safeEnd, safeEndOfPartial } from './safe-cut.ts';
 import { groupAlive, killGroup } from './proc.ts';
+import { GIT_PATCH, gitPanelOn, gitPatch } from './git-panel.ts';
 
 export const CONVEX_DASHBOARD = 'https://dashboard.convex.dev';
 // `npx convex dev` on an anonymous (no account) deployment serves the
@@ -260,6 +261,17 @@ function builtins(cwd: string, home: string, roots: ProjectFolder[], dirs: Folde
     if (xcodeDir && !found.has('xcode@' + xcodeDir)) {
       found.add('xcode@' + xcodeDir);
       out.push(inFolder({ info: { id: 'xcode', source: 'builtin' }, panels: [simulatorPanel(xcodeDir)], actions: [], hooks: [] }, root, xcodeDir));
+    }
+    // The Git panel and its chips (git-panel.ts), for the repo the folder
+    // is in. A .git file is a worktree's or a submodule's.
+    const gitDir = gitPanelOn() ? findUp(start, home, (d) => dirs.exists(path.join(d, '.git'))) : undefined;
+    if (gitDir && !found.has('git@' + gitDir)) {
+      found.add('git@' + gitDir);
+      const git = gitPatch(gitDir, root !== undefined);
+      if (git) {
+        const withLive = <T extends object>(x: T & { id: string }): T => Object.assign(x, git.live.has(x.id) ? { [BUILTIN_LIVE]: git.live.get(x.id) } : {});
+        out.push(inFolder({ info: { id: GIT_PATCH, source: 'builtin', folder: gitDir }, panels: [withLive(git.panel)], actions: git.actions.map(withLive), hooks: [] }, root, gitDir));
+      }
     }
   };
   add(cwd);
@@ -1077,9 +1089,16 @@ type LiveFunctions = { when?: LiveFunction; badge?: LiveFunction; label?: LiveFu
 // keyed like listFunctions. Kept off the items, which go over the wire.
 const liveFunctions = new Map<string, LiveFunctions>();
 
+// A built-in patch's live functions (the Git panel's) ride on its items
+// themselves, as a built-in has no file to key them by. A symbol, as with
+// ACTION_TRUST: copying an item keeps it and JSON leaves it out.
+const BUILTIN_LIVE = Symbol('builtinLive');
+
 export const LIVE_TIMEOUT_MS = 10_000;
 
 function liveFor(set: PatchSet, item: { id: string; patch: string }): LiveFunctions | undefined {
+  const builtin = (item as { [BUILTIN_LIVE]?: LiveFunctions })[BUILTIN_LIVE];
+  if (builtin) return builtin;
   const file = set.patches.find((p) => p.id === item.patch)?.file;
   return file ? liveFunctions.get(listKey(file, item.id.slice(item.patch.length))) : undefined;
 }

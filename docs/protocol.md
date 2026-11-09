@@ -4004,6 +4004,7 @@ access none of this changes anything.
 |---|---|---|
 | `convex` | a folder with `convex/` and a `package.json` or `convex.json` beside it (a bare folder called `convex` isn't enough) | `convex.dashboard`, a `url` panel: `https://dashboard.convex.dev/d/<name>` for the `CONVEX_DEPLOYMENT` in `.env.local` (then `.env`), `http://127.0.0.1:6790` for an anonymous local deployment, the dashboard's front page with no deployment yet. A cloud deployment's panel also has `convex`, with the deployment's URL from the `.env.local` (then `.env`) line ending `CONVEX_URL` (`CONVEX_URL`, `VITE_CONVEX_URL`, ...). Only those lines of the file are read, and a file over 64 KB is skipped as if it weren't there |
 | `xcode` | a folder with an `.xcodeproj` or `.xcworkspace` | `xcode.simulator`, an `image` panel drawn by `panels.render` |
+| `git` | the Git panel experiment on (`gitPanel`), and a folder with a `.git` (a folder, or a worktree's or submodule's file), found from the thread's folder up to home, else from each project folder's | `git.git`, a `url` panel the runner serves itself (The Git panel, below), with a badge of staged files plus commits to push; and the `prompt` actions `git.commit-staged-push` and `git.sync`, shown only when there's something to do |
 | `worktree` | a thread with a worktree of its own (see Worktrees) | no panel: the action `worktree.land`, "Land", which runs `tb land` |
 
 A client shows what it can: a `url` panel in a web view, an `image` panel
@@ -4053,6 +4054,62 @@ the dashboard. The app opens `url` only if it's Convex's own device page
 maybe another Mac's, sends it, and any other answer, first or on a later
 `check`, stops the sign-in with that said rather than opening it. `-32041` (the login can't reach the deployment) gets Sign in
 as someone else, the same with `force`. No terminal either way.
+
+### The Git panel
+
+The `git` built-in's panel is a page the runner serves from its own
+port, the one `/rpc` is on, under `/git/` (`src/git-panel.ts`, its page
+`src/git-panel/page.html`). No new port, and nothing in the app: a client
+shows it as any `url` panel. Its address is
+
+```
+http://127.0.0.1:<port>/git/?repo=<the repo's folder>&k=<key>
+```
+
+where `key` is an HMAC-SHA256 of `git-panel\0<folder>` under the
+runner's token, base64url: only the runner can make one, and it opens
+that one repo. The panel is in the summary, which only goes to clients
+on the local connection (it isn't part of the mirror). The runner
+answers `/git/` only:
+
+- from the loopback address, with a `Host` of `127.0.0.1:<port>` or
+  `localhost:<port>`, so a runner listening on the tailnet doesn't serve
+  it there and a page can't reach it by DNS rebinding;
+- for a repo a thread of this runner has had the panel for since it
+  started, with that repo's key;
+- for the API, with the key in an `X-Threadbear-Git` header, and a POST
+  only as `application/json` and from no other `Origin`, which another
+  page can't send without a preflight the runner never answers.
+
+The page itself (`GET /git/`) is sent with a Content-Security-Policy that
+lets it talk only to its own origin. The API, under `/git/api/`:
+
+| call | body | does |
+|---|---|---|
+| `GET state?repo=` | | the branch, upstream, remote, ahead and behind (as of the last fetch), commits no remote has, the staged, changed and conflicting files, the last 8 commits (a pushed one with its web link), a rebase or merge in progress, when it last fetched, `push` (`{ ok }` or `{ ok: false, why }`) and whether `generate` is there. `{ problem }` instead for a repo the panel won't read |
+| `POST stage`, `unstage` | `{ repo, files }` or `{ repo, all: true }` | `git add` or `git restore --staged` (`git rm --cached` before the first commit). A file is a path in the repo: one that's absolute or has `..` is dropped |
+| `POST commit` | `{ repo, message }` | commits what's staged, with the repo's hooks |
+| `POST push` | `{ repo }` | pushes to the upstream, or publishes the branch to its remote with `-u` |
+| `POST sync` | `{ repo }` | fetch, `pull --rebase --autostash`, then push. On a clash it aborts the rebase and lists the files |
+| `POST fetch` | `{ repo }` | `fetch --prune` |
+| `POST generate` | `{ repo }` | `{ ok, text }`: a commit message for the staged diff (the first 60,000 characters) and the last 12 subjects, from the runner's Models (`generate`, Haiku on the pool, feature `git-panel`), never for a private folder |
+
+Each answers `{ ok, message }`. Git runs with `execFile`, never a shell,
+and paths after `--`. What the runner reads by itself (state, the chips'
+and badge's counts, the diff for generate) runs with `liveCommandEnv`'s
+settings (Shell allowlist), so the repo's own config can't make it run a
+hook, fsmonitor or anything else, and not at all in a repo whose own
+config sets a `filter`, `diff` or `merge` driver. What's pressed runs as
+git in a terminal would, hooks and all, with no prompt or editor. Nothing
+force-pushes or passes `--no-verify`.
+
+A push (and Sync's) goes only to a remote whose owner, from its URL, is
+allowed: `runner.json`'s `gitPanel.pushOwners` (case aside; `"*"` for
+any), or with none set, the GitHub login `gh config get user -h
+github.com` names, for a `github.com` remote. Anything else is refused
+with why, and the chips' prompts tell the agent the same rule and to ask
+first. `gitPanel.chips` is `"when-needed"` (the default), `"always"` or
+`"off"`.
 
 ## Highlights
 
