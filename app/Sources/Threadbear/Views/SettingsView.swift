@@ -133,6 +133,8 @@ private struct GeneralSettings: View {
             .onChange(of: appearance) { _, new in new.apply() }
         }
 
+        LookSettings()
+
         SettingsSection("Notifications",
                         about: "A soft ding when a thread finishes working: its reply is done, it's waiting for your answer, or it hit an error. It plays wherever you are, even in another app, and stays quiet for a thread you stopped yourself. Notifications themselves are in System Settings > Notifications.",
                         ask: "change when the ding plays.") {
@@ -801,5 +803,96 @@ enum SettingsWindow {
         guard !window.styleMask.contains(.resizable) else { return }
         window.styleMask.insert(.resizable)
         window.contentMinSize.width = SettingsLayout.minWidth
+    }
+}
+
+// MARK: Look
+
+/// Pictures of your own on Threadbear's pages (Looks), both off by default
+/// and kept on this Mac: Customize on the Librarian page, and a background
+/// picture in the main window, chosen here.
+private struct LookSettings: View {
+    @AppStorage(Looks.librarianOnKey) private var librarianOn = false
+    @AppStorage(Looks.mainBackgroundOnKey) private var backgroundOn = false
+    @AppStorage(Looks.mainBackgroundKey) private var background = ""
+    @AppStorage(Looks.mainBackgroundEverywhereKey) private var everywhere = false
+    @AppStorage(Looks.mainBackgroundDimKey) private var dim = Looks.defaultDim
+    @AppStorage(Looks.mainBackgroundXKey) private var focusX = BackdropFocus.bottom.x
+    @AppStorage(Looks.mainBackgroundYKey) private var focusY = BackdropFocus.bottom.y
+    @State private var problem: String?
+
+    private var focus: Binding<BackdropFocus> {
+        Binding(get: { BackdropFocus(x: focusX, y: focusY) }, set: { focusX = $0.x; focusY = $0.y })
+    }
+
+    var body: some View {
+        SettingsSection("Look",
+                        about: "Customize the Librarian page adds Customize at the top right of the Librarian page: change or remove the bear, put a photo behind the page, move each part to the top, middle or bottom, hide parts and numbers, and show your GitHub activity. Turning it off puts the page back as it ships and keeps your changes for next time. Background picture puts a photo of yours behind a new thread in the main window, or behind every thread, faded so text stays readable in light and dark. Pictures are copied into Threadbear's data folder and never sent anywhere.",
+                        ask: "change the Librarian page or the background for you.") {
+            Toggle("Customize the Librarian page", isOn: $librarianOn)
+                .tip("Add Customize to the Librarian page: its picture, a background, the layout, and what shows")
+            Toggle("Background picture in the main window", isOn: $backgroundOn)
+                .tip("A photo of yours behind new threads")
+            if backgroundOn {
+                LabeledContent("Picture") {
+                    HStack(spacing: 8) {
+                        if let image = Looks.image(background) {
+                            Image(nsImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 56, height: 32)
+                                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                // A clipped photo's hidden overflow still takes clicks.
+                                .allowsHitTesting(false)
+                        }
+                        Button(background.isEmpty ? "Choose…" : "Replace…") { choose() }
+                            .tip("Pick a photo from your Mac. A copy is kept, so the original can move")
+                        if !background.isEmpty {
+                            Button("Remove") { setBackground("") }
+                                .tip("Take the background away and delete the copy")
+                        }
+                    }
+                }
+                if !background.isEmpty {
+                    if let image = Looks.image(background) {
+                        LabeledContent("Position") {
+                            BackdropPositioner(image: image, slot: .main, focus: focus)
+                        }
+                    }
+                    Toggle("Show behind open threads too", isOn: $everywhere)
+                        .tip("Off, only a new thread has it. On, every thread's transcript sits over it")
+                    LabeledContent("Fade") {
+                        Slider(value: $dim, in: 0...0.9)
+                            .frame(maxWidth: 180)
+                            .tip("How much the window's own colour covers the photo, so text stays easy to read")
+                    }
+                }
+                if let problem {
+                    Text(problem)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    private func choose() {
+        Looks.choosePicture(prompt: "Use as Background") { use($0) }
+    }
+
+    private func use(_ url: URL) {
+        guard let name = Looks.importPicture(from: url, maxSide: 2880, prefix: "window") else {
+            problem = "That file isn't a picture Threadbear can read."
+            return
+        }
+        problem = nil
+        setBackground(name)
+        // A new photo starts on the bottom edge, not where the last one was.
+        focus.wrappedValue = .bottom
+    }
+
+    private func setBackground(_ name: String) {
+        let old = background
+        background = name
+        if !old.isEmpty, old != name { Looks.remove(old) }
     }
 }

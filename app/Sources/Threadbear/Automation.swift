@@ -596,13 +596,7 @@ enum Automation {
                       let anchor = all(TipAnchorView.self, in: content).last(where: { $0.text == tip && !$0.isHiddenOrHasHiddenAncestor })
                 else { return "error no control with the tip \(tip)" }
                 let center = anchor.convert(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: nil)
-                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                    guard let event = NSEvent.mouseEvent(with: type, location: center, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                         windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
-                    else { return "error no event" }
-                    window.sendEvent(event)
-                }
-                return "ok"
+                return click(at: center, in: window)
             }
             guard let title = c["title"] as? String else { return "error no title" }
             let buttons = all(NSButton.self, in: app.transcript.tableView)
@@ -615,12 +609,20 @@ enum Automation {
             // top left, through the window as a real one goes, without moving
             // the pointer. For what has no tooltip to find it by.
             guard let window, let x = c["x"] as? Double, let y = c["y"] as? Double else { return "error needs x and y" }
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                guard let event = NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: window.frame.height - y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
-                else { return "error no event" }
-                window.sendEvent(event)
-            }
+            return click(at: NSPoint(x: x, y: window.frame.height - y), in: window)
+        case "wheel":
+            // {"cmd":"wheel","x":,"y":,"dy":-2000}: a scroll wheel turned over
+            // a point in the main window (points from its top left), for a
+            // panel's scroll view rather than the transcript's. Negative dy
+            // goes down the page.
+            guard let window, let x = c["x"] as? Double, let y = c["y"] as? Double else { return "error needs x and y" }
+            let dy = Int32(number(c["dy"]) ?? -2000)
+            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0) else { return "error no event" }
+            let point = NSPoint(x: x, y: window.frame.height - y)
+            cg.location = CGPoint(x: window.frame.minX + point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - (window.frame.minY + point.y))
+            guard let event = NSEvent(cgEvent: cg), let content = window.contentView,
+                  let target = content.hitTest(content.convert(point, from: nil)) else { return "error nothing there" }
+            target.scrollWheel(with: event)
             return "ok"
         case "press-button":
             // {"cmd":"press-button","id":"b7k2abcd"} (or "title":"Fill in the
@@ -1685,5 +1687,23 @@ private final class AutomationDrag: NSObject, NSDraggingInfo {
     func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?, classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:], using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
     var springLoadingHighlight: NSSpringLoadingHighlight { .none }
     func resetSpringLoading() {}
+}
+
+extension Automation {
+    /// A click through the window as a real one goes, without the pointer.
+    /// The mouse-up is queued before the mouse-down is sent: an AppKit
+    /// control (a switch, a text box) tracks the press by waiting for the
+    /// next event, so a mouse-up sent only after the down returns never
+    /// reaches it and the app stops answering.
+    @MainActor static func click(at point: NSPoint, in window: NSWindow) -> String {
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return "error no event" }
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        return "ok"
+    }
 }
 #endif

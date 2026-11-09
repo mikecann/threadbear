@@ -987,4 +987,36 @@ export default defineSchema({
     nonce: v.string(),
     createdAt: v.number(),
   }).index('by_nonce', ['nonce']),
+
+  // The public profile page, /profile (profile.ts, docs/guide.md "The
+  // librarian"). One row, as a deployment is one person's: written by the
+  // owner runner from what Mike turned on in the Librarian page's Customize
+  // panel. A part he left off is never sent, so it isn't here to leak.
+  // `published` false shows the page only to his own signed-in browser;
+  // `home` also shows it to visitors at the site's front page. About 3 KB.
+  profile: defineTable({
+    // Only rows written before 9 Nov, when the page was /@<handle>.
+    handle: v.optional(v.string()),
+    published: v.boolean(),
+    home: v.optional(v.boolean()),
+    name: v.string(),
+    bio: v.string(),
+    links: v.array(v.object({ title: v.string(), url: v.string() })),
+    // The page's cards, top to bottom ('numbers', 'activity', 'github',
+    // 'projects'); only those turned on are listed.
+    order: v.array(v.string()),
+    pictureId: v.optional(v.id('_storage')),
+    backgroundId: v.optional(v.id('_storage')),
+    backgroundDim: v.optional(v.number()),
+    memberSince: v.optional(v.string()),
+    numbers: v.optional(v.array(v.object({ key: v.string(), label: v.string(), value: v.string() }))),
+    // Threads started each day, oldest first, from `start` (YYYY-MM-DD).
+    activity: v.optional(v.object({ start: v.string(), counts: v.array(v.number()) })),
+    github: v.optional(v.string()),
+    projects: v.optional(v.array(v.object({ title: v.string(), threads: v.number(), symbol: v.optional(v.string()) }))),
+    // Whose public commits the page's changelog lists, and on which repo
+    // ('owner/name'); the visitor's browser reads them from GitHub.
+    changelog: v.optional(v.object({ repo: v.string(), author: v.string() })),
+    updatedAt: v.number(),
+  }),
 });

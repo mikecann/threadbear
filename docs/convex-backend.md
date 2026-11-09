@@ -758,6 +758,24 @@ reading each row again to delete it after 30 days (`pruneBodies`), so about twic
 comes up. Bumping the rules re-sends nothing; `scrub-stored.mjs` covers this table,
 but it's the one table where a run over everything costs real I/O.
 
+
+## The profile page (8 Nov 2026)
+
+One `profile` row (`convex/profile.ts`), about 3 KB: what Mike turned on
+for his public page at `/profile` (a deployment is one person's, so no
+handle), written by the owner runner (`profile:publish`, owner key only)
+as he changes it and then at most hourly when it
+has changed, so a day costs at most 24 writes and usually one. Its picture
+and background are two files in storage, deleted when replaced or turned
+off. The changelog is only `{ repo, author }`: the visitor's browser
+lists the commits from GitHub, so none are stored or counted here.
+`profile:view` is public: the row when published, or for a valid
+phone token (Mike's own browser) when not; it reads one row and no thread,
+however many people open the page. `/profile` and `/` are exact GET routes
+in `http.ts` (Convex matches exact paths before prefixes) that serve
+index.html with the page's name, bio and picture in the meta tags, `/` only
+while `home` is on; the static-hosting component serves everything else.
+
 ## The Pocket (API 19)
 
 The phone's deck of cards for when Mike's out (`pocketCards`, the `pocket`

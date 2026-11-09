@@ -8,14 +8,154 @@ import ThreadbearCore
 /// it's doing now and its numbers.
 struct LibrarianHome: View {
     @Environment(AppModel.self) private var app
+    /// Settings > General > Look. Off, the page is as it ships, whatever
+    /// look is saved; the look is kept for when it's back on.
+    @AppStorage(Looks.librarianOnKey) private var customizable = false
 
     var body: some View {
-        HomePage(picture: Art.librarian, pictureLabel: "The librarian bear, filing a card in a card catalogue", pokes: PokeLines.librarian,
-                 stats: app.librarian.map { LibrarianStats.tiles($0, projects: app.projects, threads: Array(app.threads.values)) } ?? []) {
-            LibrarianAbout(status: app.librarian)
-        } below: {
+        let stats = app.librarian.map { LibrarianStats.tiles($0, projects: app.projects, threads: Array(app.threads.values)) } ?? []
+        if customizable {
+            CustomizedLibrarianPage(stats: stats)
+        } else {
+            HomePage(picture: Art.librarian, pictureLabel: "The librarian bear, filing a card in a card catalogue", pokes: PokeLines.librarian,
+                     stats: stats) {
+                LibrarianAbout(status: app.librarian)
+            } below: {
+                if let status = app.librarian {
+                    LibrarianSettings(status: status)
+                }
+            }
+        }
+    }
+}
+
+/// The Librarian's page laid out as the user set it (LibrarianLook): their
+/// picture or none, a background picture, each part at the top, middle or
+/// bottom, and only the parts and numbers they want. Customize at the top
+/// right opens the editor beside the page, which changes it as you go.
+private struct CustomizedLibrarianPage: View {
+    @Environment(AppModel.self) private var app
+    @AppStorage(Looks.librarianKey) private var saved = Data()
+    @State private var editing = false
+    let stats: [HomeStat]
+
+    private var look: LibrarianLook { LibrarianLook.load(saved) }
+
+    /// The profile page's address, only while it's published.
+    private var publishedProfile: URL? {
+        guard let status = app.profilePage, status.profile?.published == true else { return nil }
+        return status.profileURL
+    }
+
+    private var lookBinding: Binding<LibrarianLook> {
+        // `saved` above still redraws the page when the look changes.
+        Looks.librarianBinding()
+    }
+
+    var body: some View {
+        let look = self.look
+        let backdrop = Looks.image(look.background)
+        HStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: zoomed(32)) {
+                    ForEach(look.layout) { block in
+                        part(block, look: look)
+                    }
+                    if look.layout.isEmpty {
+                        Text("Everything on this page is hidden. Customize puts it back.")
+                            .font(.system(size: TypeScale.label))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: zoomed(1000), alignment: .leading)
+                .padding(.horizontal, zoomed(32))
+                .padding(.top, zoomed(28))
+                .padding(.bottom, zoomed(48))
+                .frame(maxWidth: .infinity)
+            }
+            .background {
+                if let backdrop { BackdropPicture(image: backdrop, dim: look.backgroundDim, focus: look.backgroundFocus, slot: .librarian) }
+            }
+            .environment(\.onPicture, backdrop != nil)
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: zoomed(8)) {
+                    if look.profileButton, let url = publishedProfile {
+                        Button { _ = OpenGate.openLink(url) } label: {
+                            Label("View profile page", systemImage: "person.crop.circle")
+                        }
+                        .controlSize(.small)
+                        .tip("Open your public profile page in the browser. Customize > Profile page turns this button off")
+                    }
+                    if !editing {
+                        Button { withAnimation(.easeOut(duration: 0.18)) { editing = true } } label: {
+                            Label("Customize", systemImage: "paintbrush")
+                        }
+                        .controlSize(.small)
+                        .tip("Change the picture, the background, and where each part of this page sits")
+                    }
+                }
+                .padding(zoomed(14))
+            }
+            // The button needs to know the page is published, which only the
+            // runner knows: asked once it's connected, when not held already.
+            .task(id: app.connection == .connected) {
+                if app.connection == .connected, app.profilePage == nil, !app.profilePageMissing { app.loadProfilePage() }
+            }
+            if editing {
+                Divider()
+                LibrarianLookEditor(look: lookBinding) {
+                    withAnimation(.easeOut(duration: 0.18)) { editing = false }
+                }
+                .frame(width: zoomed(320))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func part(_ block: LibrarianLook.Block, look: LibrarianLook) -> some View {
+        switch block {
+        case .greeting:
+            LibrarianGreeting(name: look.greetingName, clock: look.greetingClock)
+                .frame(maxWidth: zoomed(620), alignment: .leading)
+        case .quote:
+            LibrarianQuote(look: look)
+                .frame(maxWidth: zoomed(620), alignment: .leading)
+        case .picture:
+            let image = look.picture == .own ? Looks.image(look.pictureFile) : Art.librarian
+            if let image {
+                // Room under it for what the bear says when it's poked.
+                PokeablePicture(picture: image,
+                                label: look.picture == .own ? "Your picture" : "The librarian bear, filing a card in a card catalogue",
+                                lines: look.picture == .bear ? PokeLines.librarian : [],
+                                side: look.pictureSize.side)
+                    .padding(.bottom, look.picture == .bear ? zoomed(4) : 0)
+            }
+        case .about:
+            LibrarianAbout(status: app.librarian, hidden: look.hiddenAbout)
+                .frame(maxWidth: zoomed(620), alignment: .leading)
+        case .numbers:
+            let shown = stats.filter { !look.hiddenNumbers.contains($0.key) }
+            if !shown.isEmpty {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: zoomed(170)), spacing: zoomed(14), alignment: .top)],
+                    alignment: .leading,
+                    spacing: zoomed(14)
+                ) {
+                    ForEach(shown) { HomeStatTile(stat: $0) }
+                }
+                .frame(maxWidth: zoomed(620), alignment: .leading)
+            }
+        case .activity:
+            ThreadbearActivityCard()
+                .frame(maxWidth: zoomed(760), alignment: .leading)
+        case .github:
+            GitHubActivityCard(user: look.githubUser)
+                .frame(maxWidth: zoomed(760), alignment: .leading)
+        case .settings:
             if let status = app.librarian {
                 LibrarianSettings(status: status)
+                    .frame(maxWidth: zoomed(620), alignment: .leading)
             }
         }
     }
@@ -25,13 +165,17 @@ struct LibrarianHome: View {
 /// doing now.
 private struct LibrarianAbout: View {
     let status: LibrarianStatus?
+    /// The parts a customized page took off (LibrarianLook.AboutPart).
+    var hidden: Set<LibrarianLook.AboutPart> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: zoomed(12)) {
-            HomeTitle(title: "Librarian",
-                      line: "Keeps your projects tidy as your threads go.",
-                      more: Self.more)
-            if let status {
+            if !hidden.contains(.title) || !hidden.contains(.line) {
+                HomeTitle(title: hidden.contains(.title) ? nil : "Librarian",
+                          line: hidden.contains(.line) ? nil : "Keeps your projects tidy as your threads go.",
+                          more: Self.more)
+            }
+            if let status, !hidden.contains(.status) {
                 HomeStatusLine(text: LibrarianText.state(status), busy: status.state == .working)
             }
         }
@@ -101,22 +245,113 @@ private struct LibrarianSettings: View {
 enum LibrarianStats {
     typealias Tile = HomeStat
 
+    /// Every number, by its key, for the editor's switches: there even
+    /// while the runner's away and the tiles aren't.
+    static let names: [(key: String, title: String)] = [
+        ("looks", "Looks today"), ("skipped", "Skipped today"), ("tokens", "Tokens today"),
+        ("made", "Projects it made"), ("filed", "Threads it filed"), ("waiting", "Waiting"),
+    ]
+
     static func tiles(_ status: LibrarianStatus, projects: [Project], threads: [ThreadSummary]) -> [Tile] {
         let made = projects.filter { $0.createdBy == .librarian && !$0.archived }.count
         let filed = threads.filter { $0.archivedAt == nil && $0.projects.contains { $0.by == .librarian } }.count
         return [
             Tile(value: "\(status.looksToday)", label: "Looks today",
-                 help: "Threads it has looked at since midnight"),
+                 help: "Threads it has looked at since midnight", key: "looks"),
             Tile(value: "\(status.skippedToday)", label: "Skipped today",
-                 help: "Catch-ups after only a quick reply, skipped without asking the model"),
+                 help: "Catch-ups after only a quick reply, skipped without asking the model", key: "skipped"),
             Tile(value: LibrarianText.tokens(status.tokensToday), label: "Tokens today",
-                 help: "What today's looks sent and got back"),
+                 help: "What today's looks sent and got back", key: "tokens"),
             Tile(value: "\(made)", label: made == 1 ? "Project it made" : "Projects it made",
-                 help: "Projects the librarian started that aren't archived"),
+                 help: "Projects the librarian started that aren't archived", key: "made"),
             Tile(value: "\(filed)", label: filed == 1 ? "Thread it filed" : "Threads it filed",
-                 help: "Open threads the librarian put in a project"),
+                 help: "Open threads the librarian put in a project", key: "filed"),
             Tile(value: "\(status.queue.count)", label: "Waiting",
-                 help: "Threads queued for a look, listed in the sidebar"),
+                 help: "Threads queued for a look, listed in the sidebar", key: "waiting"),
         ]
+    }
+}
+
+/// "Good morning, Wayne" at the top of a customized Librarian page, by the
+/// time on this Mac, with the date and time under it. It changes on the
+/// minute, so the morning turns to afternoon without a reload.
+private struct LibrarianGreeting: View {
+    let name: String
+    let clock: Bool
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let now = context.date
+            VStack(alignment: .leading, spacing: zoomed(6)) {
+                Text(Greeting.text(hour: Calendar.current.component(.hour, from: now), name: name))
+                    .font(.system(size: zoomed(28), weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                if clock {
+                    Text(now.formatted(.dateTime.weekday(.wide).month(.wide).day().hour().minute()))
+                        .font(.system(size: TypeScale.label))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// Today's quote on a customized Librarian page (Quotes): the words, who
+/// said them and what they do, with where it's from in the tooltip. The
+/// refresh button shows another for the rest of the day; the day turns at
+/// 4 am on this Mac's clock. Right-click to copy it.
+private struct LibrarianQuote: View {
+    @Environment(\.onPicture) private var onPicture
+    let look: LibrarianLook
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let day = Quotes.dayKey(context.date)
+            if let quote = Quotes.pick(dayKey: day, skips: look.quoteSkips(on: day)) {
+                HStack(alignment: .top, spacing: zoomed(12)) {
+                    VStack(alignment: .leading, spacing: zoomed(6)) {
+                        Text("\u{201C}\(quote.text)\u{201D}")
+                            .font(.system(size: zoomed(17), weight: .medium, design: .serif))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                        Text("\(quote.author), \(quote.role.lowercased())")
+                            .font(.system(size: TypeScale.label))
+                            .foregroundStyle(.secondary)
+                    }
+                    .tip(quote.source)
+                    Spacer(minLength: 0)
+                    Button {
+                        var next = look
+                        next.skipQuote(on: day)
+                        withAnimation(.easeOut(duration: 0.2)) { Looks.saveLibrarianLook(next) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: zoomed(11), weight: .medium))
+                            .frame(width: zoomed(22), height: zoomed(22))
+                            .contentShape(Rectangle())
+                    }
+                    // Plain, so SwiftUI draws it rather than an NSButton
+                    // that tracks the mouse in a loop of its own.
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .tip("Show another quote for today")
+                    .accessibilityLabel("Show another quote")
+                }
+                .padding(.horizontal, zoomed(16))
+                .padding(.vertical, zoomed(14))
+                .tileBackground(onPicture, radius: zoomed(12))
+                .id(quote.id)
+                .transition(.opacity)
+                .iconContextMenu {
+                    Button("Copy Quote", systemImage: "doc.on.doc") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("\u{201C}\(quote.text)\u{201D}\n\(quote.author)", forType: .string)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
     }
 }

@@ -4297,6 +4297,54 @@ browser is `agent-chrome`), as the same tab number can be in two. Replies use
 files are read or imported, and stills stay in memory on this Mac. Both sides
 ignore fields they don't know.
 
+## Profile page
+
+A public page about Mike at `<site>/profile`, and at `<site>/` for
+visitors when `home` is on, on his own Convex deployment's site. A
+deployment is one person's, so there's no handle (one sent by an older app
+is ignored, and old `/@<name>` links open the page) (`runner/src/public-profile.ts`, `convex/profile.ts`,
+`web/src/profile.tsx`). The app's Customize panel (Librarian page) edits
+it, saving a moment after each change (a change made while one is on its
+way goes once it lands); the runner keeps it in `profile.json` in its data
+dir and writes the backend's one `profile` row with the owner key, at once
+on an update and then whenever what it would send has changed, checked
+hourly. A runner
+key can't write it.
+
+| Method | Params | Result |
+|---|---|---|
+| `profilePage.get` | `{}` | `ProfilePageStatus` |
+| `profilePage.update` | `ProfilePageSettings` | `ProfilePageStatus`. Saved and sent now. `-32602` for more than 4 links or one that isn't http(s); `-32000` with the reason when there's no backend or it refused |
+| `profilePage.remove` | `{}` | `ProfilePageStatus`. Deletes the row and its pictures from the backend, and forgets the settings |
+
+```ts
+ProfilePageSettings = {
+  published: boolean      // false: only Mike's signed-in browser sees it
+  home: boolean           // visitors at the site's front page see it; only while published
+  name: string; bio: string
+  links: { title: string; url: string }[]   // at most 4
+  show: ("picture" | "background" | "activity" | "github" | "numbers" | "projects" | "memberSince" | "changelog")[]
+  numbers: ("threads" | "activeDays" | "streak" | "projects" | "models")[]
+  projectIds: string[]    // at most 12
+  order: ("numbers" | "activity" | "github" | "projects")[]  // the page's cards, top to bottom
+  picturePath?: string; backgroundPath?: string; backgroundDim?: number  // files on this Mac
+  githubUser?: string
+  changelogRepo?: string  // "owner/repo" on GitHub; the changelog needs it and githubUser
+}
+ProfilePageStatus = { profile: ProfilePageSettings | null; url?: string /* <site>/profile, or <site>/ with home */; sentAt?: string; problem?: string }
+```
+
+Only parts in `show` are sent. Activity is the count of threads started
+each local day for 372 days; numbers are counts; a project is its title,
+SF Symbol and thread count. Thread titles, prompts, replies, folders and
+project goals, state and notes are never sent, and threads in a private
+folder (`models.privateFolders`) aren't counted. The changelog sends only
+`{ repo, author }`: the visitor's browser lists that author's commits on the
+repo's default branch from GitHub's public API, so only public commits can
+show and nothing about them is stored. Both sides ignore fields
+they don't know; an older runner answers `-32601` and the app says to
+update.
+
 ## Connectors
 
 Mike's agents get MCP services from his Connectors gateway on Bruce

@@ -843,6 +843,27 @@ public extension RPCClient {
     }
 }
 
+// MARK: Profile page (docs/protocol.md, "Profile page")
+
+/// A runner from before the profile page answers `-32601`, which the app
+/// reads as "no profile page section".
+public extension RPCClient {
+    func profilePage() async throws -> ProfilePageStatus {
+        try await call("profilePage.get", .object([:]), as: ProfilePageStatus.self)
+    }
+
+    /// Saves it and sends it to the backend now; throws what went wrong.
+    func updateProfilePage(_ settings: ProfilePageSettings) async throws -> ProfilePageStatus {
+        let params = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(settings))
+        return try await call("profilePage.update", params, as: ProfilePageStatus.self, timeout: .seconds(60))
+    }
+
+    /// Takes the page down for good, handle and all.
+    func removeProfilePage() async throws -> ProfilePageStatus {
+        try await call("profilePage.remove", .object([:]), as: ProfilePageStatus.self)
+    }
+}
+
 // MARK: Connectors (docs/protocol.md, "Connectors")
 
 /// A runner from before Connectors answers `-32601`, which the app reads as

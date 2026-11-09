@@ -8,7 +8,7 @@
 import { httpRouter } from 'convex/server';
 import { registerStaticRoutes } from '@convex-dev/static-hosting';
 import { components, internal } from './_generated/api';
-import { httpAction } from './_generated/server';
+import { httpAction, type ActionCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { MAX_RUNNER_UPLOAD_BYTES } from './sync';
 import { PHONE_UPLOADS } from './phone';
@@ -21,13 +21,7 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const url = new URL(request.url);
     const slug = decodeURIComponent(url.pathname.slice('/s/'.length).replace(/\/$/, ''));
-    const asset = await ctx.runQuery(components.staticHosting.lib.resolveAssetForHttp, { path: '/index.html' });
-    // The page is in one of the three places the component keeps files
-    // (registerStaticRoutes reads them the same way).
-    let html: string | null = null;
-    if (asset?.blobId) html = await text(fetch(`${url.origin}/fs/blobs/${asset.blobId}`));
-    else if (asset?.storageUrl) html = await text(fetch(asset.storageUrl));
-    else if (asset?.appStorageId) html = (await (await ctx.storage.get(asset.appStorageId as Id<'_storage'>))?.text()) ?? null;
+    const html = await indexHtml(ctx, url);
     if (!html) return new Response('Not Found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
     const card = slug && !slug.includes('/') ? await ctx.runQuery(internal.share.preview, { slug }) : null;
     return new Response(card ? withCard(html, card, url) : html, {
@@ -138,15 +132,49 @@ http.route({
   }),
 });
 
+// The profile page (profile.ts) at /profile, and at the front page when
+// Mike has it shown there: index.html with the page's name, bio and picture
+// in the meta tags, so a link to his site unfurls as him, as /s/ does for a
+// shared thread. Exact routes, which Convex matches before any path prefix,
+// so the static routes below go on serving everything else. At / the page
+// itself still decides: signed in, Mike gets his threads.
+for (const path of ['/profile', '/'] as const) {
+  http.route({
+    path,
+    method: 'GET',
+    handler: httpAction(async (ctx, request) => {
+      const url = new URL(request.url);
+      const html = await indexHtml(ctx, url);
+      if (!html) return new Response('Not Found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+      const card = await ctx.runQuery(internal.profile.card, { home: path === '/' });
+      return new Response(card ? withCard(html, card, url, 'profile') : html, {
+        status: 200,
+        // Publishing can stop at any time; a cached card would outlive it.
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
+      });
+    }),
+  });
+}
+
 registerStaticRoutes(http, components.staticHosting);
 
 export default http;
 
+// The site's index.html, from whichever of the three places the component
+// keeps files (registerStaticRoutes reads them the same way).
+async function indexHtml(ctx: ActionCtx, url: URL): Promise<string | null> {
+  const asset = await ctx.runQuery(components.staticHosting.lib.resolveAssetForHttp, { path: '/index.html' });
+  if (asset?.blobId) return text(fetch(`${url.origin}/fs/blobs/${asset.blobId}`));
+  if (asset?.storageUrl) return text(fetch(asset.storageUrl));
+  if (asset?.appStorageId) return (await (await ctx.storage.get(asset.appStorageId as Id<'_storage'>))?.text()) ?? null;
+  return null;
+}
+
 // index.html with the thread's title and Open Graph and Twitter card tags.
-export function withCard(html: string, card: { title: string; description: string; image?: string }, url: URL): string {
+export function withCard(html: string, card: { title: string; description: string; image?: string }, url: URL, type: 'article' | 'profile' = 'article'): string {
   const e = escapeHtml;
   const tags = [
-    `<meta property="og:type" content="article" />`,
+    `<meta property="og:type" content="${type}" />`,
     `<meta property="og:site_name" content="Threadbear" />`,
     `<meta property="og:title" content="${e(card.title)}" />`,
     `<meta property="og:url" content="${e(url.origin + url.pathname)}" />`,

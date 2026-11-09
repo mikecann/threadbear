@@ -92,6 +92,20 @@ stops being shared stops unfurling. Mike's Share panel shows the same
 preview. With Mike's token it also answers while the
 thread isn't shared, with `manage`, so his page keeps its controls.
 
+**The profile page.** `/profile` (`web/src/profile.tsx`) is Mike's
+public profile, made in the Librarian page's Customize panel (docs/guide.md,
+"The librarian"; docs/protocol.md, "Profile page"). No sign-in once it's
+published; before that, only his signed-in browser sees it, with a line
+saying so. With its front-page switch on, `/` shows it to anyone not signed
+in, and Mike signed in still gets his threads; `/signin` says how to sign
+in. Old `/@<name>` links open it too. It's styled after Threadbear's own
+site (`site/src/styles.css`: its paper, Geist from `web/public/fonts`,
+cards and patches), light only, under `.pf` in styles.css. Its link
+previews come the same way as a shared thread's, from `profile:card`. The
+Changelog at the bottom is a closed `<details>` that, when opened, lists the
+owner's public commits from api.github.com in the visitor's browser
+(`src/profile-changelog.ts`), a hundred at a time.
+
 Pictures are in file storage (`shareImages`), uploaded by the runner only
 while the thread is shared and dropped when it stops, and only real
 pictures from the thread's media folder (attachments, tool pictures, and

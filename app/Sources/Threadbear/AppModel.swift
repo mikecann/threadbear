@@ -476,6 +476,12 @@ final class AppModel {
     /// What the librarian is doing, once `librarian.status` has answered;
     /// replaced by `librarian.updated`.
     var librarian: LibrarianStatus?
+    /// The public profile page (ProfilePageModel.swift): what the runner
+    /// has, nil until asked, and whether this runner has one at all.
+    var profilePage: ProfilePageStatus?
+    var profilePageMissing = false
+    /// A change made while a save was on its way, sent once it lands.
+    var profilePageNext: ProfilePageSettings?
     /// The Connectors gateway's services (docs/protocol.md, "Connectors"),
     /// once `connectors.status` has answered; replaced by
     /// `connectors.updated`. Nil from a runner that doesn't know about it,

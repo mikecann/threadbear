@@ -357,6 +357,8 @@ addDemoSchedules();
 /** The projects (docs/protocol.md, "Projects"), and the librarian's status. */
 let projects = [];
 let librarian;
+let mockProfile = { profile: null };
+let mockProfileSaves = 0;
 const MOCK_GATEWAY = 'https://bruce.example.ts.net:8443';
 let connectors = {
   state: 'ok',
@@ -1300,6 +1302,20 @@ async function dispatch(client, method, p) {
     case 'librarian.update':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       return projectRequest(method, p);
+    // The profile page (docs/protocol.md, "Profile page"): kept in memory,
+    // sent nowhere.
+    case 'profilePage.get':
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      return mockProfile;
+    case 'profilePage.update':
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      mockProfile = { profile: p, url: p.home ? 'https://demo.convex.site/' : 'https://demo.convex.site/profile', sentAt: new Date().toISOString() };
+      mockProfileSaves += 1;
+      log(`profilePage.update #${mockProfileSaves}`);
+      return mockProfile;
+    case 'profilePage.remove':
+      mockProfile = { profile: null };
+      return mockProfile;
     // The Connectors gateway (docs/protocol.md, "Connectors"): a made-up
     // one, with a service signed out so the panel and its dot show.
     // mock.connectors changes it.

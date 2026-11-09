@@ -784,6 +784,78 @@ off Look at threads there to pause it; what's queued waits until you turn
 it back on. If it files a thread wrongly, take the thread out of the
 project and it won't put it back.
 
+With Customize the Librarian page on (Settings › General › Look, off by
+default), the page gets a Customize button at its top right. It opens a
+panel beside the page that changes it as you go: keep the bear, use a
+picture of your own or have none, and pick its size; put a photo behind the
+page, drag it in Position to choose which part shows (it starts with its
+bottom edge on the window's), and fade it so the text stays readable in
+light and dark; move each
+part (a greeting, the picture, the title and status, a quote, the numbers,
+Threadbear activity, GitHub activity and Settings) to the top, middle or
+bottom, or hide it; hide the
+title, the line under it or the status line on their own; and pick which
+numbers show. Greet me puts "Good morning, Wayne" at the top (afternoon
+from 12, evening from 5 pm, night from 10 pm, by your Mac's clock), with
+today's date and the time under it if you like. It suggests your Mac
+account's first name; change it, or clear it for just "Good morning".
+Quote of the day adds a quote from a writer, scientist, engineer, artist
+or athlete, with who said it under it and where it's from when you hover
+it. It's the same all day and changes at 4 am by your Mac's clock; the
+refresh button beside it shows another for the rest of the day, and
+right-click copies it. The quotes ship with Threadbear, so nothing is
+fetched, and none are from politicians, religious figures or tech
+founders. Put it at the top, middle or bottom under Layout like any other
+part. Drop a picture from Finder on its spot in the panel, or choose one.
+Thread activity (off until you turn it on under Layout) adds the
+Threadbear activity card your profile page can show: a year of days shaded
+by how many threads you started each day, worked out on your Mac from your
+threads, with threads in a private folder left out. Hover a day for its
+count and step back through the years with the arrows. It sits with the
+numbers until you move it, and where you put it is where it goes on your
+profile page too.
+GitHub activity shows a year of your public contributions, as on your
+GitHub profile, once you type your user name: step through the years with
+the arrows, hover a day for its count, and click one to open that day on
+GitHub. It's fetched from the GitHub Contributions API
+(github-contributions-api.jogruber.de), sending only the user name. Turning
+the switch off puts the page back as it ships and keeps your changes for
+next time; Reset to the standard page clears them.
+
+The bottom of the Customize panel makes you a public profile page on your
+own Threadbear site, at `https://<your deployment>.convex.site/profile`.
+Your site is yours alone, so there's no user name to pick, and your Convex
+backend serves the page, so it needs one (Your phone and a browser). It
+saves as you change it, like the rest of Customize. Give it a name, a line
+about you and up to four links, then turn on each part you want on it: the Librarian page's picture, Threadbear
+activity (a year of days shaded by the threads you started), GitHub
+activity, the numbers you pick (threads this year, active days, longest
+streak, projects, models used), the projects you tick (title and thread
+count only), the month you started, and a Changelog: your public commits
+to your Threadbear repo on GitHub, newest first and grouped by day, in a
+section at the bottom of the page that opens when clicked. It lists the
+commits of your GitHub user name (under GitHub activity) on
+`<that name>/threadbear` unless you type another repository, and the
+visitor's browser reads them from GitHub, so only public commits ever
+show. Every part starts off. The cards go
+in the order the Librarian page has its numbers, Threadbear activity and GitHub activity. Until
+Publish my profile page is on, only you can see it, in a browser signed in
+to your Threadbear site, with a line saying so. Published, Show it on my
+site's front page makes it what visitors see at your site's address; when
+you're signed in you still get your threads there, and Sign in at the
+bottom of the page says how. Customize shows the page's addresses with Copy and Open
+for each: Profile page (your site's /profile) always opens the profile,
+signed in or not, and Front page, there while it's on the front page,
+opens your site's address, where visitors see the profile and you, signed
+in, see your threads. The page looks like Threadbear's own site. A link
+to a published page shows your name, line and picture when pasted into
+Slack, X or iMessage. Published, the Librarian page gets a View profile
+page button beside Customize; the View profile page button switch under
+Profile page takes it away. Its numbers and activity refresh by themselves within
+the hour. Thread titles, prompts, replies, folders and project notes are
+never sent, and threads in a private folder aren't counted. Take the page
+down deletes it and its pictures from your backend.
+
 ## Schedules
 <!-- slug: schedules -->
 
@@ -1495,6 +1567,19 @@ Threadbear follows your Mac's appearance (System Settings > Appearance)
 unless you pick one for it alone: Settings (⌘,) > General > Appearance has
 Same as the Mac, Light and Dark. It changes straight away and stays picked
 the next time the app opens.
+
+### A background picture
+
+To put a photo of yours behind a new thread, turn on Background picture
+in the main window in Settings (⌘,) > General > Look and choose one. It's
+off until you do. The photo's bottom edge sits on the window's bottom edge
+as you resize it; drag it in Position to show another part, and Bottom puts
+it back. Fade lays the window's own colour over it so text stays
+readable in light and dark, and Show behind open threads too puts it behind
+every thread's transcript as well, a little more faded. The picture is
+copied, scaled down, into Threadbear's data folder (`looks/`), so the
+original can move; Remove deletes the copy. The Librarian page has its own
+background and layout (The librarian, above).
 
 ### A ding when a thread is done
 
