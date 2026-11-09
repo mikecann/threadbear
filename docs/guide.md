@@ -788,7 +788,9 @@ With Customize the Librarian page on (Settings › General › Look, off by
 default), the page gets a Customize button at its top right. It opens a
 panel beside the page that changes it as you go: keep the bear, use a
 picture of your own or have none, and pick its size; put a photo behind the
-page and fade it so the text stays readable in light and dark; move each
+page, drag it in Position to choose which part shows (it starts with its
+bottom edge on the window's), and fade it so the text stays readable in
+light and dark; move each
 part (a greeting, the picture, the title and status, a quote, the numbers, GitHub
 activity and Settings) to the top, middle or bottom, or hide it; hide the
 title, the line under it or the status line on their own; and pick which
@@ -1550,7 +1552,9 @@ the next time the app opens.
 
 To put a photo of yours behind a new thread, turn on Background picture
 in the main window in Settings (⌘,) > General > Look and choose one. It's
-off until you do. Fade lays the window's own colour over it so text stays
+off until you do. The photo's bottom edge sits on the window's bottom edge
+as you resize it; drag it in Position to show another part, and Bottom puts
+it back. Fade lays the window's own colour over it so text stays
 readable in light and dark, and Show behind open threads too puts it behind
 every thread's transcript as well, a little more faded. The picture is
 copied, scaled down, into Threadbear's data folder (`looks/`), so the

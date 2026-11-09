@@ -1035,10 +1035,13 @@ private struct MainBackdrop: View {
     @AppStorage(Looks.mainBackgroundKey) private var name = ""
     @AppStorage(Looks.mainBackgroundEverywhereKey) private var everywhere = false
     @AppStorage(Looks.mainBackgroundDimKey) private var dim = Looks.defaultDim
+    @AppStorage(Looks.mainBackgroundXKey) private var focusX = BackdropFocus.bottom.x
+    @AppStorage(Looks.mainBackgroundYKey) private var focusY = BackdropFocus.bottom.y
 
     var body: some View {
         if on, isNew || everywhere, let image = Looks.image(name) {
-            BackdropPicture(image: image, dim: isNew ? dim : min(0.95, dim + 0.2))
+            BackdropPicture(image: image, dim: isNew ? dim : min(0.95, dim + 0.2),
+                            focus: BackdropFocus(x: focusX, y: focusY), slot: .main)
                 .transition(.opacity)
         }
     }

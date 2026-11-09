@@ -140,7 +140,10 @@ struct LibrarianLookEditor: View {
                 }
             }
             .controlSize(.small)
-            if look.background != nil {
+            if let image = Looks.image(look.background) {
+                LabeledContent("Position") {
+                    BackdropPositioner(image: image, slot: .librarian, focus: $look.backgroundFocus, maxWidth: zoomed(200), maxHeight: zoomed(130))
+                }
                 LabeledContent("Fade") {
                     Slider(value: $look.backgroundDim, in: 0...0.9)
                         .tip("How much the page's own colour covers the photo, so text stays easy to read in light and dark")
@@ -156,6 +159,8 @@ struct LibrarianLookEditor: View {
         }
         problem = nil
         look.background = name
+        // A new photo starts on the bottom edge, not where the last one was.
+        look.backgroundFocus = .bottom
     }
 
     // MARK: Layout

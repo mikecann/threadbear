@@ -67,7 +67,7 @@ private struct CustomizedLibrarianPage: View {
                 .frame(maxWidth: .infinity)
             }
             .background {
-                if let backdrop { BackdropPicture(image: backdrop, dim: look.backgroundDim) }
+                if let backdrop { BackdropPicture(image: backdrop, dim: look.backgroundDim, focus: look.backgroundFocus, slot: .librarian) }
             }
             .environment(\.onPicture, backdrop != nil)
             .overlay(alignment: .topTrailing) {

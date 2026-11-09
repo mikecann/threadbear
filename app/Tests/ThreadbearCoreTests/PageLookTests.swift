@@ -42,6 +42,7 @@ final class PageLookTests: XCTestCase {
         look.pictureFile = "a.png"
         look.background = "b.jpg"
         look.backgroundDim = 0.3
+        look.backgroundFocus = BackdropFocus(x: 0.2, y: 0.4)
         look.pictureSize = .large
         look.setPlace(.bottom, for: .numbers)
         look.hidden = [.settings]
@@ -56,8 +57,39 @@ final class PageLookTests: XCTestCase {
         XCTAssertEqual(loaded.place(.about), .top)
         XCTAssertEqual(loaded.hidden, [.github])
         XCTAssertEqual(loaded.backgroundDim, 1)
+        XCTAssertEqual(loaded.backgroundFocus, .bottom, "a look saved before photos could move keeps them on the bottom")
+        let wild = LibrarianLook.load(Data(#"{"backgroundFocus":{"x":-3,"y":9}}"#.utf8))
+        XCTAssertEqual(wild.backgroundFocus, BackdropFocus(x: 0, y: 1))
         XCTAssertEqual(LibrarianLook.load(Data("nonsense".utf8)), .standard)
         XCTAssertEqual(LibrarianLook.load(nil), .standard)
+    }
+
+    func testBackdropSitsOnTheBottomUnlessMoved() {
+        // A 4:3 photo in a wide window: cropped top and bottom, and by
+        // default its bottom edge is the window's bottom edge.
+        let photo = CGSize(width: 400, height: 300)
+        let wide = CGSize(width: 1000, height: 500)
+        let frame = BackdropFocus.bottom.frame(image: photo, in: wide)
+        XCTAssertEqual(frame.width, 1000)
+        XCTAssertEqual(frame.height, 750)
+        XCTAssertEqual(frame.maxY, 500, "the photo's bottom is on the window's bottom")
+        XCTAssertEqual(BackdropFocus(x: 0.5, y: 0).frame(image: photo, in: wide).minY, 0)
+
+        // A tall window crops the sides instead, centred.
+        let tall = BackdropFocus.bottom.frame(image: photo, in: CGSize(width: 300, height: 600))
+        XCTAssertEqual(tall.maxY, 600)
+        XCTAssertEqual(tall.midX, 150)
+    }
+
+    func testDraggingMovesThePhotoWithThePointerAndStopsAtItsEdges() {
+        let photo = CGSize(width: 400, height: 300)
+        let wide = CGSize(width: 1000, height: 500) // 250 points spare down
+        // Dragging down shows more of the top: the photo moves down.
+        let down = BackdropFocus.dragged(from: .bottom, by: CGSize(width: 0, height: 125), image: photo, in: wide)
+        XCTAssertEqual(down.y, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(down.x, 0.5, "no spare width, so it can't move across")
+        XCTAssertEqual(BackdropFocus.dragged(from: .bottom, by: CGSize(width: 0, height: 9999), image: photo, in: wide).y, 0)
+        XCTAssertEqual(BackdropFocus.dragged(from: .bottom, by: CGSize(width: 0, height: -50), image: photo, in: wide).y, 1)
     }
 
     func testGitHubUserNames() {

@@ -817,7 +817,13 @@ private struct LookSettings: View {
     @AppStorage(Looks.mainBackgroundKey) private var background = ""
     @AppStorage(Looks.mainBackgroundEverywhereKey) private var everywhere = false
     @AppStorage(Looks.mainBackgroundDimKey) private var dim = Looks.defaultDim
+    @AppStorage(Looks.mainBackgroundXKey) private var focusX = BackdropFocus.bottom.x
+    @AppStorage(Looks.mainBackgroundYKey) private var focusY = BackdropFocus.bottom.y
     @State private var problem: String?
+
+    private var focus: Binding<BackdropFocus> {
+        Binding(get: { BackdropFocus(x: focusX, y: focusY) }, set: { focusX = $0.x; focusY = $0.y })
+    }
 
     var body: some View {
         SettingsSection("Look",
@@ -846,6 +852,11 @@ private struct LookSettings: View {
                     }
                 }
                 if !background.isEmpty {
+                    if let image = Looks.image(background) {
+                        LabeledContent("Position") {
+                            BackdropPositioner(image: image, slot: .main, focus: focus)
+                        }
+                    }
                     Toggle("Show behind open threads too", isOn: $everywhere)
                         .tip("Off, only a new thread has it. On, every thread's transcript sits over it")
                     LabeledContent("Fade") {
@@ -870,6 +881,8 @@ private struct LookSettings: View {
         }
         problem = nil
         setBackground(name)
+        // A new photo starts on the bottom edge, not where the last one was.
+        focus.wrappedValue = .bottom
     }
 
     private func setBackground(_ name: String) {

@@ -70,6 +70,10 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     /// How much of the window's own colour lies over the background, so
     /// text stays readable in light and dark. 0 is the photo as it is.
     public var backgroundDim: Double = 0.55
+    /// Which part of the background shows when the window crops it:
+    /// bottom centre unless moved, so the photo's bottom edge sits on the
+    /// window's.
+    public var backgroundFocus: BackdropFocus = .bottom
     public var places: [String: Place] = [:]
     public var hidden: Set<Block> = []
     /// The numbers (by their label's id) taken off the page.
@@ -172,7 +176,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public var isStandard: Bool { self == .standard }
 
     private enum CodingKeys: String, CodingKey {
-        case picture, pictureFile, pictureSize, background, backgroundDim, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout, quoteShown, quoteDay, quoteSkips
+        case picture, pictureFile, pictureSize, background, backgroundDim, backgroundFocus, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout, quoteShown, quoteDay, quoteSkips
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,6 +186,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         pictureSize = (try? c.decode(PictureSize.self, forKey: .pictureSize)) ?? .medium
         background = try? c.decode(String.self, forKey: .background)
         backgroundDim = min(1, max(0, (try? c.decode(Double.self, forKey: .backgroundDim)) ?? 0.55))
+        backgroundFocus = (try? c.decode(BackdropFocus.self, forKey: .backgroundFocus)) ?? .bottom
         // Unknown parts and places from another build are dropped, not fatal.
         let rawPlaces = (try? c.decode([String: String].self, forKey: .places)) ?? [:]
         places = rawPlaces.reduce(into: [:]) { out, pair in
@@ -206,6 +211,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         try c.encode(pictureSize, forKey: .pictureSize)
         try c.encodeIfPresent(background, forKey: .background)
         try c.encode(backgroundDim, forKey: .backgroundDim)
+        try c.encode(backgroundFocus, forKey: .backgroundFocus)
         try c.encode(places.mapValues(\.rawValue), forKey: .places)
         try c.encode(hidden.map(\.rawValue).sorted(), forKey: .hidden)
         try c.encode(hiddenNumbers.sorted(), forKey: .hiddenNumbers)
@@ -390,5 +396,54 @@ public struct GitHubContributions: Equatable, Sendable {
     static func key(_ date: Date, calendar: Calendar) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+}
+
+/// Where a background photo sits when it fills a space of another shape
+/// and is cropped: 0...1 across and down, as with a unit point. (0.5, 1)
+/// keeps the photo's bottom edge on the space's bottom edge, centred.
+public struct BackdropFocus: Codable, Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = Self.clamp(x)
+        self.y = Self.clamp(y)
+    }
+
+    public static let bottom = BackdropFocus(x: 0.5, y: 1)
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(x: (try? c.decode(Double.self, forKey: .x)) ?? 0.5, y: (try? c.decode(Double.self, forKey: .y)) ?? 1)
+    }
+
+    private enum CodingKeys: String, CodingKey { case x, y }
+
+    private static func clamp(_ v: Double) -> Double { v.isFinite ? min(1, max(0, v)) : 0.5 }
+
+    /// The photo's frame, scaled to fill `space` (as aspect-fill does) and
+    /// shifted so the focus point lines up: 0 puts the photo's left (or
+    /// top) edge on the space's, 1 its right (or bottom) edge on the
+    /// space's. Along the side that already fits, the photo can't move.
+    public func frame(image: CGSize, in space: CGSize) -> CGRect {
+        guard image.width > 0, image.height > 0, space.width > 0, space.height > 0 else {
+            return CGRect(origin: .zero, size: space)
+        }
+        let scale = max(space.width / image.width, space.height / image.height)
+        let size = CGSize(width: image.width * scale, height: image.height * scale)
+        return CGRect(x: (space.width - size.width) * x, y: (space.height - size.height) * y,
+                      width: size.width, height: size.height)
+    }
+
+    /// The focus after dragging the photo by `translation` (in the space's
+    /// points) from `start`: the photo follows the pointer, and stops at
+    /// its edges.
+    public static func dragged(from start: BackdropFocus, by translation: CGSize, image: CGSize, in space: CGSize) -> BackdropFocus {
+        let frame = start.frame(image: image, in: space)
+        let spareX = frame.width - space.width
+        let spareY = frame.height - space.height
+        return BackdropFocus(x: spareX > 0.5 ? start.x - Double(translation.width / spareX) : start.x,
+                             y: spareY > 0.5 ? start.y - Double(translation.height / spareY) : start.y)
     }
 }
