@@ -45,6 +45,22 @@ struct ProfilePageTests {
         #expect(s.show.isEmpty)
     }
 
+    @Test func changelogRepository() throws {
+        var s = ProfilePageSettings()
+        #expect(s.changelogRepo(for: "waynesutton") == "waynesutton/threadbear", "nothing typed: the fork's usual name")
+        #expect(s.changelogRepo(for: "") == nil, "no GitHub user, no changelog")
+        s.changelogRepo = "https://github.com/mikecann/threadbear.git"
+        #expect(s.changelogRepo(for: "waynesutton") == "mikecann/threadbear")
+        s.changelogRepo = "half typed"
+        #expect(s.changelogRepo(for: "waynesutton") == nil)
+        #expect(ProfilePageSettings.cleanRepo("waynesutton/..") == "")
+        #expect(s.sendable.changelogRepo == "half typed", "sent as typed; the runner reads it")
+        s.setShown(true, .changelog)
+        let back = try JSONDecoder().decode(ProfilePageSettings.self, from: JSONEncoder().encode(s))
+        #expect(back.shows(.changelog) && back.changelogRepo == "half typed")
+        #expect(ProfilePageSettings.offered.contains(.changelog))
+    }
+
     @Test func decodesWhatOtherBuildsSaved() throws {
         // As saved before 9 Nov, with a handle and no home.
         let json = #"{"published":true,"handle":"wayne","show":["activity","fromTheFuture"],"links":[{"title":"X","url":"https://x.com/waynesutton"}],"extra":1}"#

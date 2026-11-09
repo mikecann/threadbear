@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { FakeClock } from '../../src/clock.ts';
-import { ACTIVITY_DAYS, PublicProfile, activityOf, localDay, numbersOf, readSettings } from '../../src/public-profile.ts';
+import { ACTIVITY_DAYS, PublicProfile, activityOf, changelogRepo, localDay, numbersOf, readSettings } from '../../src/public-profile.ts';
 import type { Project, ThreadSummary } from '../../src/protocol.ts';
 
 const NOW = new Date(2026, 10, 8, 15, 0).getTime();
@@ -97,6 +97,26 @@ test('what goes to the backend: only parts turned on, never titles, folders or p
   await s.p.update({ ...settings, home: true });
   assert.equal(s.sent.at(-1)!.home, true);
   assert.equal(s.p.status().url, 'https://seal.convex.site/');
+});
+
+test('the changelog sends only a repo and a GitHub user, and needs both', async () => {
+  assert.equal(changelogRepo('', 'waynesutton'), 'waynesutton/threadbear', 'nothing typed: the fork\'s usual name');
+  assert.equal(changelogRepo(' https://github.com/waynesutton/tb.git ', 'waynesutton'), 'waynesutton/tb');
+  assert.equal(changelogRepo('mikecann/threadbear', 'waynesutton'), 'mikecann/threadbear');
+  assert.equal(changelogRepo('not a repo', 'waynesutton'), undefined);
+  assert.equal(changelogRepo('waynesutton/..', 'waynesutton'), undefined);
+  assert.equal(changelogRepo('waynesutton/threadbear', undefined), undefined, 'no GitHub user, no changelog');
+  assert.equal(readSettings({ ...settings, changelogRepo: 'waynes' }).changelogRepo, 'waynes', 'kept as typed');
+  const s = setup();
+  await s.p.update({ ...settings, show: ['changelog'], changelogRepo: 'waynesutton/threadbear' });
+  assert.ok(!('changelog' in s.sent.at(-1)!), 'no GitHub user, no changelog');
+  await s.p.update({ ...settings, show: ['changelog'], githubUser: 'waynesutton', changelogRepo: 'half typed' });
+  assert.ok(!('changelog' in s.sent.at(-1)!), 'not a repo, no changelog');
+  await s.p.update({ ...settings, show: ['changelog'], githubUser: 'waynesutton' });
+  assert.deepEqual(s.sent.at(-1)!.changelog, { repo: 'waynesutton/threadbear', author: 'waynesutton' });
+  assert.deepEqual(s.sent.at(-1)!.order, [], 'the changelog is not a card: it sits at the bottom');
+  await s.p.update({ ...settings, show: [], githubUser: 'waynesutton' });
+  assert.ok(!('changelog' in s.sent.at(-1)!), 'turned off, it goes');
 });
 
 test('a picture is uploaded once, and again only when the file changes', async () => {

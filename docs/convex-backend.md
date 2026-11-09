@@ -767,7 +767,9 @@ handle), written by the owner runner (`profile:publish`, owner key only)
 as he changes it and then at most hourly when it
 has changed, so a day costs at most 24 writes and usually one. Its picture
 and background are two files in storage, deleted when replaced or turned
-off. `profile:view` is public: the row when published, or for a valid
+off. The changelog is only `{ repo, author }`: the visitor's browser
+lists the commits from GitHub, so none are stored or counted here.
+`profile:view` is public: the row when published, or for a valid
 phone token (Mike's own browser) when not; it reads one row and no thread,
 however many people open the page. `/profile` and `/` are exact GET routes
 in `http.ts` (Convex matches exact paths before prefixes) that serve

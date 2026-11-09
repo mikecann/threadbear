@@ -7,7 +7,7 @@ import Foundation
 /// backend; every part starts off.
 public struct ProfilePageSettings: Codable, Equatable, Sendable {
     public enum Part: String, CaseIterable, Codable, Sendable, Identifiable {
-        case picture, background, activity, github, numbers, projects, memberSince
+        case picture, background, activity, github, numbers, projects, memberSince, changelog
         public var id: String { rawValue }
 
         public var title: String {
@@ -19,6 +19,7 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
             case .numbers: "Numbers"
             case .projects: "Projects"
             case .memberSince: "Using Threadbear since"
+            case .changelog: "Changelog"
             }
         }
 
@@ -31,6 +32,7 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
             case .numbers: "The numbers you pick below. Counts only, never what a thread said"
             case .projects: "The projects you pick below: title and thread count only, never goals, state, notes or folders"
             case .memberSince: "The month of your first thread"
+            case .changelog: "Your public commits to your Threadbear repo on GitHub, newest first, in a section at the bottom that opens when clicked. The visitor's browser reads them from GitHub, so only public commits ever show"
             }
         }
     }
@@ -76,8 +78,36 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
     public var backgroundPath: String?
     public var backgroundDim: Double?
     public var githubUser: String?
+    /// The changelog's GitHub repository, owner/name. Empty means
+    /// `<GitHub user>/threadbear`, a fork's usual name (`changelogRepo(for:)`).
+    public var changelogRepo: String?
 
     public init() {}
+
+    /// The repository the changelog lists, for this GitHub user: the one
+    /// typed, or their fork's usual name. Nil when there's no user or what's
+    /// typed isn't owner/name.
+    public func changelogRepo(for githubUser: String) -> String? {
+        let typed = Self.cleanRepo(changelogRepo ?? "")
+        if !typed.isEmpty { return typed }
+        guard (changelogRepo ?? "").trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        let user = GitHubUser.clean(githubUser)
+        return user.isEmpty ? nil : "\(user)/threadbear"
+    }
+
+    /// owner/name as typed or pasted (a github.com link, a trailing .git),
+    /// or empty when it isn't one.
+    public static func cleanRepo(_ typed: String) -> String {
+        var s = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = s.range(of: "github.com/", options: .caseInsensitive) { s = String(s[range.upperBound...]) }
+        if s.hasSuffix(".git") { s.removeLast(4) }
+        let parts = s.split(separator: "/", omittingEmptySubsequences: true).prefix(2).map(String.init)
+        guard parts.count == 2, GitHubUser.clean(parts[0]) == parts[0], parts[1] != ".", parts[1] != "..",
+              parts[1].count <= 100,
+              parts[1].unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0)) })
+        else { return "" }
+        return "\(parts[0])/\(parts[1])"
+    }
 
     public func shows(_ part: Part) -> Bool { show.contains(part) }
 
@@ -123,7 +153,7 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case published, home, name, bio, links, show, numbers, projectIds, order, picturePath, backgroundPath, backgroundDim, githubUser
+        case published, home, name, bio, links, show, numbers, projectIds, order, picturePath, backgroundPath, backgroundDim, githubUser, changelogRepo
     }
 
     public init(from decoder: Decoder) throws {
@@ -143,6 +173,7 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
         backgroundPath = try? c.decode(String.self, forKey: .backgroundPath)
         backgroundDim = try? c.decode(Double.self, forKey: .backgroundDim)
         githubUser = try? c.decode(String.self, forKey: .githubUser)
+        changelogRepo = try? c.decode(String.self, forKey: .changelogRepo)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -160,6 +191,7 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
         try c.encodeIfPresent(backgroundPath, forKey: .backgroundPath)
         try c.encodeIfPresent(backgroundDim, forKey: .backgroundDim)
         try c.encodeIfPresent(githubUser, forKey: .githubUser)
+        try c.encodeIfPresent(changelogRepo, forKey: .changelogRepo)
     }
 }
 

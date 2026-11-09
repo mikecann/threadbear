@@ -58,6 +58,10 @@ final class PageLookTests: XCTestCase {
         XCTAssertEqual(loaded.hidden, [.github])
         XCTAssertEqual(loaded.backgroundDim, 1)
         XCTAssertEqual(loaded.backgroundFocus, .bottom, "a look saved before photos could move keeps them on the bottom")
+        XCTAssertTrue(loaded.profileButton, "a look saved before the View profile page button has it on")
+        var noButton = LibrarianLook()
+        noButton.profileButton = false
+        XCTAssertFalse(LibrarianLook.load(noButton.data()).profileButton)
         let wild = LibrarianLook.load(Data(#"{"backgroundFocus":{"x":-3,"y":9}}"#.utf8))
         XCTAssertEqual(wild.backgroundFocus, BackdropFocus(x: 0, y: 1))
         XCTAssertEqual(LibrarianLook.load(Data("nonsense".utf8)), .standard)

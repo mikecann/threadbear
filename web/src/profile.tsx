@@ -14,6 +14,7 @@ import { api } from '../../convex/_generated/api';
 import type { FunctionReturnType } from 'convex/server';
 import { useLiveQuery } from './live';
 import { level, weeks, type Day } from './profile-grid';
+import { byDay, commitsUrl, hasNext, readCommits, trouble, type Change } from './profile-changelog';
 
 type Page = NonNullable<FunctionReturnType<typeof api.profile.view>>;
 
@@ -109,6 +110,7 @@ export function Profile({ page, signedIn }: { page: Page; signedIn: boolean }) {
             return null;
           })}
         </div>
+        {page.changelog && <Changelog repo={page.changelog.repo} author={page.changelog.author} />}
         <footer className="pf-foot">
           <span>
             Made with <a href={SITE}>Threadbear</a>
@@ -176,6 +178,89 @@ function GitHubActivity({ user }: { user: string }) {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * The person's public commits to their Threadbear repo, newest first by
+ * day. Closed until opened, and only then asks GitHub (the visitor's own
+ * browser, no token), so a page view costs nothing. Older loads the next
+ * hundred.
+ */
+function Changelog({ repo, author }: { repo: string; author: string }) {
+  const [changes, setChanges] = useState<Change[]>([]);
+  const [state, setState] = useState<'idle' | 'loading' | 'done' | 'more'>('idle');
+  const [problem, setProblem] = useState<string>();
+  const page = useRef(0);
+  const load = async () => {
+    if (state === 'loading') return;
+    setState('loading');
+    setProblem(undefined);
+    try {
+      const r = await fetch(commitsUrl(repo, author, page.current + 1), { headers: { Accept: 'application/vnd.github+json' } });
+      if (!r.ok) {
+        setProblem(trouble(r.status, r.headers.get('x-ratelimit-remaining')));
+        setState(page.current === 0 ? 'idle' : 'more');
+        return;
+      }
+      const next = readCommits(await r.json());
+      page.current += 1;
+      setChanges((had) => [...had, ...next]);
+      setState(hasNext(r.headers.get('link')) ? 'more' : 'done');
+    } catch {
+      setProblem(trouble(0, null));
+      setState(page.current === 0 ? 'idle' : 'more');
+    }
+  };
+  const days = useMemo(() => byDay(changes), [changes]);
+  const repoUrl = `https://github.com/${repo}`;
+  return (
+    <details
+      className="pf-card pf-changelog"
+      onToggle={(e) => {
+        if ((e.currentTarget as HTMLDetailsElement).open && page.current === 0) void load();
+      }}
+    >
+      <summary>
+        <span className="pf-cl-title">Changelog</span>
+        <span className="pf-cl-sub">
+          Public commits by @{author} to {repo}
+        </span>
+      </summary>
+      <div className="pf-cl-body">
+        {days.map((d) => (
+          <section key={d.day} className="pf-cl-day" aria-label={longDay(d.day)}>
+            <h3>
+              <time dateTime={d.day}>{longDay(d.day)}</time>
+            </h3>
+            <ul>
+              {d.changes.map((c) => (
+                <li key={c.sha} title={c.body}>
+                  {c.area && <span className="pf-cl-area">{c.area}</span>}
+                  <span className="pf-cl-text">{c.text}</span>
+                  <a className="pf-cl-sha" href={c.url} target="_blank" rel="noopener noreferrer" aria-label={`Commit ${c.sha.slice(0, 7)} on GitHub`}>
+                    {c.sha.slice(0, 7)}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+        {state === 'loading' && <p className="pf-note">Loading from GitHub…</p>}
+        {state === 'done' && days.length === 0 && <p className="pf-note">No public commits by @{author} there yet.</p>}
+        {problem && <p className="pf-note">{problem}</p>}
+        <div className="pf-cl-foot">
+          {(state === 'more' || (state === 'idle' && problem)) && (
+            <button type="button" className="pf-cl-more" onClick={() => void load()}>
+              {page.current === 0 ? 'Try again' : 'Older changes'}
+            </button>
+          )}
+          <a href={`${repoUrl}/commits?author=${encodeURIComponent(author)}`} target="_blank" rel="noopener noreferrer">
+            All on GitHub
+          </a>
+        </div>
+      </div>
+    </details>
   );
 }
 

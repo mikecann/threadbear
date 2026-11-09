@@ -831,7 +831,13 @@ about you and up to four links, then turn on each part you want on it: the Libra
 activity (a year of days shaded by the threads you started), GitHub
 activity, the numbers you pick (threads this year, active days, longest
 streak, projects, models used), the projects you tick (title and thread
-count only) and the month you started. Every part starts off. The cards go
+count only), the month you started, and a Changelog: your public commits
+to your Threadbear repo on GitHub, newest first and grouped by day, in a
+section at the bottom of the page that opens when clicked. It lists the
+commits of your GitHub user name (under GitHub activity) on
+`<that name>/threadbear` unless you type another repository, and the
+visitor's browser reads them from GitHub, so only public commits ever
+show. Every part starts off. The cards go
 in the order the Librarian page has its numbers, Threadbear activity and GitHub activity. Until
 Publish my profile page is on, only you can see it, in a browser signed in
 to your Threadbear site, with a line saying so. Published, Show it on my
@@ -843,7 +849,9 @@ signed in or not, and Front page, there while it's on the front page,
 opens your site's address, where visitors see the profile and you, signed
 in, see your threads. The page looks like Threadbear's own site. A link
 to a published page shows your name, line and picture when pasted into
-Slack, X or iMessage. Its numbers and activity refresh by themselves within
+Slack, X or iMessage. Published, the Librarian page gets a View profile
+page button beside Customize; the View profile page button switch under
+Profile page takes it away. Its numbers and activity refresh by themselves within
 the hour. Thread titles, prompts, replies, folders and project notes are
 never sent, and threads in a private folder aren't counted. Take the page
 down deletes it and its pictures from your backend.

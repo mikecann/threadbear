@@ -101,7 +101,10 @@ in, and Mike signed in still gets his threads; `/signin` says how to sign
 in. Old `/@<name>` links open it too. It's styled after Threadbear's own
 site (`site/src/styles.css`: its paper, Geist from `web/public/fonts`,
 cards and patches), light only, under `.pf` in styles.css. Its link
-previews come the same way as a shared thread's, from `profile:card`.
+previews come the same way as a shared thread's, from `profile:card`. The
+Changelog at the bottom is a closed `<details>` that, when opened, lists the
+owner's public commits from api.github.com in the visitor's browser
+(`src/profile-changelog.ts`), a hundred at a time.
 
 Pictures are in file storage (`shareImages`), uploaded by the runner only
 while the thread is shared and dropped when it stops, and only real

@@ -19,11 +19,16 @@ const PROJECTS_MAX = 12;
 const CARDS = ['numbers', 'activity', 'github', 'projects'] as const;
 const GITHUB = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
+// A GitHub repository's name: letters, digits, dots, hyphens, underscores.
+const REPO_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 
 const link = v.object({ title: v.string(), url: v.string() });
 const number = v.object({ key: v.string(), label: v.string(), value: v.string() });
 const project = v.object({ title: v.string(), threads: v.number(), symbol: v.optional(v.string()) });
 const activity = v.object({ start: v.string(), counts: v.array(v.number()) });
+// The changelog: whose commits, on which public GitHub repo. The visitor's
+// browser lists them from GitHub itself, so nothing about them is kept here.
+const changelog = v.object({ repo: v.string(), author: v.string() });
 
 export const profileInput = v.object({
   // Sent by runners from before 9 Nov; kept, never needed.
@@ -42,6 +47,7 @@ export const profileInput = v.object({
   activity: v.optional(activity),
   github: v.optional(v.string()),
   projects: v.optional(v.array(project)),
+  changelog: v.optional(changelog),
 });
 type ProfileInput = Infer<typeof profileInput>;
 
@@ -75,6 +81,8 @@ export function cleanProfile(p: ProfileInput): Omit<ProfileInput, 'handle'> {
   if (p.github !== undefined && !GITHUB.test(p.github)) throw bad('That isn’t a GitHub user name.');
   if (p.activity && (!DAY.test(p.activity.start) || p.activity.counts.length > DAYS_MAX || p.activity.counts.some((n) => !Number.isFinite(n) || n < 0))) throw bad('The activity is a start day and up to 400 counts.');
   if (p.memberSince !== undefined && !DAY.test(p.memberSince)) throw bad('Member since is a day, YYYY-MM-DD.');
+  if (p.changelog && !isRepo(p.changelog.repo)) throw bad('The changelog’s repository is owner/name, as on GitHub.');
+  if (p.changelog && !GITHUB.test(p.changelog.author)) throw bad('The changelog’s author isn’t a GitHub user name.');
   return {
     published: p.published,
     home: p.published && p.home === true,
@@ -89,7 +97,14 @@ export function cleanProfile(p: ProfileInput): Omit<ProfileInput, 'handle'> {
     ...(p.activity ? { activity: { start: p.activity.start, counts: p.activity.counts.map((n) => Math.round(n)) } } : {}),
     ...(p.github ? { github: p.github } : {}),
     ...(p.projects ? { projects: p.projects.slice(0, PROJECTS_MAX).map((x) => ({ title: cut(x.title, 80), threads: Math.max(0, Math.round(x.threads)), ...(x.symbol ? { symbol: cut(x.symbol, 60) } : {}) })) } : {}),
+    ...(p.changelog ? { changelog: { repo: p.changelog.repo, author: p.changelog.author } } : {}),
   };
+}
+
+/** owner/name, each as GitHub allows it. */
+export function isRepo(repo: string): boolean {
+  const [owner, name, ...rest] = repo.split('/');
+  return rest.length === 0 && !!owner && !!name && GITHUB.test(owner) && REPO_NAME.test(name) && name !== '.' && name !== '..';
 }
 
 async function theRow(ctx: QueryCtx | MutationCtx): Promise<Doc<'profile'> | null> {
@@ -159,6 +174,7 @@ const page = v.object({
   activity: v.optional(activity),
   github: v.optional(v.string()),
   projects: v.optional(v.array(project)),
+  changelog: v.optional(changelog),
 });
 
 async function isMike(ctx: QueryCtx, token?: string): Promise<boolean> {

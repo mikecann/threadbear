@@ -611,6 +611,31 @@ html.pf-html, html.pf-html body { background: #faf8f3; color-scheme: light; }
 }
 .pf-badge::after { content: ""; position: absolute; inset: 4px; border-radius: 8px; border: 1.5px dashed rgba(255, 255, 255, .95); }
 
+/* The changelog: a closed card at the bottom, opened by its summary. */
+.pf-changelog { margin-top: 24px; }
+.pf-changelog summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; padding: 20px 24px; cursor: pointer; list-style: none; border-radius: 24px; }
+.pf-changelog summary::-webkit-details-marker { display: none; }
+.pf-changelog summary::before { content: ""; align-self: center; width: 7px; height: 7px; margin-right: 2px; border-right: 2px solid var(--ink-soft); border-bottom: 2px solid var(--ink-soft); transform: rotate(-45deg); transition: transform 200ms var(--ease); }
+.pf-changelog[open] summary::before { transform: rotate(45deg); }
+.pf-cl-title { font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
+.pf-cl-sub { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
+.pf-cl-body { padding: 0 24px 24px; border-top: 1px solid var(--line); }
+.pf-cl-day h3 { margin: 20px 0 8px; font-size: 13px; line-height: 20px; font-weight: 600; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.pf-cl-day ul { list-style: none; margin: 0; padding: 0; }
+.pf-cl-day li { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; font-size: 15px; line-height: 22px; color: var(--body); }
+.pf-cl-area { flex: none; padding: 0 8px; border-radius: 6px; background: var(--well); color: var(--ink); font-size: 12px; line-height: 20px; font-weight: 600; white-space: nowrap; }
+.pf-cl-text { min-width: 0; flex: 1; text-wrap: pretty; }
+.pf a.pf-cl-sha { flex: none; font: 500 12px/20px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-soft); text-decoration: none; }
+.pf a.pf-cl-sha:hover { color: var(--honey-d); text-decoration: underline; }
+.pf-cl-foot { display: flex; align-items: center; gap: 16px; margin-top: 20px; font-size: 14px; line-height: 20px; font-weight: 500; }
+.pf-cl-foot a { color: var(--ink-soft); }
+.pf-cl-more { padding: 6px 14px; border: 0; border-radius: 999px; background: var(--well); color: var(--ink); font: inherit; cursor: pointer; }
+.pf-cl-more:hover { background: color-mix(in srgb, var(--ink) 8%, var(--well)); }
+@media (max-width: 560px) {
+  .pf-cl-day li { flex-wrap: wrap; gap: 4px 8px; }
+  .pf-cl-text { flex-basis: 100%; order: 2; }
+}
+
 .pf-foot { display: flex; justify-content: center; gap: 16px; margin-top: 48px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
 .pf-foot a { color: var(--ink-soft); }
 .pf-empty { text-align: center; }

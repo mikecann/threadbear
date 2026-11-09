@@ -101,6 +101,9 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     /// A year of the threads you started (ThreadActivity). Off until
     /// turned on, like the greeting.
     public var activityShown = false
+    /// A View profile page button beside Customize, while the profile page
+    /// is published. On unless turned off; there's no button until then.
+    public var profileButton = true
 
     /// How far today's quote has been moved on.
     public func quoteSkips(on day: String) -> Int { quoteDay == day ? quoteSkips : 0 }
@@ -195,7 +198,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public var isStandard: Bool { self == .standard }
 
     private enum CodingKeys: String, CodingKey {
-        case picture, pictureFile, pictureSize, background, backgroundDim, backgroundFocus, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout, quoteShown, quoteDay, quoteSkips, activityShown
+        case picture, pictureFile, pictureSize, background, backgroundDim, backgroundFocus, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout, quoteShown, quoteDay, quoteSkips, activityShown, profileButton
     }
 
     public init(from decoder: Decoder) throws {
@@ -221,6 +224,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         quoteDay = (try? c.decode(String.self, forKey: .quoteDay)) ?? ""
         quoteSkips = max(0, (try? c.decode(Int.self, forKey: .quoteSkips)) ?? 0)
         activityShown = (try? c.decode(Bool.self, forKey: .activityShown)) ?? false
+        profileButton = (try? c.decode(Bool.self, forKey: .profileButton)) ?? true
         hiddenAbout = Set(((try? c.decode([String].self, forKey: .hiddenAbout)) ?? []).compactMap(AboutPart.init(rawValue:)))
     }
 
@@ -243,6 +247,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         try c.encode(quoteDay, forKey: .quoteDay)
         try c.encode(quoteSkips, forKey: .quoteSkips)
         try c.encode(activityShown, forKey: .activityShown)
+        try c.encode(profileButton, forKey: .profileButton)
         try c.encode(hiddenAbout.map(\.rawValue).sorted(), forKey: .hiddenAbout)
     }
 

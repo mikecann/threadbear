@@ -8,7 +8,9 @@
 // Only what's turned on goes: the activity is a count of threads a day, the
 // numbers are counts, a project is its title, icon symbol and thread count.
 // Never a thread's title, prompt, folder or reply, and threads in a private
-// folder (Settings > Models) aren't counted at all.
+// folder (Settings > Models) aren't counted at all. The changelog is only
+// a repo and a GitHub user name: the visitor's browser lists that user's
+// public commits there from GitHub, so a private repo shows nothing.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -19,7 +21,7 @@ import { ErrorCode, RpcError } from './protocol.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { phonePicture } from './project-icons.ts';
 
-export const PROFILE_PARTS = ['picture', 'background', 'activity', 'github', 'numbers', 'projects', 'memberSince'] as const;
+export const PROFILE_PARTS = ['picture', 'background', 'activity', 'github', 'numbers', 'projects', 'memberSince', 'changelog'] as const;
 export type ProfilePart = (typeof PROFILE_PARTS)[number];
 export const PROFILE_NUMBERS = [
   { key: 'threads', label: 'Threads this year' },
@@ -49,6 +51,12 @@ export type ProfileSettings = {
   backgroundPath?: string;
   backgroundDim?: number;
   githubUser?: string;
+  /**
+   * The changelog's GitHub repository as typed (owner/name or a github.com
+   * link); empty is `<githubUser>/threadbear`. Kept as typed so the panel's
+   * field never changes under the cursor; `changelogRepo()` reads it.
+   */
+  changelogRepo?: string;
 };
 
 export type ProfileStatus = {
@@ -94,6 +102,7 @@ export function readSettings(p: Record<string, unknown>): ProfileSettings {
   const list = (v: unknown, of: readonly string[] | undefined, max: number): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && (!of || of.includes(x))))].slice(0, max) : []);
   const file = (v: unknown): string | undefined => (typeof v === 'string' && path.isAbsolute(v) ? v : undefined);
   const github = str(p.githubUser, 39);
+  const repo = str(p.changelogRepo, 140);
   return {
     published: p.published,
     home: p.published && p.home === true,
@@ -113,7 +122,30 @@ export function readSettings(p: Record<string, unknown>): ProfileSettings {
     ...(file(p.backgroundPath) ? { backgroundPath: file(p.backgroundPath) } : {}),
     ...(typeof p.backgroundDim === 'number' && Number.isFinite(p.backgroundDim) ? { backgroundDim: Math.min(0.95, Math.max(0, p.backgroundDim)) } : {}),
     ...(github ? { githubUser: github } : {}),
+    ...(repo ? { changelogRepo: repo } : {}),
   };
+}
+
+const REPO = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\/(?!\.\.?$)[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * The repository the changelog lists: what was typed, as owner/name (a
+ * github.com link or a trailing .git is fine), or the GitHub user's fork's
+ * usual name when nothing was. Undefined when what's typed isn't one, or
+ * there's no GitHub user to list.
+ */
+export function changelogRepo(typed: string | undefined, githubUser: string | undefined): string | undefined {
+  if (!githubUser) return undefined;
+  const raw = (typed ?? '').trim();
+  if (!raw) return `${githubUser}/threadbear`;
+  const repo = raw
+    .replace(/^(?:https?:\/\/)?(?:www\.)?github\.com\//i, '')
+    .replace(/\.git$/, '')
+    .split('/')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('/');
+  return REPO.test(repo) ? repo : undefined;
 }
 
 /** A local calendar day, YYYY-MM-DD, as the person at this Mac counts days. */
@@ -258,6 +290,7 @@ export class PublicProfile {
       ...(order.includes('activity') ? { activity } : {}),
       ...(order.includes('github') ? { github: settings.githubUser } : {}),
       ...(order.includes('projects') ? { projects: picked.map((p) => ({ title: p.title, threads: p.threadCount, ...(p.icon?.symbol ? { symbol: p.icon.symbol } : {}) })) } : {}),
+      ...(on.has('changelog') && changelogRepo(settings.changelogRepo, settings.githubUser) ? { changelog: { repo: changelogRepo(settings.changelogRepo, settings.githubUser)!, author: settings.githubUser! } } : {}),
     };
   }
 

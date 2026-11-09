@@ -1014,6 +1014,9 @@ export default defineSchema({
     activity: v.optional(v.object({ start: v.string(), counts: v.array(v.number()) })),
     github: v.optional(v.string()),
     projects: v.optional(v.array(v.object({ title: v.string(), threads: v.number(), symbol: v.optional(v.string()) }))),
+    // Whose public commits the page's changelog lists, and on which repo
+    // ('owner/name'); the visitor's browser reads them from GitHub.
+    changelog: v.optional(v.object({ repo: v.string(), author: v.string() })),
     updatedAt: v.number(),
   }),
 });

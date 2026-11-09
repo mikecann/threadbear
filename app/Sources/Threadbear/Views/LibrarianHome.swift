@@ -41,6 +41,12 @@ private struct CustomizedLibrarianPage: View {
 
     private var look: LibrarianLook { LibrarianLook.load(saved) }
 
+    /// The profile page's address, only while it's published.
+    private var publishedProfile: URL? {
+        guard let status = app.profilePage, status.profile?.published == true else { return nil }
+        return status.profileURL
+    }
+
     private var lookBinding: Binding<LibrarianLook> {
         // `saved` above still redraws the page when the look changes.
         Looks.librarianBinding()
@@ -72,14 +78,28 @@ private struct CustomizedLibrarianPage: View {
             }
             .environment(\.onPicture, backdrop != nil)
             .overlay(alignment: .topTrailing) {
-                if !editing {
-                    Button { withAnimation(.easeOut(duration: 0.18)) { editing = true } } label: {
-                        Label("Customize", systemImage: "paintbrush")
+                HStack(spacing: zoomed(8)) {
+                    if look.profileButton, let url = publishedProfile {
+                        Button { _ = OpenGate.openLink(url) } label: {
+                            Label("View profile page", systemImage: "person.crop.circle")
+                        }
+                        .controlSize(.small)
+                        .tip("Open your public profile page in the browser. Customize > Profile page turns this button off")
                     }
-                    .controlSize(.small)
-                    .padding(zoomed(14))
-                    .tip("Change the picture, the background, and where each part of this page sits")
+                    if !editing {
+                        Button { withAnimation(.easeOut(duration: 0.18)) { editing = true } } label: {
+                            Label("Customize", systemImage: "paintbrush")
+                        }
+                        .controlSize(.small)
+                        .tip("Change the picture, the background, and where each part of this page sits")
+                    }
                 }
+                .padding(zoomed(14))
+            }
+            // The button needs to know the page is published, which only the
+            // runner knows: asked once it's connected, when not held already.
+            .task(id: app.connection == .connected) {
+                if app.connection == .connected, app.profilePage == nil, !app.profilePageMissing { app.loadProfilePage() }
             }
             if editing {
                 Divider()

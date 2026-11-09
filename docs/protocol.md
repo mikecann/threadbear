@@ -4323,12 +4323,13 @@ ProfilePageSettings = {
   home: boolean           // visitors at the site's front page see it; only while published
   name: string; bio: string
   links: { title: string; url: string }[]   // at most 4
-  show: ("picture" | "background" | "activity" | "github" | "numbers" | "projects" | "memberSince")[]
+  show: ("picture" | "background" | "activity" | "github" | "numbers" | "projects" | "memberSince" | "changelog")[]
   numbers: ("threads" | "activeDays" | "streak" | "projects" | "models")[]
   projectIds: string[]    // at most 12
   order: ("numbers" | "activity" | "github" | "projects")[]  // the page's cards, top to bottom
   picturePath?: string; backgroundPath?: string; backgroundDim?: number  // files on this Mac
   githubUser?: string
+  changelogRepo?: string  // "owner/repo" on GitHub; the changelog needs it and githubUser
 }
 ProfilePageStatus = { profile: ProfilePageSettings | null; url?: string /* <site>/profile, or <site>/ with home */; sentAt?: string; problem?: string }
 ```
@@ -4337,7 +4338,10 @@ Only parts in `show` are sent. Activity is the count of threads started
 each local day for 372 days; numbers are counts; a project is its title,
 SF Symbol and thread count. Thread titles, prompts, replies, folders and
 project goals, state and notes are never sent, and threads in a private
-folder (`models.privateFolders`) aren't counted. Both sides ignore fields
+folder (`models.privateFolders`) aren't counted. The changelog sends only
+`{ repo, author }`: the visitor's browser lists that author's commits on the
+repo's default branch from GitHub's public API, so only public commits can
+show and nothing about them is stored. Both sides ignore fields
 they don't know; an older runner answers `-32601` and the app says to
 update.
 
