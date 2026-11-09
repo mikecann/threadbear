@@ -661,7 +661,7 @@ phone names must be one that has heartbeated (or `"any"`), else
   stay.
 - `phone:registerDevice({ token, apnsToken, environment: "sandbox" |
   "production", pushKey?, platform? })`. `apnsToken` is the device token in hex.
-  `platform: "android"` (API 64) says it is instead the phone's Firebase token
+  `platform: "android"` (API 66) says it is instead the phone's Firebase token
   (letters, digits and `_ - :`); the row keeps the name and gets a `platform`,
   and its pushes go through the relay to Firebase, even from a backend with its
   own Apple key. An iPhone sends no platform. A phone token

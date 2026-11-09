@@ -999,7 +999,7 @@ export const MAX_DEVICES_PER_TOKEN = 5;
 export const registerDevice = mutation({
   // pushKey (API 4): the phone's own key for what goes through the push
   // relay, base64 of 32 bytes. Kept from an earlier registration if left out.
-  // platform (API 64): "android" when apnsToken is the phone's Firebase token,
+  // platform (API 66): "android" when apnsToken is the phone's Firebase token,
   // not an Apple one (the field keeps its name; the table is indexed by it).
   // Left out, as every iPhone does, it is an Apple token.
   args: { token: v.string(), apnsToken: v.string(), environment: v.union(v.literal('sandbox'), v.literal('production')), pushKey: v.optional(v.string()), platform: v.optional(v.literal('android')) },

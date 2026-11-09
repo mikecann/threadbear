@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { readSandbox, type SandboxConfig } from './sandbox.ts';
 import os from 'node:os';
 import path from 'node:path';
+import { extraUpdatesFrom, type ExtraUpdate } from './updates/extra.ts';
 import crypto from 'node:crypto';
 import { atomicWriteFileSync } from './fsutil.ts';
 import { RELEASE } from './release.ts';
@@ -36,8 +37,10 @@ export type CliUpdatesConfig = {
   codex: CliPolicy;
   checkMinutes: number;
   keepCodexVersions: number; // Codex copies kept under <home>/tools/codex
+  // Other CLIs' update commands, run daily (updates/extra.ts). None by default.
+  extra?: ExtraUpdate[];
 };
-export const DEFAULT_CLI_UPDATES: CliUpdatesConfig = { claude: 'auto', codex: 'auto', checkMinutes: 60, keepCodexVersions: 2 };
+export const DEFAULT_CLI_UPDATES: CliUpdatesConfig = { claude: 'auto', codex: 'auto', checkMinutes: 60, keepCodexVersions: 2, extra: [] };
 
 // Everything that differs between the real install and a test lives here, so
 // tests can point THREADBEAR_HOME and THREADBEAR_PORT somewhere harmless and
@@ -382,6 +385,7 @@ function cliUpdatesConfig(raw: Partial<CliUpdatesConfig> | undefined, envValue: 
     checkMinutes: count(raw?.checkMinutes, DEFAULT_CLI_UPDATES.checkMinutes, 1),
     // Fewer than 2 would leave nothing for "Go back".
     keepCodexVersions: count(raw?.keepCodexVersions, DEFAULT_CLI_UPDATES.keepCodexVersions, 2),
+    extra: extraUpdatesFrom(raw?.extra, envValue),
   };
 }
 

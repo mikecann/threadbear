@@ -22,7 +22,7 @@ import { API_VERSION } from './version';
 // off (and so notifications, for a backend with no key of its own).
 const RELAY_URL = 'https://impartial-hound-393.ap-southeast-2.convex.site';
 
-// platform "android" (API 64): apnsToken is the phone's Firebase token, and the
+// platform "android" (API 66): apnsToken is the phone's Firebase token, and the
 // push goes through the relay to Firebase, even for a backend with an Apple
 // key of its own, which has no use for Android.
 type Target = { apnsToken: string; environment: 'sandbox' | 'production'; notify: 'away' | 'always' | 'off'; pushKey?: string; platform?: 'android' };

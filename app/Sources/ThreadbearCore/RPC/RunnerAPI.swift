@@ -673,13 +673,19 @@ public struct ScheduleUpdate: Sendable, Hashable {
     public var when: ScheduleWhen?
     public var paused: Bool?
     public var cwd: String?
+    /// Left out: unchanged. `.some(nil)`: back to the default (sent as null).
+    public var model: String??
+    public var effort: String??
 
-    public init(title: String? = nil, text: String? = nil, when: ScheduleWhen? = nil, paused: Bool? = nil, cwd: String? = nil) {
+    public init(title: String? = nil, text: String? = nil, when: ScheduleWhen? = nil, paused: Bool? = nil, cwd: String? = nil,
+                model: String?? = .none, effort: String?? = .none) {
         self.title = title
         self.text = text
         self.when = when
         self.paused = paused
         self.cwd = cwd
+        self.model = model
+        self.effort = effort
     }
 
     public var params: [String: JSONValue] {
@@ -688,6 +694,8 @@ public struct ScheduleUpdate: Sendable, Hashable {
         if let text { params["text"] = .string(text) }
         if let paused { params["paused"] = .bool(paused) }
         if let cwd { params["cwd"] = .string(cwd) }
+        if case .some(let model) = model { params["model"] = model.map(JSONValue.string) ?? .null }
+        if case .some(let effort) = effort { params["effort"] = effort.map(JSONValue.string) ?? .null }
         return params
     }
 }

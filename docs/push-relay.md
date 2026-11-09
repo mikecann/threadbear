@@ -49,7 +49,7 @@ skips the relay. `PUSH_VIA=relay` sends through the relay anyway, for testing.
 
 ### An Android phone
 
-The same, through Firebase Cloud Messaging (API 64):
+The same, through Firebase Cloud Messaging (API 66):
 
 1. The Android app makes its 32 bytes (kept wrapped by an Android Keystore key)
    and registers them, with its Firebase token as `apnsToken` and

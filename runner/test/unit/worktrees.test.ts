@@ -89,6 +89,20 @@ function harness(): Harness {
   return makeHarness(undefined, {}, { actionShell: ['/bin/sh', '-c'], actionTimeoutMs: 10_000 });
 }
 
+// Puts a git ahead of the real one on PATH that takes half a second over
+// `worktree remove`, until the function it returns is called. Tests that
+// look at a cleanup while git is still removing the folder need it: on a
+// fast disk the removal finished before they looked (SeeThruHead's fork,
+// 7 Nov).
+function slowWorktreeRemoval(): () => void {
+  const realGit = sh('/', 'command -v git');
+  const bin = tmpDir('tb-slow-git-');
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\ncase " $* " in *" worktree remove "*) sleep 0.5 ;; esac\nexec '${realGit}' "$@"\n`, { mode: 0o755 });
+  const before = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${before}`;
+  return () => { process.env.PATH = before; };
+}
+
 // --------------------------------------------------------------- patches
 
 test('a patch can carry worktree with setup and check; anything malformed is the file\'s error', () => {
@@ -1066,14 +1080,19 @@ test('a handover waits for an archived thread\'s worktree cleanup, so the saved 
   const { main } = makeRepo();
   const h = harness();
   const { id, w } = await threadWithWorktree(h, main);
-  h.runner.update({ threadId: id, archived: true });
-  const rt = (h.runner as any).threads.get(id).rt;
-  // The CLI has gone and the cleanup has started, but git hasn't finished.
-  await until(() => rt.archivePending === false, 'the cleanup to start');
-  assert.ok(fs.existsSync(w.path), 'still removing');
-  const handed: string[] = [];
-  await h.runner.beginDrain([], { onHandedOver: (t) => handed.push(t) });
-  await until(() => handed.includes(id), 'the handover');
+  const restore = slowWorktreeRemoval();
+  try {
+    h.runner.update({ threadId: id, archived: true });
+    const rt = (h.runner as any).threads.get(id).rt;
+    // The CLI has gone and the cleanup has started, but git hasn't finished.
+    await until(() => rt.archivePending === false, 'the cleanup to start');
+    assert.ok(fs.existsSync(w.path), 'still removing');
+    const handed: string[] = [];
+    await h.runner.beginDrain([], { onHandedOver: (t) => handed.push(t) });
+    await until(() => handed.includes(id), 'the handover');
+  } finally {
+    restore();
+  }
   assert.equal(h.runner.has(id), false);
   const saved = JSON.parse(fs.readFileSync(path.join(h.home, 'threads', id, 'thread.json'), 'utf8'));
   assert.ok(saved.worktree.removedAt, 'removedAt was saved');
@@ -1138,12 +1157,17 @@ test('a message sent while the archive cleanup runs waits for it, then starts in
   const { main } = makeRepo();
   const h = harness();
   const { id, w } = await threadWithWorktree(h, main);
-  h.runner.update({ threadId: id, archived: true });
-  const rt = (h.runner as any).threads.get(id).rt;
-  await until(() => rt.archivePending === false, 'the cleanup to start');
-  assert.ok(fs.existsSync(w.path), 'still removing');
-  h.runner.send(id, 'More please');
-  await until(() => h.adapter.sessions.length === 2, 'a new CLI');
+  const restore = slowWorktreeRemoval();
+  try {
+    h.runner.update({ threadId: id, archived: true });
+    const rt = (h.runner as any).threads.get(id).rt;
+    await until(() => rt.archivePending === false, 'the cleanup to start');
+    assert.ok(fs.existsSync(w.path), 'still removing');
+    h.runner.send(id, 'More please');
+    await until(() => h.adapter.sessions.length === 2, 'a new CLI');
+  } finally {
+    restore();
+  }
   assert.equal(h.adapter.last.opts.cwd, path.join(main, 'runner'), 'not the folder being removed');
   assert.ok(!fs.existsSync(w.path));
 });
@@ -1152,12 +1176,18 @@ test('a thread deleted while a handover waits for its cleanup stays deleted', as
   const { main } = makeRepo();
   const h = harness();
   const { id } = await threadWithWorktree(h, main);
-  h.runner.update({ threadId: id, archived: true });
-  const rt = (h.runner as any).threads.get(id).rt;
-  await until(() => rt.archivePending === false, 'the cleanup to start');
-  const drained = h.runner.beginDrain([], { onHandedOver: () => undefined });
-  h.runner.delete(id);
-  await drained;
+  // So the delete really lands while the handover waits on git.
+  const restore = slowWorktreeRemoval();
+  try {
+    h.runner.update({ threadId: id, archived: true });
+    const rt = (h.runner as any).threads.get(id).rt;
+    await until(() => rt.archivePending === false, 'the cleanup to start');
+    const drained = h.runner.beginDrain([], { onHandedOver: () => undefined });
+    h.runner.delete(id);
+    await drained;
+  } finally {
+    restore();
+  }
   assert.ok(!fs.existsSync(path.join(h.home, 'threads', id)), 'not saved back');
 });
 

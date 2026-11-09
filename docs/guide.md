@@ -756,7 +756,9 @@ at 9"). The Scheduled view lists them under Active, Paused and Done, with
 when each runs next. One that starts a new thread each time keeps the
 pool the composer was on when you made it, so each run starts on
 whichever of that pool's logins it would pick then; ask an agent to put
-it on another pool or one login. Click a heading to fold it away (Done starts folded); a
+it on another pool or one login. Its model and effort start as the
+composer's too, and you can change them in the schedule's editor (click it
+in the list). Click a heading to fold it away (Done starts folded); a
 folded one shows how many are under it. Its page
 says what's coming up next with a few numbers: how many are on, due in the
 next day, repeating, set by threads, paused, and how often they've run.
