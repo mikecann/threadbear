@@ -723,12 +723,6 @@ private struct LoginToggleRow: View {
     }
 }
 
-/// A section of settings: its title, and behind the ⓘ what it is and what to
-/// ask your agent. Agents can edit runner.json and the rest, so the window
-/// shows what's set with few controls, and every section says to ask your
-/// agent first (Mike, 5 Nov). Taking `ask` as the end of a sentence keeps
-/// that line in every one. Sections with only a message or an error in them
-/// stay plain `Section`s (SettingsInfoTests checks).
 /// One experiment's switch in Settings > General, with what it does behind
 /// its ⓘ.
 private struct ExperimentRow: View {
@@ -746,6 +740,12 @@ private struct ExperimentRow: View {
     }
 }
 
+/// A section of settings: its title, and behind the ⓘ what it is and what to
+/// ask your agent. Agents can edit runner.json and the rest, so the window
+/// shows what's set with few controls, and every section says to ask your
+/// agent first (Mike, 5 Nov). Taking `ask` as the end of a sentence keeps
+/// that line in every one. Sections with only a message or an error in them
+/// stay plain `Section`s (SettingsInfoTests checks).
 struct SettingsSection<Content: View>: View {
     let title: String
     let about: String
