@@ -98,30 +98,18 @@ struct ProfilePageSection: View {
             // Open always goes to the profile page. With it on the front
             // page too, Open site shows what visitors see at the site's
             // address (signed in, that's your threads).
+            // Two rows, so it's clear what each address shows: the
+            // profile page always, at /profile, and while it's on the front
+            // page, the site's address as well.
             if let profile = status?.profileURL {
-                HStack {
-                    Text(profile.absoluteString)
-                        .font(.system(size: TypeScale.label))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                    Spacer()
-                    Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(profile.absoluteString, forType: .string)
-                    }
-                    .controlSize(.small)
-                    .tip("Copy your profile page's link")
-                    Button("Open") { _ = OpenGate.openLink(profile) }
-                        .controlSize(.small)
-                        .tip("Open your profile page in the browser")
-                    if let site = status?.siteURL {
-                        Button("Open Site") { _ = OpenGate.openLink(site) }
-                            .controlSize(.small)
-                            .tip("Open your site's front page, where visitors see your profile. Signed in, you'll see your threads there")
-                    }
-                }
+                ProfileLinkRow(title: "Profile page", url: profile,
+                               note: "Opens your profile, signed in or not.",
+                               what: "your profile page")
+            }
+            if let site = status?.siteURL {
+                ProfileLinkRow(title: "Front page", url: site,
+                               note: "Visitors see your profile here. Signed in, you see your threads.",
+                               what: "your site's front page")
             }
             LabeledContent("Name") {
                 TextField("Name", text: $draft.name, prompt: Text("Your name"))
@@ -271,5 +259,42 @@ struct ProfilePageSection: View {
             return x
         }
         return core(a) == core(b)
+    }
+}
+
+/// One of the profile page's addresses: what it is, the address, and Copy
+/// and Open, with a line on what someone sees there.
+private struct ProfileLinkRow: View {
+    let title: String
+    let url: URL
+    let note: String
+    let what: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: zoomed(4)) {
+            HStack(spacing: zoomed(8)) {
+                Text(title)
+                Spacer(minLength: zoomed(8))
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                }
+                .controlSize(.small)
+                .tip("Copy the link to \(what)")
+                Button("Open") { _ = OpenGate.openLink(url) }
+                    .controlSize(.small)
+                    .tip("Open \(what) in the browser")
+            }
+            Text(url.absoluteString)
+                .font(.system(size: TypeScale.label))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Text(note)
+                .font(.system(size: zoomed(11)))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
