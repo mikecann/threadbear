@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { changedFiles, packGit, repoKey, unpackGit } from '../../src/move-git.ts';
+import { aliasedDir, IS_WINDOWS, NO_SHORT_NAMES } from '../helpers/short-names.ts';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tb-move-git-')));
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'advice.detachedHead=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -175,4 +176,26 @@ test('what changed in a shared checkout, for what stays behind', async () => {
   write(s, 'a.txt', 'x\n');
   write(s, 'n.txt', 'n\n');
   assert.deepEqual((await changedFiles(s)).sort(), ['a.txt', 'n.txt']);
+});
+
+// GitHub's Windows runners spell TEMP with 8.3 short names (C:\Users\RUNNER~1), which
+// git does not: the repo's top came out in one spelling and the thread's folder in the
+// other, so its place in the repo read as nowhere ('' instead of 'app').
+test("the thread's folder is found inside the repo when one of the paths is spelled with 8.3 short names", { skip: IS_WINDOWS ? false : 'Windows only' }, async (t) => {
+  const a = aliasedDir(tmp());
+  if (!a) return t.skip(NO_SHORT_NAMES);
+  const repo = path.join(a.long, 'repo');
+  fs.mkdirSync(repo);
+  git(repo, 'init', '-q');
+  write(repo, 'app/readme.md', 'app\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'A');
+  const shortRepo = path.join(a.short, 'repo');
+  const packed = await packGit(repo, path.join(shortRepo, 'app'), path.join(a.long, 'x.bundle'));
+  assert.ok(packed.ok, !packed.ok ? packed.reason : '');
+  if (packed.ok) assert.equal(packed.meta.subdir, 'app');
+  // And the other way round: the repo given short, the folder long
+  const again = await packGit(shortRepo, path.join(repo, 'app'), path.join(a.long, 'y.bundle'));
+  assert.ok(again.ok, !again.ok ? again.reason : '');
+  if (again.ok) assert.equal(again.meta.subdir, 'app');
 });

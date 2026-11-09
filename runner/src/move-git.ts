@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { realPath } from './platform.ts';
 
 export type GitMeta = {
   branch: string; // as it was, "HEAD" when detached
@@ -117,7 +118,11 @@ export async function packGit(worktree: string, cwd: string, bundleFile: string)
   const origin = await originUrl(top);
   const def = origin ? await originDefault(top) : undefined;
   const base = def ? await out(top, ['merge-base', 'HEAD', def]) : undefined;
-  const rel = path.relative(top, cwd);
+  // Each in its real form: on Windows git gives the long name with forward
+  // slashes, while a folder made from a temp path can still carry its 8.3 short
+  // name (GitHub's runners spell TEMP that way), and the two then compare as
+  // two places and the thread's folder came out as the repo's top.
+  const rel = path.relative(realPath(top), realPath(cwd));
   const subdir = rel && !rel.startsWith('..') ? rel.split(path.sep).join('/') : '';
 
   // Every file as it is now, tracked or not, in a tree of its own: a
