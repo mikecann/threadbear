@@ -95,9 +95,12 @@ struct ProfilePageSection: View {
                 Toggle("Show it on my site's front page", isOn: $draft.home)
                     .tip("Visitors to your site's address see this page first. Signed in, you still get your threads there")
             }
-            if let url = status?.url, let link = URL(string: url) {
+            // Open always goes to the profile page. With it on the front
+            // page too, Open site shows what visitors see at the site's
+            // address (signed in, that's your threads).
+            if let profile = status?.profileURL {
                 HStack {
-                    Text(url)
+                    Text(profile.absoluteString)
                         .font(.system(size: TypeScale.label))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -106,13 +109,18 @@ struct ProfilePageSection: View {
                     Spacer()
                     Button("Copy") {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(url, forType: .string)
+                        NSPasteboard.general.setString(profile.absoluteString, forType: .string)
                     }
                     .controlSize(.small)
                     .tip("Copy your profile page's link")
-                    Button("Open") { _ = OpenGate.openLink(link) }
+                    Button("Open") { _ = OpenGate.openLink(profile) }
                         .controlSize(.small)
                         .tip("Open your profile page in the browser")
+                    if let site = status?.siteURL {
+                        Button("Open Site") { _ = OpenGate.openLink(site) }
+                            .controlSize(.small)
+                            .tip("Open your site's front page, where visitors see your profile. Signed in, you'll see your threads there")
+                    }
                 }
             }
             LabeledContent("Name") {

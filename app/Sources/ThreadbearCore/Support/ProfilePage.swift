@@ -179,3 +179,24 @@ public struct ProfilePageStatus: Decodable, Equatable, Sendable {
         self.problem = problem
     }
 }
+
+extension ProfilePageStatus {
+    /// The profile page itself, always <site>/profile. The runner gives the
+    /// site's front page instead while "Show it on my site's front page"
+    /// is on, and signed in that page is your threads, not the profile.
+    public var profileURL: URL? {
+        guard let url, var parts = URLComponents(string: url), parts.host != nil else { return nil }
+        parts.path = "/profile"
+        parts.query = nil
+        parts.fragment = nil
+        return parts.url
+    }
+
+    /// The site's front page, only while the profile is shown there.
+    public var siteURL: URL? {
+        guard let url, var parts = URLComponents(string: url), parts.host != nil,
+              parts.path.isEmpty || parts.path == "/" else { return nil }
+        parts.path = "/"
+        return parts.url
+    }
+}

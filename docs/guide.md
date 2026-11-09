@@ -837,7 +837,9 @@ Publish my profile page is on, only you can see it, in a browser signed in
 to your Threadbear site, with a line saying so. Published, Show it on my
 site's front page makes it what visitors see at your site's address; when
 you're signed in you still get your threads there, and Sign in at the
-bottom of the page says how. The page looks like Threadbear's own site. A link
+bottom of the page says how. Open in Customize always opens the profile page itself
+(your site's /profile), and Open Site, there while it's on the front page,
+opens the front page as visitors see it. The page looks like Threadbear's own site. A link
 to a published page shows your name, line and picture when pasted into
 Slack, X or iMessage. Its numbers and activity refresh by themselves within
 the hour. Thread titles, prompts, replies, folders and project notes are

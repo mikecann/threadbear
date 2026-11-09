@@ -178,4 +178,15 @@ final class PageLookTests: XCTestCase {
         XCTAssertEqual(GitHubContributions.failure(status: 404, serviceMessage: nil, user: "nobody-here"), "GitHub has no user called nobody-here.")
         XCTAssertEqual(GitHubContributions.failure(status: 200, serviceMessage: "User not found", user: "x"), "GitHub has no user called x.")
     }
+
+    func testProfileOpensTheProfileEvenWhenItIsTheFrontPage() {
+        let home = ProfilePageStatus(url: "https://wayne.convex.site/")
+        XCTAssertEqual(home.profileURL?.absoluteString, "https://wayne.convex.site/profile")
+        XCTAssertEqual(home.siteURL?.absoluteString, "https://wayne.convex.site/")
+        let plain = ProfilePageStatus(url: "https://wayne.convex.site/profile")
+        XCTAssertEqual(plain.profileURL?.absoluteString, "https://wayne.convex.site/profile")
+        XCTAssertNil(plain.siteURL, "no Open Site unless it's on the front page")
+        XCTAssertNil(ProfilePageStatus(url: nil).profileURL)
+        XCTAssertNil(ProfilePageStatus(url: "not a link").profileURL)
+    }
 }
