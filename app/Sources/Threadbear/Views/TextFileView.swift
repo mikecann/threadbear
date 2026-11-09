@@ -24,6 +24,8 @@ struct TextFileView: View {
     /// Done didn't take (what's typed couldn't be saved): the pencil's
     /// state goes back to editing.
     var stayedEditing: () -> Void = {}
+    /// A folder search's hit to go to: its line and the words.
+    var hit: PanePreview.SearchHit? = nil
     /// Made on appear, once: SwiftUI runs a view's init on every update,
     /// and a controller a go would be a text view a go.
     @State private var controller: TextFileController?
@@ -73,10 +75,18 @@ struct TextFileView: View {
             let made = TextFileController(url: url)
             made.textView.threadId = threadId
             made.start(editing: editing, dark: colorScheme == .dark)
+            if let hit { made.go(to: hit, opened: opened) }
             controller = made
         }
         .onDisappear { controller?.stop() }
-        .onChange(of: opened) { _, _ in controller?.check() }
+        .onChange(of: opened) { _, _ in
+            controller?.check()
+            // The same file opened again from another search hit.
+            if let hit, let controller {
+                controller.go(to: hit, opened: opened)
+                controller.goToPending()
+            }
+        }
         .onChange(of: editing) { _, editing in
             guard let controller else { return }
             controller.setEditing(editing)
@@ -179,6 +189,26 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     /// The newest one, for the automation's `preview` command.
     nonisolated(unsafe) static weak var current: TextFileController?
 
+    /// Where each file was scrolled to when it was last looked at, per
+    /// thread, so going to another panel or thread and back finds the
+    /// same place (Wayne, 9 Nov). Only while the app runs.
+    @ObservationIgnored static var places: [String: NSPoint] = [:]
+    /// A place to go back to once the view has its size: until then the
+    /// text isn't laid out at its real width, and the offset would be off.
+    @ObservationIgnored private var pendingPlace: NSPoint?
+    /// A folder search's hit to show and select once laid out: its line
+    /// (from 1) and the words searched for.
+    @ObservationIgnored var pendingHit: (line: Int, query: String)?
+    private var placeKey: String { "\(textView.threadId ?? "") \(url.path)" }
+
+    private final class Weak { weak var controller: TextFileController?; init(_ c: TextFileController) { controller = c } }
+    /// The one showing a thread's file, for the bar's Find button.
+    @ObservationIgnored private static var showing: [String: Weak] = [:]
+
+    static func showing(path: String, threadId: String) -> TextFileController? {
+        showing["\(threadId) \(path)"]?.controller
+    }
+
     /// highlight.js gets slow on big files; past this, code is plain.
     static let highlightLimit = 400_000
     /// Rendering Markdown bigger than this happens off the main thread,
@@ -222,6 +252,8 @@ final class TextFileController: NSObject, NSTextViewDelegate {
         textView.isRichText = false
         textView.allowsUndo = true
         textView.usesFindBar = true
+        // Matches light up as you type, and the bar counts them.
+        textView.isIncrementalSearchingEnabled = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
@@ -239,6 +271,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
         scroll.hasVerticalRuler = true
         scroll.rulersVisible = false
         textView.onSave = { [weak self] in _ = self?.saveNow() }
+        textView.onFind = { [weak self] in self?.showFind() }
     }
 
     // MARK: Lifecycle
@@ -247,6 +280,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
         guard !started else { return }
         started = true
         Self.current = self
+        Self.showing[placeKey] = Weak(self)
         self.dark = dark
         self.editing = editing
         if (try? document.load()) == nil {
@@ -254,6 +288,7 @@ final class TextFileController: NSObject, NSTextViewDelegate {
             return
         }
         show(document.saved, keepPlace: false)
+        pendingPlace = Self.places[placeKey]
         // Opened again while it was being edited (Back to it, another
         // thread and back): it takes typing again.
         if editing { applyEditing() }
@@ -262,8 +297,12 @@ final class TextFileController: NSObject, NSTextViewDelegate {
         }
         scroll.contentView.postsFrameChangedNotifications = true
         resized = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pageInset() }
+            MainActor.assumeIsolated {
+                self?.pageInset()
+                self?.goToPending()
+            }
         }
+        DispatchQueue.main.async { [weak self] in self?.goToPending() }
         // Quitting mid-edit: write what's typed before the app goes.
         terminating = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { _ = self?.saveNow() }
@@ -271,6 +310,9 @@ final class TextFileController: NSObject, NSTextViewDelegate {
     }
 
     func stop() {
+        if pendingPlace == nil, pendingHit == nil, scroll.contentView.bounds.width > 0 {
+            Self.places[placeKey] = scroll.contentView.bounds.origin
+        }
         saveNow()
         document.stopWatching()
         if let terminating { NotificationCenter.default.removeObserver(terminating) }
@@ -361,6 +403,108 @@ final class TextFileController: NSObject, NSTextViewDelegate {
             inset = NSSize(width: 10, height: 10)
         }
         if textView.textContainerInset != inset { textView.textContainerInset = inset }
+    }
+
+    /// The remembered place or line, once the view has a width to lay the
+    /// text out at.
+    func goToPending() {
+        guard scroll.contentView.bounds.width > 0 else { return }
+        if let hit = pendingHit {
+            pendingHit = nil
+            pendingPlace = nil
+            show(hit: hit)
+        } else if let place = pendingPlace {
+            pendingPlace = nil
+            restore(place: place)
+        }
+    }
+
+    /// Scrolls to a search hit and selects the words. In the raw text it's
+    /// on its line; drawn Markdown's lines aren't the file's, so there it's
+    /// the same occurrence of the words counted from the top.
+    func show(hit: (line: Int, query: String)) {
+        let shown = textView.string as NSString
+        let options: NSString.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        var found = NSRange(location: NSNotFound, length: 0)
+        if isMarkdown && !editing {
+            let raw = document.saved as NSString
+            let lineStart = Self.offset(ofLine: hit.line, in: raw)
+            var count = 0
+            var from = 0
+            while from < lineStart {
+                let r = raw.range(of: hit.query, options: options, range: NSRange(location: from, length: raw.length - from))
+                guard r.location != NSNotFound, r.location < lineStart else { break }
+                count += 1
+                from = NSMaxRange(r)
+            }
+            from = 0
+            for _ in 0...count {
+                let r = shown.range(of: hit.query, options: options, range: NSRange(location: from, length: shown.length - from))
+                guard r.location != NSNotFound else { break }
+                found = r
+                from = NSMaxRange(r)
+            }
+        } else {
+            let start = Self.offset(ofLine: hit.line, in: shown)
+            let line = shown.lineRange(for: NSRange(location: min(start, shown.length), length: 0))
+            found = shown.range(of: hit.query, options: options, range: line)
+            if found.location == NSNotFound { found = NSRange(location: line.location, length: 0) }
+        }
+        guard found.location != NSNotFound else { return }
+        textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+        textView.setSelectedRange(found)
+        center(found)
+        if found.length > 0 { textView.showFindIndicator(for: found) }
+    }
+
+    /// Scrolls so `range` sits in the middle of the view, not at its edge.
+    private func center(_ range: NSRange) {
+        guard let layout = textView.layoutManager, let container = textView.textContainer else { return textView.scrollRangeToVisible(range) }
+        let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        let rect = layout.boundingRect(forGlyphRange: glyphs, in: container).offsetBy(dx: 0, dy: textView.textContainerOrigin.y)
+        let clip = scroll.contentView
+        let wanted = NSRect(x: 0, y: rect.midY - clip.bounds.height / 2, width: clip.bounds.width, height: clip.bounds.height)
+        clip.scroll(to: clip.constrainBoundsRect(wanted).origin)
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    /// Where line `line` (from 1) starts.
+    static func offset(ofLine line: Int, in text: NSString) -> Int {
+        var location = 0
+        var current = 1
+        while current < line, location < text.length {
+            location = NSMaxRange(text.lineRange(for: NSRange(location: location, length: 0)))
+            current += 1
+        }
+        return location
+    }
+
+    /// Search hits already gone to, by file and open: coming back to the
+    /// file later (another panel, another thread) finds the place it was
+    /// left at, not the hit again.
+    @ObservationIgnored private static var hitsShown: Set<String> = []
+
+    func go(to hit: PanePreview.SearchHit, opened: Int) {
+        let key = "\(placeKey) \(opened) \(hit.line)"
+        guard !Self.hitsShown.contains(key) else { return }
+        Self.hitsShown.insert(key)
+        pendingHit = (hit.line, hit.query)
+    }
+
+    /// The find bar over the file (⌘F, or the bar's magnifying glass):
+    /// with Replace when the file is being edited.
+    func showFind() {
+        textView.window?.makeFirstResponder(textView)
+        // The words picked (a search hit's) go in the box, not whatever
+        // was last searched for anywhere on the Mac.
+        if textView.selectedRange().length > 0 {
+            let use = NSMenuItem()
+            use.tag = NSTextFinder.Action.setSearchString.rawValue
+            textView.performTextFinderAction(use)
+        }
+        let item = NSMenuItem()
+        item.tag = (textView.isEditable ? NSTextFinder.Action.showReplaceInterface : NSTextFinder.Action.showFindInterface).rawValue
+        textView.performTextFinderAction(item)
     }
 
     static var plainAttributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: NSColor.labelColor] }
@@ -574,11 +718,18 @@ final class FileTextView: NSTextView {
     var base: URL?
     /// ⌘S while it's being edited: save now rather than after the pause.
     var onSave: (() -> Void)?
+    /// ⌘F (and ⌥⌘F): the find bar, with Replace while editing.
+    var onFind: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if isEditable, window?.firstResponder === self, flags == .command, event.charactersIgnoringModifiers == "s", let onSave {
             onSave()
+            return true
+        }
+        if window?.firstResponder === self, flags == .command || flags == [.command, .option],
+           event.charactersIgnoringModifiers?.lowercased() == "f", let onFind {
+            onFind()
             return true
         }
         return super.performKeyEquivalent(with: event)

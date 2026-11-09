@@ -259,10 +259,25 @@ Mac's files have thumbnails and Quick Look.
 Files, the folder on a thread's right-hand rail, opens the thread's own
 folder that way, without a link to it. Click it again to close it.
 
+A folder on this Mac has a search box at the top that looks inside its
+files: type, and the list gives way to every line with those words, file
+by file, with line numbers. Folders like `.git`, `node_modules` and build
+output are left out, and so are big files and anything that isn't text.
+Click a line to open the file there with the words picked out, and the
+back arrow brings you back to the same results. Clear the box for the
+folder again.
+
+A file you open in the side pane stays open until you close it with the
+back arrow. Going to Highlights or another panel and back, or to another
+thread and back, finds it where you left it, scrolled to the same place.
+
 A text file in the side pane opens for reading. The pencil in its bar
 switches to the raw text for editing, with line numbers down the side.
 What you type is saved a moment after you stop, and ⌘S saves it straight
-away. If the file changes on disk while you have unsaved edits (an agent
+away. The magnifying glass in the bar, or ⌘F in the file, finds words in
+it, lighting up every match and counting them, with arrows for the next
+and the one before. While you're editing, the same bar has Replace and
+All, to change one match or every one. If the file changes on disk while you have unsaved edits (an agent
 rewrote it), nothing is written over: a bar asks whether to take the
 file's version or keep yours.
 

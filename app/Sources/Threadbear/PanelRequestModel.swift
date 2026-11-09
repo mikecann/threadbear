@@ -76,7 +76,7 @@ extension AppModel {
         let id: PanelID
         switch panel {
         case .section(let section):
-            if panePreview[thread.id].map({ $0.from != section }) ?? false { panePreview[thread.id] = nil }
+            bringPreview(for: section, in: thread.id)
             panelChoice[thread.id] = section.id
             id = section.id
         case .usage: id = WindowDock.usage

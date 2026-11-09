@@ -40,6 +40,13 @@ struct PanePreview: Equatable {
     /// A folder's selection and open rows, kept here so coming Back to it
     /// finds it as it was left.
     var folderMemory = FolderMemory()
+    /// Opened from a folder search: the line to go to, and the words.
+    var hit: SearchHit?
+
+    struct SearchHit: Equatable {
+        var line: Int
+        var query: String
+    }
 
     var fileURL: URL? {
         if case .file(let path) = target { return URL(fileURLWithPath: path) }
@@ -194,6 +201,11 @@ extension AppModel {
            TextFileView.shows(path), TextFileView.canEdit(path) {
             preview.editing = true
         }
+        // One open over another section is put aside, not lost.
+        if let current = panePreview[threadId], current.from != preview.from {
+            parkedPreviews[threadId, default: [:]][current.from.id] = current
+        }
+        parkedPreviews[threadId]?[preview.from.id] = nil
         panePreview[threadId] = preview
         // Over the section it's from, opening that if it's closed.
         showPane(preview.from)
@@ -213,6 +225,21 @@ extension AppModel {
     /// until the next one, though nothing shows it again yet.
     func closePreview(in threadId: String) {
         panePreview[threadId] = nil
+    }
+
+    /// Going to `section`: a file open over another section is put aside
+    /// for that section, and one put aside for this section comes back. A
+    /// file stays open until Back closes it, however many other panels
+    /// are looked at in between (Wayne, 9 Nov: a file opened from Files
+    /// closed when he went to the terminal and back).
+    func bringPreview(for section: PaneSection, in threadId: String) {
+        if let current = panePreview[threadId], current.from != section {
+            parkedPreviews[threadId, default: [:]][current.from.id] = current
+            panePreview[threadId] = nil
+        }
+        if panePreview[threadId] == nil, let parked = parkedPreviews[threadId]?.removeValue(forKey: section.id) {
+            panePreview[threadId] = parked
+        }
     }
 
     /// The bar's Back: through the folders and files Mike came through in
@@ -253,6 +280,15 @@ extension AppModel {
         if entry.isPackage || FileLinkAction.opensInItsApp(entry.path) { return openExternally(URL(fileURLWithPath: entry.path)) }
         var next = PanePreview(target: .file(entry.path), title: entry.name, from: current.from)
         next.back = back
+        show(next, in: thread.id)
+    }
+
+    /// A folder search's hit: the file opens at the line, with Back to the
+    /// folder (and its search) it was found from.
+    func openSearchHit(_ hit: FolderSearch.Hit, query: String, showing current: PanePreview, in thread: ThreadSummary) {
+        var next = PanePreview(target: .file(hit.path), title: (hit.path as NSString).lastPathComponent, from: current.from)
+        next.back = backStack(of: current, leaving: current.folderMemory)
+        next.hit = PanePreview.SearchHit(line: hit.line, query: query)
         show(next, in: thread.id)
     }
 

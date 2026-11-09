@@ -634,6 +634,10 @@ final class AppModel {
     var highlightsUnsupported = false
     /// A file or page open in the pane in place of its section, per thread.
     var panePreview: [String: PanePreview] = [:]
+    /// Files left open under other sections, per thread then section id:
+    /// a file opened from Files stays open while Highlights is looked at,
+    /// and is there again when Files comes back (`bringPreview`).
+    var parkedPreviews: [String: [String: PanePreview]] = [:]
     /// Each thread's Explain side conversation (ExplainModel.swift).
     var explainers: [String: ExplainSession] = [:]
     @ObservationIgnored var explainCount = 0

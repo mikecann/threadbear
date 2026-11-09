@@ -652,6 +652,13 @@ struct PreviewBody: View {
             }
         case .file(let path):
             fileBody(path)
+        case .folder(let path) where preview.away == nil && !thread.isRemote:
+            // This Mac's folder: with a search over its files.
+            FolderSearchView(thread: thread, root: path, preview: preview) {
+                FolderBrowser(thread: thread, path: path, preview: preview)
+                    .id("\(thread.id) \(path)")
+            }
+            .id("search \(thread.id) \(path)")
         case .folder(let path):
             FolderBrowser(thread: thread, path: path, preview: preview)
                 .id("\(thread.id) \(path)")
@@ -669,7 +676,7 @@ struct PreviewBody: View {
                 .id(path)
         } else if TextFileView.shows(path) {
             TextFileView(url: URL(fileURLWithPath: path), opened: preview.opened, editing: preview.editing, threadId: thread.id,
-                         stayedEditing: { [thread] in app.setPreviewEditing(true, in: thread.id) })
+                         stayedEditing: { [thread] in app.setPreviewEditing(true, in: thread.id) }, hit: preview.hit)
                 // The thread too: its links are followed in that thread, and
                 // two threads on one runner can show the same copy.
                 .id("\(thread.id) \(path)")
@@ -762,6 +769,13 @@ struct PreviewButtons: View {
                 PaneHeaderButton(symbol: "pencil", help: "Edit the file here. It's saved as you type.") { app.setPreviewEditing(true, in: thread.id) }
             }
             PaneHeaderButton(symbol: "folder", help: "Reveal in Finder") { app.revealInFinder(file.path) }
+        }
+        // Find in a text file: the find bar over it, with Replace while
+        // it's being edited.
+        if let file = preview.fileURL, TextFileView.shows(file.path), PreviewRules.viewer(forPath: file.path) != .web {
+            PaneHeaderButton(symbol: "magnifyingglass", help: preview.editing ? "Find and replace in this file (⌘F)" : "Find in this file (⌘F)") {
+                TextFileController.showing(path: file.path, threadId: thread.id)?.showFind()
+            }
         }
         if let url = preview.externalURL {
             PaneHeaderButton(symbol: "arrow.up.right", help: preview.folderPath != nil ? "Open in Finder" : preview.fileURL == nil ? "Open in browser" : "Open in its app") {
