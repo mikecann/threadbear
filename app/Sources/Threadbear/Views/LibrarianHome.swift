@@ -97,6 +97,9 @@ private struct CustomizedLibrarianPage: View {
         case .greeting:
             LibrarianGreeting(name: look.greetingName, clock: look.greetingClock)
                 .frame(maxWidth: zoomed(620), alignment: .leading)
+        case .quote:
+            LibrarianQuote(look: look)
+                .frame(maxWidth: zoomed(620), alignment: .leading)
         case .picture:
             let image = look.picture == .own ? Looks.image(look.pictureFile) : Art.librarian
             if let image {
@@ -267,6 +270,64 @@ private struct LibrarianGreeting: View {
                 }
             }
             .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// Today's quote on a customized Librarian page (Quotes): the words, who
+/// said them and what they do, with where it's from in the tooltip. The
+/// refresh button shows another for the rest of the day; the day turns at
+/// 4 am on this Mac's clock. Right-click to copy it.
+private struct LibrarianQuote: View {
+    @Environment(\.onPicture) private var onPicture
+    let look: LibrarianLook
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let day = Quotes.dayKey(context.date)
+            if let quote = Quotes.pick(dayKey: day, skips: look.quoteSkips(on: day)) {
+                HStack(alignment: .top, spacing: zoomed(12)) {
+                    VStack(alignment: .leading, spacing: zoomed(6)) {
+                        Text("\u{201C}\(quote.text)\u{201D}")
+                            .font(.system(size: zoomed(17), weight: .medium, design: .serif))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                        Text("\(quote.author), \(quote.role.lowercased())")
+                            .font(.system(size: TypeScale.label))
+                            .foregroundStyle(.secondary)
+                    }
+                    .tip(quote.source)
+                    Spacer(minLength: 0)
+                    Button {
+                        var next = look
+                        next.skipQuote(on: day)
+                        withAnimation(.easeOut(duration: 0.2)) { Looks.saveLibrarianLook(next) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: zoomed(11), weight: .medium))
+                            .frame(width: zoomed(22), height: zoomed(22))
+                            .contentShape(Rectangle())
+                    }
+                    // Plain, so SwiftUI draws it rather than an NSButton
+                    // that tracks the mouse in a loop of its own.
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .tip("Show another quote for today")
+                    .accessibilityLabel("Show another quote")
+                }
+                .padding(.horizontal, zoomed(16))
+                .padding(.vertical, zoomed(14))
+                .tileBackground(onPicture, radius: zoomed(12))
+                .id(quote.id)
+                .transition(.opacity)
+                .contextMenu {
+                    Button("Copy Quote") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString("\u{201C}\(quote.text)\u{201D}\n\(quote.author)", forType: .string)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 }

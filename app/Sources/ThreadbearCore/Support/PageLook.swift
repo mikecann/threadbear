@@ -9,7 +9,7 @@ import Foundation
 public struct LibrarianLook: Codable, Equatable, Sendable {
     /// The parts of the page, in the order they stack within a place.
     public enum Block: String, CaseIterable, Codable, Sendable, Identifiable {
-        case greeting, picture, about, numbers, github, settings
+        case greeting, picture, about, quote, numbers, github, settings
         public var id: String { rawValue }
 
         public var title: String {
@@ -17,6 +17,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
             case .greeting: "Greeting"
             case .picture: "Picture"
             case .about: "Title and status"
+            case .quote: "Quote of the day"
             case .numbers: "Numbers"
             case .github: "GitHub activity"
             case .settings: "Settings"
@@ -85,6 +86,21 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     /// The title, the line under it and the status line, each of which
     /// can go while the others stay.
     public var hiddenAbout: Set<AboutPart> = []
+    /// A quote a day (Quotes). Off until turned on, like the greeting.
+    public var quoteShown = false
+    /// The day the refresh button was last used, and how many times, so
+    /// the skips last the day and start again the next.
+    public var quoteDay: String = ""
+    public var quoteSkips = 0
+
+    /// How far today's quote has been moved on.
+    public func quoteSkips(on day: String) -> Int { quoteDay == day ? quoteSkips : 0 }
+
+    /// The refresh button: another quote for the rest of today.
+    public mutating func skipQuote(on day: String) {
+        quoteSkips = quoteSkips(on: day) + 1
+        quoteDay = day
+    }
 
     /// The parts of the title block.
     public enum AboutPart: String, CaseIterable, Codable, Sendable, Identifiable {
@@ -113,7 +129,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     /// it could be customized, with GitHub under the numbers.
     public static func defaultPlace(_ block: Block) -> Place {
         switch block {
-        case .greeting, .picture, .about: .top
+        case .greeting, .picture, .about, .quote: .top
         case .numbers, .github: .middle
         case .settings: .bottom
         }
@@ -128,6 +144,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     /// Shown, as the user set it. GitHub also needs a user name.
     public func shows(_ block: Block) -> Bool {
         if block == .greeting { return greetingShown }
+        if block == .quote { return quoteShown }
         guard !hidden.contains(block) else { return false }
         if block == .about { return hiddenAbout.count < AboutPart.allCases.count }
         if block == .github { return !GitHubUser.clean(githubUser).isEmpty }
@@ -138,6 +155,10 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public mutating func setShown(_ shown: Bool, for block: Block) {
         if block == .greeting {
             greetingShown = shown
+            return
+        }
+        if block == .quote {
+            quoteShown = shown
             return
         }
         if shown { hidden.remove(block) } else { hidden.insert(block) }
@@ -151,7 +172,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public var isStandard: Bool { self == .standard }
 
     private enum CodingKeys: String, CodingKey {
-        case picture, pictureFile, pictureSize, background, backgroundDim, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout
+        case picture, pictureFile, pictureSize, background, backgroundDim, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout, quoteShown, quoteDay, quoteSkips
     }
 
     public init(from decoder: Decoder) throws {
@@ -172,6 +193,9 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         greetingShown = (try? c.decode(Bool.self, forKey: .greetingShown)) ?? false
         greetingName = (try? c.decode(String.self, forKey: .greetingName)) ?? ""
         greetingClock = (try? c.decode(Bool.self, forKey: .greetingClock)) ?? true
+        quoteShown = (try? c.decode(Bool.self, forKey: .quoteShown)) ?? false
+        quoteDay = (try? c.decode(String.self, forKey: .quoteDay)) ?? ""
+        quoteSkips = max(0, (try? c.decode(Int.self, forKey: .quoteSkips)) ?? 0)
         hiddenAbout = Set(((try? c.decode([String].self, forKey: .hiddenAbout)) ?? []).compactMap(AboutPart.init(rawValue:)))
     }
 
@@ -189,6 +213,9 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         try c.encode(greetingShown, forKey: .greetingShown)
         try c.encode(greetingName, forKey: .greetingName)
         try c.encode(greetingClock, forKey: .greetingClock)
+        try c.encode(quoteShown, forKey: .quoteShown)
+        try c.encode(quoteDay, forKey: .quoteDay)
+        try c.encode(quoteSkips, forKey: .quoteSkips)
         try c.encode(hiddenAbout.map(\.rawValue).sorted(), forKey: .hiddenAbout)
     }
 

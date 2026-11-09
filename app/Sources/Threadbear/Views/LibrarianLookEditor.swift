@@ -33,6 +33,7 @@ struct LibrarianLookEditor: View {
                 greetingSection
                 pictureSection
                 backgroundSection
+                quoteSection
                 layoutSection
                 titleSection
                 numbersSection
@@ -155,19 +156,36 @@ struct LibrarianLookEditor: View {
     private var layoutSection: some View {
         Section("Layout") {
             ForEach(LibrarianLook.Block.allCases) { block in
-                HStack(spacing: zoomed(8)) {
+                // The name on the left, then the switch and the place in
+                // columns of their own, so they line up whatever the name
+                // or place ("Top", "Middle") is.
+                HStack(spacing: zoomed(10)) {
+                    Text(block.title)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     Toggle(block.title, isOn: Binding(get: { shown(block) }, set: { show($0, block) }))
-                        .tip(block == .github ? "Show your GitHub activity. Needs a user name, below" : "Show or hide \(block.title.lowercased()) on the page")
-                    Spacer(minLength: zoomed(4))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .tip(Self.layoutTip(block))
                     Picker(block.title, selection: Binding(get: { look.place(block) }, set: { look.setPlace($0, for: block) })) {
                         ForEach(LibrarianLook.Place.allCases) { Text($0.title).tag($0) }
                     }
                     .labelsHidden()
                     .fixedSize()
+                    .frame(width: zoomed(92), alignment: .trailing)
                     .disabled(!shown(block))
                     .tip("Top, middle or bottom of the page")
                 }
             }
+        }
+    }
+
+    private static func layoutTip(_ block: LibrarianLook.Block) -> String {
+        switch block {
+        case .github: "Show your GitHub activity. Needs a user name, below"
+        case .quote: "A quote a day, changing at 4 am, with a button for another"
+        default: "Show or hide \(block.title.lowercased()) on the page"
         }
     }
 
@@ -204,6 +222,20 @@ struct LibrarianLookEditor: View {
             HStack(spacing: zoomed(6)) {
                 Text("Greeting")
                 InfoTip("Good morning from 5, good afternoon from 12, good evening from 5 pm and good night from 10 pm, by this Mac's own clock and time zone. It changes on the minute. The name stays on this Mac.")
+            }
+        }
+    }
+
+    // MARK: Quote
+
+    private var quoteSection: some View {
+        Section {
+            Toggle("Show a quote a day", isOn: Binding(get: { look.quoteShown }, set: { show($0, .quote) }))
+                .tip("A quote a day, changing at 4 am, with a button for another")
+        } header: {
+            HStack(spacing: zoomed(6)) {
+                Text("Quote of the day")
+                InfoTip("A quote from a writer, scientist, engineer, artist or athlete, the same all day and a new one at 4 am by this Mac's clock. The refresh button beside it shows another for the rest of the day, and right-click copies it. Hover it for where it's from. The quotes ship with Threadbear: nothing is fetched or sent, and none are from politicians, religious figures or tech founders. Move it with Layout.")
             }
         }
     }
