@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 import ThreadbearCore
 
 /// Pictures of the user's own on Threadbear's pages: the Librarian page's
@@ -108,15 +109,51 @@ enum Looks {
         try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
     }
 
-    /// An open panel for one picture. Nil when cancelled.
-    static func choosePicture(prompt: String) -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.image]
-        panel.prompt = prompt
-        return panel.runModal() == .OK ? panel.url : nil
+    private static let picker = ProjectFilePicker()
+
+    /// An open panel for one picture, as a sheet on the window, calling
+    /// back with the file (nothing when cancelled). Not a runModal from
+    /// the button's action: a nested modal loop there can re-enter the
+    /// action and lose the choice (ProjectFilePicker), which is how
+    /// Choose… for a background did nothing on Wayne's Mac (8 Nov).
+    static func choosePicture(prompt: String, then use: @escaping @MainActor (URL) -> Void) {
+        picker.choose(configure: { panel in
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [.image]
+            panel.prompt = prompt
+        }, completion: { url in
+            if let url { use(url) }
+        })
+    }
+
+    /// A picture dropped on a well: a file from Finder, or an image dragged
+    /// out of Photos or a browser, which comes as image data rather than a
+    /// file. Data is written to a temporary file first, so both import the
+    /// same way.
+    static func loadDropped(_ providers: [NSItemProvider], then use: @escaping @MainActor (URL) -> Void) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.canLoadObject(ofClass: URL.self) {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url, url.isFileURL else { return }
+                Task { @MainActor in use(url) }
+            }
+            return true
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                guard let data else { return }
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent("dropped-\(UUID().uuidString)")
+                guard (try? data.write(to: file)) != nil else { return }
+                Task { @MainActor in
+                    use(file)
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
+            return true
+        }
+        return false
     }
 }
 

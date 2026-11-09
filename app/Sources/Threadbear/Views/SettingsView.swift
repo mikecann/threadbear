@@ -876,7 +876,10 @@ private struct LookSettings: View {
     }
 
     private func choose() {
-        guard let url = Looks.choosePicture(prompt: "Use as Background") else { return }
+        Looks.choosePicture(prompt: "Use as Background") { use($0) }
+    }
+
+    private func use(_ url: URL) {
         guard let name = Looks.importPicture(from: url, maxSide: 2880, prefix: "window") else {
             problem = "That file isn't a picture Threadbear can read."
             return

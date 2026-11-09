@@ -65,7 +65,7 @@ struct LibrarianLookEditor: View {
                 }
                 HStack {
                     Button(look.pictureFile == nil ? "Choose…" : "Replace…") {
-                        if let url = Looks.choosePicture(prompt: "Use Picture") { importPicture(url) }
+                        Looks.choosePicture(prompt: "Use Picture") { importPicture($0) }
                     }
                     .tip("Pick a picture from your Mac. A copy is kept, so the original can move")
                     if look.pictureFile != nil {
@@ -104,8 +104,7 @@ struct LibrarianLookEditor: View {
     private func pick(_ picture: LibrarianLook.Picture) {
         // Your picture with none chosen yet asks for one straight away.
         if picture == .own, look.pictureFile == nil {
-            guard let url = Looks.choosePicture(prompt: "Use Picture") else { return }
-            importPicture(url)
+            Looks.choosePicture(prompt: "Use Picture") { importPicture($0) }
             return
         }
         look.picture = picture
@@ -131,7 +130,7 @@ struct LibrarianLookEditor: View {
             }
             HStack {
                 Button(look.background == nil ? "Choose…" : "Replace…") {
-                    if let url = Looks.choosePicture(prompt: "Use as Background") { importBackground(url) }
+                    Looks.choosePicture(prompt: "Use as Background") { importBackground($0) }
                 }
                 .tip("Pick a photo to fill the page behind everything")
                 if look.background != nil {
@@ -378,12 +377,10 @@ private struct PictureWell: View {
                 .strokeBorder(targeted ? Color.accentColor : Color.primary.opacity(image == nil ? 0.2 : 0),
                               style: StrokeStyle(lineWidth: targeted ? 2 : 1, dash: image == nil && !targeted ? [4, 3] : []))
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first else { return false }
-            dropped(url)
-            return true
-        } isTargeted: { targeted = $0 }
-        .tip("Drop a picture from Finder to use it")
+        .onDrop(of: [.fileURL, .image], isTargeted: $targeted) { providers in
+            Looks.loadDropped(providers) { dropped($0) }
+        }
+        .tip("Drop a picture here from Finder, Photos or a browser")
     }
 }
 
