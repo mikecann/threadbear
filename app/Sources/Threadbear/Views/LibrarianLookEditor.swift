@@ -12,6 +12,7 @@ struct LibrarianLookEditor: View {
     @Binding var look: LibrarianLook
     let done: () -> Void
     @State private var githubName = ""
+    @State private var greetingName = ""
     @State private var problem: String?
 
     var body: some View {
@@ -29,9 +30,11 @@ struct LibrarianLookEditor: View {
             .padding(.vertical, zoomed(12))
             Divider()
             Form {
+                greetingSection
                 pictureSection
                 backgroundSection
                 layoutSection
+                titleSection
                 numbersSection
                 githubSection
                 Section {
@@ -44,7 +47,10 @@ struct LibrarianLookEditor: View {
             .formStyle(.grouped)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear { githubName = look.githubUser }
+        .onAppear {
+            githubName = look.githubUser
+            greetingName = look.greetingName
+        }
     }
 
     // MARK: Picture
@@ -150,7 +156,7 @@ struct LibrarianLookEditor: View {
         Section("Layout") {
             ForEach(LibrarianLook.Block.allCases) { block in
                 HStack(spacing: zoomed(8)) {
-                    Toggle(block.title, isOn: Binding(get: { !look.hidden.contains(block) }, set: { look.setShown($0, for: block) }))
+                    Toggle(block.title, isOn: Binding(get: { shown(block) }, set: { show($0, block) }))
                         .tip(block == .github ? "Show your GitHub activity. Needs a user name, below" : "Show or hide \(block.title.lowercased()) on the page")
                     Spacer(minLength: zoomed(4))
                     Picker(block.title, selection: Binding(get: { look.place(block) }, set: { look.setPlace($0, for: block) })) {
@@ -158,10 +164,67 @@ struct LibrarianLookEditor: View {
                     }
                     .labelsHidden()
                     .fixedSize()
-                    .disabled(look.hidden.contains(block))
+                    .disabled(!shown(block))
                     .tip("Top, middle or bottom of the page")
                 }
             }
+        }
+    }
+
+    /// Whether the switch for a part is on. Greeting has its own flag, as
+    /// it starts off; the rest are on unless hidden.
+    private func shown(_ block: LibrarianLook.Block) -> Bool {
+        block == .greeting ? look.greetingShown : !look.hidden.contains(block)
+    }
+
+    private func show(_ on: Bool, _ block: LibrarianLook.Block) {
+        // The first time the greeting goes on, it suggests the Mac
+        // account's first name, which can be changed or cleared.
+        if block == .greeting, on, !look.greetingShown, look.greetingName.isEmpty {
+            look.greetingName = Greeting.firstName(NSFullUserName())
+            greetingName = look.greetingName
+        }
+        look.setShown(on, for: block)
+    }
+
+    // MARK: Greeting
+
+    private var greetingSection: some View {
+        Section {
+            Toggle("Greet me", isOn: Binding(get: { look.greetingShown }, set: { show($0, .greeting) }))
+                .tip("Good morning, afternoon, evening or night at the top of the page, by this Mac's clock")
+            if look.greetingShown {
+                TextField("Name", text: $greetingName, prompt: Text("No name"))
+                    .onChange(of: greetingName) { _, typed in look.greetingName = typed }
+                    .tip("The name it greets you by. Leave it empty for just Good morning")
+                Toggle("Show the date and time", isOn: $look.greetingClock)
+                    .tip("Today's date and the time under the greeting")
+            }
+        } header: {
+            HStack(spacing: zoomed(6)) {
+                Text("Greeting")
+                InfoTip("Good morning from 5, good afternoon from 12, good evening from 5 pm and good night from 10 pm, by this Mac's own clock and time zone. It changes on the minute. The name stays on this Mac.")
+            }
+        }
+    }
+
+    // MARK: Title
+
+    private var titleSection: some View {
+        Section("Title and status") {
+            ForEach(LibrarianLook.AboutPart.allCases) { part in
+                Toggle(part.title, isOn: Binding(get: { look.shows(part) }, set: { look.setShown($0, for: part) }))
+                    .disabled(look.hidden.contains(.about))
+                    .tip(Self.aboutTip(part))
+            }
+        }
+    }
+
+    private static func aboutTip(_ part: LibrarianLook.AboutPart) -> String {
+        switch part {
+        case .title: "Show or hide the word Librarian at the top"
+        case .line: "Show or hide the line under the title, Keeps your projects tidy as your threads go"
+        case .status: "Show or hide what the librarian is doing now"
         }
     }
 
@@ -213,6 +276,7 @@ struct LibrarianLookEditor: View {
     private func reset() {
         look = .standard
         githubName = ""
+        greetingName = ""
         problem = nil
     }
 }

@@ -789,9 +789,13 @@ default), the page gets a Customize button at its top right. It opens a
 panel beside the page that changes it as you go: keep the bear, use a
 picture of your own or have none, and pick its size; put a photo behind the
 page and fade it so the text stays readable in light and dark; move each
-part (the picture, the name and status, the numbers, GitHub activity and
-Settings) to the top, middle or bottom, or hide it; and pick which numbers
-show. Drop a picture from Finder on its spot in the panel, or choose one.
+part (a greeting, the picture, the title and status, the numbers, GitHub
+activity and Settings) to the top, middle or bottom, or hide it; hide the
+title, the line under it or the status line on their own; and pick which
+numbers show. Greet me puts "Good morning, Wayne" at the top (afternoon
+from 12, evening from 5 pm, night from 10 pm, by your Mac's clock), with
+today's date and the time under it if you like. It suggests your Mac
+account's first name; change it, or clear it for just "Good morning". Drop a picture from Finder on its spot in the panel, or choose one.
 GitHub activity shows a year of your public contributions, as on your
 GitHub profile, once you type your user name: step through the years with
 the arrows, hover a day for its count, and click one to open that day on

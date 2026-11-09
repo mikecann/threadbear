@@ -150,21 +150,30 @@ struct PokeablePicture: View {
 
 /// A page's title, with more behind the ⓘ, and the line under it.
 struct HomeTitle: View {
-    let title: String
-    let line: String
+    /// Either can be nil on a customized page, which can hide each.
+    let title: String?
+    let line: String?
     let more: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: zoomed(12)) {
-            HStack(alignment: .firstTextBaseline, spacing: zoomed(8)) {
-                Text(title)
-                    .font(.system(size: zoomed(24), weight: .semibold))
-                InfoTip(more)
+            if let title {
+                HStack(alignment: .firstTextBaseline, spacing: zoomed(8)) {
+                    Text(title)
+                        .font(.system(size: zoomed(24), weight: .semibold))
+                    InfoTip(more)
+                }
             }
-            Text(line)
-                .font(.system(size: TypeScale.label))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let line {
+                HStack(alignment: .firstTextBaseline, spacing: zoomed(8)) {
+                    Text(line)
+                        .font(.system(size: TypeScale.label))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // The ⓘ stays with whatever's left of the title.
+                    if title == nil { InfoTip(more) }
+                }
+            }
         }
     }
 }

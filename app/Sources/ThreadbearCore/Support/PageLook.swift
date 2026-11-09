@@ -9,13 +9,14 @@ import Foundation
 public struct LibrarianLook: Codable, Equatable, Sendable {
     /// The parts of the page, in the order they stack within a place.
     public enum Block: String, CaseIterable, Codable, Sendable, Identifiable {
-        case picture, about, numbers, github, settings
+        case greeting, picture, about, numbers, github, settings
         public var id: String { rawValue }
 
         public var title: String {
             switch self {
+            case .greeting: "Greeting"
             case .picture: "Picture"
-            case .about: "Name and status"
+            case .about: "Title and status"
             case .numbers: "Numbers"
             case .github: "GitHub activity"
             case .settings: "Settings"
@@ -74,6 +75,35 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public var hiddenNumbers: Set<String> = []
     /// Whose public GitHub contributions the GitHub block shows.
     public var githubUser: String = ""
+    /// The greeting at the top ("Good morning, Wayne") and the date and
+    /// time under it. Off until turned on, so a look saved before it
+    /// existed doesn't grow one.
+    public var greetingShown = false
+    /// Who the greeting names; empty says just "Good morning".
+    public var greetingName: String = ""
+    public var greetingClock = true
+    /// The title, the line under it and the status line, each of which
+    /// can go while the others stay.
+    public var hiddenAbout: Set<AboutPart> = []
+
+    /// The parts of the title block.
+    public enum AboutPart: String, CaseIterable, Codable, Sendable, Identifiable {
+        case title, line, status
+        public var id: String { rawValue }
+        public var title: String {
+            switch self {
+            case .title: "Title"
+            case .line: "Description"
+            case .status: "Status"
+            }
+        }
+    }
+
+    public func shows(_ part: AboutPart) -> Bool { !hiddenAbout.contains(part) }
+
+    public mutating func setShown(_ shown: Bool, for part: AboutPart) {
+        if shown { hiddenAbout.remove(part) } else { hiddenAbout.insert(part) }
+    }
 
     public init() {}
 
@@ -83,7 +113,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     /// it could be customized, with GitHub under the numbers.
     public static func defaultPlace(_ block: Block) -> Place {
         switch block {
-        case .picture, .about: .top
+        case .greeting, .picture, .about: .top
         case .numbers, .github: .middle
         case .settings: .bottom
         }
@@ -97,13 +127,19 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
 
     /// Shown, as the user set it. GitHub also needs a user name.
     public func shows(_ block: Block) -> Bool {
+        if block == .greeting { return greetingShown }
         guard !hidden.contains(block) else { return false }
+        if block == .about { return hiddenAbout.count < AboutPart.allCases.count }
         if block == .github { return !GitHubUser.clean(githubUser).isEmpty }
         if block == .picture { return picture != .none && (picture != .own || pictureFile != nil) }
         return true
     }
 
     public mutating func setShown(_ shown: Bool, for block: Block) {
+        if block == .greeting {
+            greetingShown = shown
+            return
+        }
         if shown { hidden.remove(block) } else { hidden.insert(block) }
     }
 
@@ -115,7 +151,7 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     public var isStandard: Bool { self == .standard }
 
     private enum CodingKeys: String, CodingKey {
-        case picture, pictureFile, pictureSize, background, backgroundDim, places, hidden, hiddenNumbers, githubUser
+        case picture, pictureFile, pictureSize, background, backgroundDim, places, hidden, hiddenNumbers, githubUser, greetingShown, greetingName, greetingClock, hiddenAbout
     }
 
     public init(from decoder: Decoder) throws {
@@ -133,6 +169,10 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         hidden = Set(((try? c.decode([String].self, forKey: .hidden)) ?? []).compactMap(Block.init(rawValue:)))
         hiddenNumbers = Set((try? c.decode([String].self, forKey: .hiddenNumbers)) ?? [])
         githubUser = (try? c.decode(String.self, forKey: .githubUser)) ?? ""
+        greetingShown = (try? c.decode(Bool.self, forKey: .greetingShown)) ?? false
+        greetingName = (try? c.decode(String.self, forKey: .greetingName)) ?? ""
+        greetingClock = (try? c.decode(Bool.self, forKey: .greetingClock)) ?? true
+        hiddenAbout = Set(((try? c.decode([String].self, forKey: .hiddenAbout)) ?? []).compactMap(AboutPart.init(rawValue:)))
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -146,6 +186,10 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
         try c.encode(hidden.map(\.rawValue).sorted(), forKey: .hidden)
         try c.encode(hiddenNumbers.sorted(), forKey: .hiddenNumbers)
         try c.encode(githubUser, forKey: .githubUser)
+        try c.encode(greetingShown, forKey: .greetingShown)
+        try c.encode(greetingName, forKey: .greetingName)
+        try c.encode(greetingClock, forKey: .greetingClock)
+        try c.encode(hiddenAbout.map(\.rawValue).sorted(), forKey: .hiddenAbout)
     }
 
     /// The saved look, or the standard one when nothing (or nothing
@@ -156,6 +200,36 @@ public struct LibrarianLook: Codable, Equatable, Sendable {
     }
 
     public func data() -> Data { (try? JSONEncoder().encode(self)) ?? Data() }
+}
+
+/// What the Librarian page's greeting says for the time on this Mac, as
+/// Claude greets you: morning from 5, afternoon from 12, evening from 17,
+/// night from 22 until 5.
+public enum Greeting {
+    public enum Part: String, Sendable { case morning, afternoon, evening, night }
+
+    public static func part(hour: Int) -> Part {
+        switch hour {
+        case 5..<12: .morning
+        case 12..<17: .afternoon
+        case 17..<22: .evening
+        default: .night
+        }
+    }
+
+    /// "Good morning, Wayne", or "Good morning" with no name. A name is
+    /// trimmed and kept to its first 40 characters.
+    public static func text(hour: Int, name: String) -> String {
+        let hello = "Good \(part(hour: hour).rawValue)"
+        let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        return name.isEmpty ? hello : "\(hello), \(name)"
+    }
+
+    /// The first word of the Mac account's full name ("Wayne Sutton" is
+    /// Wayne), what the greeting suggests before you type one.
+    public static func firstName(_ fullName: String) -> String {
+        fullName.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+    }
 }
 
 public enum GitHubUser {

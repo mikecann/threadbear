@@ -94,6 +94,9 @@ private struct CustomizedLibrarianPage: View {
     @ViewBuilder
     private func part(_ block: LibrarianLook.Block, look: LibrarianLook) -> some View {
         switch block {
+        case .greeting:
+            LibrarianGreeting(name: look.greetingName, clock: look.greetingClock)
+                .frame(maxWidth: zoomed(620), alignment: .leading)
         case .picture:
             let image = look.picture == .own ? Looks.image(look.pictureFile) : Art.librarian
             if let image {
@@ -105,7 +108,7 @@ private struct CustomizedLibrarianPage: View {
                     .padding(.bottom, look.picture == .bear ? zoomed(4) : 0)
             }
         case .about:
-            LibrarianAbout(status: app.librarian)
+            LibrarianAbout(status: app.librarian, hidden: look.hiddenAbout)
                 .frame(maxWidth: zoomed(620), alignment: .leading)
         case .numbers:
             let shown = stats.filter { !look.hiddenNumbers.contains($0.key) }
@@ -135,13 +138,17 @@ private struct CustomizedLibrarianPage: View {
 /// doing now.
 private struct LibrarianAbout: View {
     let status: LibrarianStatus?
+    /// The parts a customized page took off (LibrarianLook.AboutPart).
+    var hidden: Set<LibrarianLook.AboutPart> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: zoomed(12)) {
-            HomeTitle(title: "Librarian",
-                      line: "Keeps your projects tidy as your threads go.",
-                      more: Self.more)
-            if let status {
+            if !hidden.contains(.title) || !hidden.contains(.line) {
+                HomeTitle(title: hidden.contains(.title) ? nil : "Librarian",
+                          line: hidden.contains(.line) ? nil : "Keeps your projects tidy as your threads go.",
+                          more: Self.more)
+            }
+            if let status, !hidden.contains(.status) {
                 HomeStatusLine(text: LibrarianText.state(status), busy: status.state == .working)
             }
         }
@@ -235,5 +242,31 @@ enum LibrarianStats {
             Tile(value: "\(status.queue.count)", label: "Waiting",
                  help: "Threads queued for a look, listed in the sidebar", key: "waiting"),
         ]
+    }
+}
+
+/// "Good morning, Wayne" at the top of a customized Librarian page, by the
+/// time on this Mac, with the date and time under it. It changes on the
+/// minute, so the morning turns to afternoon without a reload.
+private struct LibrarianGreeting: View {
+    let name: String
+    let clock: Bool
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            let now = context.date
+            VStack(alignment: .leading, spacing: zoomed(6)) {
+                Text(Greeting.text(hour: Calendar.current.component(.hour, from: now), name: name))
+                    .font(.system(size: zoomed(28), weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                if clock {
+                    Text(now.formatted(.dateTime.weekday(.wide).month(.wide).day().hour().minute()))
+                        .font(.system(size: TypeScale.label))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 }

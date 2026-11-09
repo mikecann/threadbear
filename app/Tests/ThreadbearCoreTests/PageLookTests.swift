@@ -106,4 +106,35 @@ final class PageLookTests: XCTestCase {
         XCTAssertEqual(months.first?.week, 0)
         XCTAssertEqual(months.last?.month, "Dec")
     }
+
+    func testGreetingByTheClock() {
+        XCTAssertEqual(Greeting.text(hour: 5, name: "Wayne"), "Good morning, Wayne")
+        XCTAssertEqual(Greeting.text(hour: 11, name: " Wayne "), "Good morning, Wayne")
+        XCTAssertEqual(Greeting.text(hour: 12, name: "Wayne"), "Good afternoon, Wayne")
+        XCTAssertEqual(Greeting.text(hour: 17, name: ""), "Good evening")
+        XCTAssertEqual(Greeting.text(hour: 22, name: "Wayne"), "Good night, Wayne")
+        XCTAssertEqual(Greeting.text(hour: 0, name: "Wayne"), "Good night, Wayne")
+        XCTAssertEqual(Greeting.text(hour: 4, name: "Wayne"), "Good night, Wayne")
+        XCTAssertEqual(Greeting.firstName("Wayne Sutton"), "Wayne")
+        XCTAssertEqual(Greeting.firstName(""), "")
+    }
+
+    func testGreetingAndTitlePartsAreOffOrOnByThemselves() {
+        var look = LibrarianLook()
+        XCTAssertFalse(look.shows(.greeting), "a look saved before the greeting doesn't grow one")
+        look.setShown(true, for: .greeting)
+        XCTAssertEqual(look.layout.first, .greeting)
+        look.setShown(false, for: LibrarianLook.AboutPart.title)
+        look.setShown(false, for: LibrarianLook.AboutPart.line)
+        XCTAssertTrue(look.shows(.about), "the status line is still there")
+        look.setShown(false, for: LibrarianLook.AboutPart.status)
+        XCTAssertFalse(look.shows(.about), "nothing left of it, so no gap")
+        look.greetingName = "Wayne"
+        look.greetingClock = false
+        XCTAssertEqual(LibrarianLook.load(look.data()), look)
+        let old = LibrarianLook.load(Data(#"{"picture":"bear"}"#.utf8))
+        XCTAssertFalse(old.greetingShown)
+        XCTAssertTrue(old.greetingClock)
+        XCTAssertEqual(old.hiddenAbout, [])
+    }
 }
