@@ -58,12 +58,7 @@ struct LibrarianLookEditor: View {
 
     private var pictureSection: some View {
         Section("Picture") {
-            Picker("Picture", selection: Binding(get: { look.picture }, set: { pick($0) })) {
-                ForEach(LibrarianLook.Picture.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .tip("The bear, a picture of your own, or no picture")
+            SegmentedChoice(options: LibrarianLook.Picture.allCases, selection: look.picture, title: \.title, tip: Self.pictureTip) { pick($0) }
             if look.picture == .own {
                 PictureWell(image: Looks.image(look.pictureFile), empty: "Drop a picture here") { url in
                     importPicture(url)
@@ -91,6 +86,14 @@ struct LibrarianLookEditor: View {
                     .font(.system(size: TypeScale.label))
                     .foregroundStyle(.red)
             }
+        }
+    }
+
+    private static func pictureTip(_ picture: LibrarianLook.Picture) -> String {
+        switch picture {
+        case .bear: "Show the librarian bear"
+        case .own: "Show a picture of your own"
+        case .none: "No picture on the page"
         }
     }
 
@@ -350,5 +353,47 @@ private struct PictureWell: View {
             return true
         } isTargeted: { targeted = $0 }
         .tip("Drop a picture from Finder to use it")
+    }
+}
+
+/// A row of choices drawn as one segmented control, out of plain SwiftUI
+/// buttons. The AppKit segmented Picker in this panel took clicks without
+/// changing anything on Wayne's Mac (8 Nov), and a control that runs its own
+/// mouse loop can't be pressed by the automation either; these are ordinary
+/// buttons, so a click always lands and an agent can press one by its tip.
+struct SegmentedChoice<Option: Hashable & Identifiable>: View {
+    let options: [Option]
+    let selection: Option
+    let title: KeyPath<Option, String>
+    let tip: (Option) -> String
+    let choose: (Option) -> Void
+
+    var body: some View {
+        HStack(spacing: zoomed(2)) {
+            ForEach(options) { option in
+                let on = option == selection
+                Button { if !on { choose(option) } } label: {
+                    Text(option[keyPath: title])
+                        .font(.system(size: TypeScale.label, weight: on ? .medium : .regular))
+                        .lineLimit(1)
+                        .foregroundStyle(on ? Color.white : Color.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, zoomed(4))
+                        .background {
+                            if on {
+                                RoundedRectangle(cornerRadius: zoomed(6), style: .continuous)
+                                    .fill(Color.accentColor)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .tip(tip(option))
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(zoomed(2))
+        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: zoomed(8), style: .continuous))
+        .animation(.easeOut(duration: 0.12), value: selection)
     }
 }
