@@ -161,6 +161,16 @@ fine, setup forks it for you as long as `gh` is logged in.
 
 [docs/guide.md](docs/guide.md) is the full guide to using it.
 
+### Windows, Android and Linux
+
+This repository is the Mac and iPhone app. There are ports to Windows 11,
+Android and Linux, kept in a fork at
+[platima/threadbear](https://github.com/platima/threadbear): a desktop app for
+Windows and Linux, an Android app, and their installers. They merge this
+`main` regularly, and send fixes to the shared code (and what a port needs
+from it, such as the runner running on Windows) back here as pull requests.
+Ideas for new features are for Discussions here, ahead of any pull request.
+
 ## For agents
 
 If you're an agent, start here:
