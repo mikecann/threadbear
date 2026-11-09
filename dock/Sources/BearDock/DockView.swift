@@ -84,6 +84,8 @@ enum DockSpace {
 
 /// System colours, so the dock follows light and dark like the app around it.
 enum DockTheme {
+    /// The narrowest a panel's content is laid out (GroupView).
+    static let minContentWidth: CGFloat = 160
     static let panel = Color(nsColor: .windowBackgroundColor)
     /// Shows through the 1 pt gaps between panels, as the hairlines.
     static let hairline = Color(nsColor: .separatorColor)
@@ -368,12 +370,21 @@ struct GroupView: View {
         VStack(spacing: 0) {
             if header {
                 GroupHeader(group: group, leading: corner ? options.trafficLights : 0, movesWindow: corner)
+                    // Exactly the group's width: tabs that don't fit run off
+                    // its trailing edge, rather than widening the group past
+                    // its slot, which then hung off both sides, centred.
+                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    .clipped()
                     .transition(.move(edge: .top).combined(with: .opacity))
             } else if corner {
                 CornerBar(panel: group.selected)
             }
             content.view(group.selected)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Never laid out narrower than this: in a thinner slot the
+                // panel keeps its layout, pinned to the leading edge, and
+                // its far side is cut off, rather than wrapping a letter a line.
+                .frame(minWidth: DockTheme.minContentWidth, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .leading)
                 .clipped()
                 .contentShape(Rectangle())
                 // A plain .gesture, the lowest priority: any drag the panel's

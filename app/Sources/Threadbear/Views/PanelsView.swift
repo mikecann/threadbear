@@ -268,6 +268,9 @@ struct PanelRail: View {
         .padding(.bottom, zoomed(10))
         .frame(width: ActivityBar.width)
         .frame(maxHeight: .infinity)
+        // Opaque: in a narrow window the dock can be wider than its room
+        // and run under the rail, and its text showed through (Wayne, 9 Nov).
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .leading) {
             Rectangle().fill(.separator).frame(width: 0.5).padding(.vertical, zoomed(4))
         }

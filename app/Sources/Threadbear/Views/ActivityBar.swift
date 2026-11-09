@@ -84,6 +84,9 @@ struct ActivityBar: View {
         .padding(.bottom, zoomed(10))
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
+        // Opaque, as the rail on the right is: a dock wider than its room
+        // in a narrow window runs under both.
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .trailing) {
             // Starts under the title bar strip: the traffic lights are wider
             // than the bar, so a full-height line cut between the yellow and
