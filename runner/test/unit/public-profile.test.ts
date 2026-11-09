@@ -40,7 +40,7 @@ function setup(opts: { threads?: ThreadSummary[]; projects?: Project[]; off?: st
   return { p, sent, uploads, clock, home };
 }
 
-const settings = { published: true, handle: 'Wayne', name: 'Wayne', bio: '', links: [], show: ['activity', 'numbers'], numbers: ['threads', 'streak'], projectIds: [], order: ['numbers', 'activity', 'github', 'projects'] };
+const settings = { published: true, name: 'Wayne', bio: '', links: [], show: ['activity', 'numbers'], numbers: ['threads', 'streak'], projectIds: [], order: ['numbers', 'activity', 'github', 'projects'] };
 
 test('activity counts threads by the local day they started, over 53 weeks', () => {
   const a = activityOf([thread('a', day(0, 0)), thread('b', day(0, 23)), thread('c', day(2)), thread('old', day(400))], NOW);
@@ -57,12 +57,14 @@ test('numbers: the year, active days, longest streak, live projects and models',
   assert.deepEqual(n, { threads: '4', activeDays: '4', streak: '3 days', projects: '1', models: '2' });
 });
 
-test('settings are checked: handle rules, at most 4 links, only known parts', () => {
-  const s = readSettings({ ...settings, show: ['activity', 'titles'], numbers: ['threads', 'secrets'] });
-  assert.equal(s.handle, 'wayne');
+test('settings are checked: at most 4 links, only known parts, home only when published', () => {
+  const s = readSettings({ ...settings, handle: 'from-an-older-app', show: ['activity', 'titles'], numbers: ['threads', 'secrets'] });
+  assert.ok(!('handle' in s), 'no handle: a deployment is one person\'s');
   assert.deepEqual(s.show, ['activity']);
   assert.deepEqual(s.numbers, ['threads']);
-  assert.throws(() => readSettings({ ...settings, handle: 'a-' }));
+  assert.equal(readSettings({ ...settings, home: true }).home, true);
+  assert.equal(readSettings({ ...settings, published: false, home: true }).home, false);
+  assert.throws(() => readSettings({ ...settings, home: 'yes' }));
   assert.throws(() => readSettings({ ...settings, links: Array.from({ length: 5 }, () => ({ title: 'x', url: 'https://x.example' })) }));
   assert.throws(() => readSettings({ ...settings, links: [{ title: 'x', url: 'javascript:alert(1)' }] }));
   assert.throws(() => readSettings({ ...settings, published: 'yes' }));
@@ -91,7 +93,10 @@ test('what goes to the backend: only parts turned on, never titles, folders or p
   assert.deepEqual(two.projects, [{ title: 'Threadbear', threads: 9, symbol: 'book' }]);
   assert.equal(two.github, 'waynesutton');
   assert.equal(two.memberSince, localDay(day(0).getTime()));
-  assert.equal(s.p.status().url, 'https://seal.convex.site/@wayne');
+  assert.equal(s.p.status().url, 'https://seal.convex.site/profile');
+  await s.p.update({ ...settings, home: true });
+  assert.equal(s.sent.at(-1)!.home, true);
+  assert.equal(s.p.status().url, 'https://seal.convex.site/');
 });
 
 test('a picture is uploaded once, and again only when the file changes', async () => {
@@ -128,10 +133,20 @@ test('settings survive a restart; remove takes the page down and forgets them', 
   const s = setup();
   await s.p.update(settings);
   const again = new PublicProfile({ home: s.home, backend: () => undefined, threads: () => [], projects: () => [], isPrivate: () => false, clock: s.clock, log });
-  assert.equal(again.status().profile?.handle, 'wayne');
+  assert.equal(again.status().profile?.name, 'Wayne');
   await s.p.remove();
   assert.equal(s.sent.at(-1), undefined);
   assert.equal(s.p.status().profile, null);
+});
+
+test('settings an older runner saved, with a handle and no home, load in today\'s shape', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-profile-'));
+  fs.writeFileSync(path.join(home, 'profile.json'), JSON.stringify({ settings: { ...settings, handle: 'wayne' } }));
+  const p = new PublicProfile({ home, backend: () => undefined, threads: () => [], projects: () => [], isPrivate: () => false, clock: new FakeClock(NOW), log });
+  const loaded = p.status().profile!;
+  assert.ok(!('handle' in loaded));
+  assert.equal(loaded.home, false);
+  assert.equal(loaded.name, 'Wayne');
 });
 
 test('with no backend, update says why rather than saving quietly', async () => {

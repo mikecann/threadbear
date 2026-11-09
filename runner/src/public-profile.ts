@@ -1,4 +1,4 @@
-// The public profile page, <site>/@<handle> (docs/guide.md, "The
+// The public profile page, <site>/profile (docs/guide.md, "The
 // librarian"; convex/profile.ts; web/src/profile.tsx). The Mac app's
 // Customize panel sends what Mike chose (`profilePage.update`); this keeps it in
 // profile.json, works out the page's numbers and activity from the
@@ -35,7 +35,8 @@ const RESEND_MS = 60 * 60 * 1000;
 
 export type ProfileSettings = {
   published: boolean;
-  handle: string;
+  /** Visitors to the site's front page see it too (needs published). */
+  home: boolean;
   name: string;
   bio: string;
   links: { title: string; url: string }[];
@@ -84,9 +85,10 @@ const str = (v: unknown, max: number): string => (typeof v === 'string' ? v.trim
 
 /** What `profilePage.update` was sent, checked and cut to size. */
 export function readSettings(p: Record<string, unknown>): ProfileSettings {
+  // A deployment is one person's, so the page has no handle: an app from
+  // before 9 Nov still sends one, which is ignored.
   if (typeof p.published !== 'boolean') throw fail('published is true or false');
-  const handle = str(p.handle, 40).replace(/^@/, '').toLowerCase();
-  if (handle.length < 3 || handle.length > 30 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(handle)) throw fail('A handle is 3 to 30 lowercase letters, numbers and single hyphens.');
+  if (p.home !== undefined && typeof p.home !== 'boolean') throw fail('home is true or false');
   const links = Array.isArray(p.links) ? p.links : [];
   if (links.length > 4) throw fail('At most 4 links.');
   const list = (v: unknown, of: readonly string[] | undefined, max: number): string[] => (Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && (!of || of.includes(x))))].slice(0, max) : []);
@@ -94,7 +96,7 @@ export function readSettings(p: Record<string, unknown>): ProfileSettings {
   const github = str(p.githubUser, 39);
   return {
     published: p.published,
-    handle,
+    home: p.published && p.home === true,
     name: str(p.name, 60),
     bio: str(p.bio, 160),
     links: links.map((l) => {
@@ -175,6 +177,15 @@ export class PublicProfile {
     this.deps = deps;
     this.file = path.join(deps.home, 'profile.json');
     this.saved = readJsonSync<Saved>(this.file) ?? {};
+    // Read through the same checks as an update, so settings saved by an
+    // older runner (a handle, no `home`) come back in today's shape.
+    if (this.saved.settings) {
+      try {
+        this.saved.settings = readSettings(this.saved.settings as unknown as Record<string, unknown>);
+      } catch {
+        delete this.saved.settings;
+      }
+    }
   }
 
   start(): void {
@@ -191,7 +202,7 @@ export class PublicProfile {
     const site = this.deps.backend()?.site();
     return {
       profile: s ?? null,
-      ...(s && site ? { url: `${site}/@${s.handle}` } : {}),
+      ...(s && site ? { url: s.home ? `${site}/` : `${site}/profile` } : {}),
       ...(this.saved.sentAt ? { sentAt: this.saved.sentAt } : {}),
       ...(this.problem ? { problem: this.problem } : {}),
     };
@@ -210,7 +221,7 @@ export class PublicProfile {
     return this.status();
   }
 
-  /** Takes the page down for good: the row, its pictures and the handle. */
+  /** Takes the page down for good: the row and its pictures. */
   async remove(): Promise<ProfileStatus> {
     const backend = this.deps.backend();
     if (!backend || backend.offReason()) throw new RpcError(ErrorCode.other, "This runner isn't connected to a Convex backend.");
@@ -235,8 +246,8 @@ export class PublicProfile {
     const picked = settings.projectIds.map((id) => projects.find((p) => p.id === id && !p.archived)).filter((p): p is Project => !!p);
     const order = settings.order.filter((c) => (c === 'numbers' ? on.has('numbers') && settings.numbers.length > 0 : c === 'activity' ? on.has('activity') : c === 'github' ? on.has('github') && !!settings.githubUser : on.has('projects') && picked.length > 0));
     return {
-      handle: settings.handle,
       published: settings.published,
+      home: settings.home,
       name: settings.name,
       bio: settings.bio,
       links: settings.links,

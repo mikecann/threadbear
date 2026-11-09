@@ -4299,24 +4299,28 @@ ignore fields they don't know.
 
 ## Profile page
 
-A public page about Mike at `<site>/@<handle>`, on his own Convex
-deployment's site (`runner/src/public-profile.ts`, `convex/profile.ts`,
+A public page about Mike at `<site>/profile`, and at `<site>/` for
+visitors when `home` is on, on his own Convex deployment's site. A
+deployment is one person's, so there's no handle (one sent by an older app
+is ignored, and old `/@<name>` links open the page) (`runner/src/public-profile.ts`, `convex/profile.ts`,
 `web/src/profile.tsx`). The app's Customize panel (Librarian page) edits
-it; the runner keeps it in `profile.json` in its data dir and writes the
-backend's one `profile` row with the owner key, at once on a change and
-then whenever what it would send has changed, checked hourly. A runner
+it, saving a moment after each change (a change made while one is on its
+way goes once it lands); the runner keeps it in `profile.json` in its data
+dir and writes the backend's one `profile` row with the owner key, at once
+on an update and then whenever what it would send has changed, checked
+hourly. A runner
 key can't write it.
 
 | Method | Params | Result |
 |---|---|---|
 | `profilePage.get` | `{}` | `ProfilePageStatus` |
-| `profilePage.update` | `ProfilePageSettings` | `ProfilePageStatus`. Saved and sent now. `-32602` for a handle that isn't 3 to 30 of `a-z`, `0-9` and single hyphens, more than 4 links or one that isn't http(s); `-32000` with the reason when there's no backend or it refused |
-| `profilePage.remove` | `{}` | `ProfilePageStatus`. Deletes the row, its pictures and the handle from the backend, and forgets the settings |
+| `profilePage.update` | `ProfilePageSettings` | `ProfilePageStatus`. Saved and sent now. `-32602` for more than 4 links or one that isn't http(s); `-32000` with the reason when there's no backend or it refused |
+| `profilePage.remove` | `{}` | `ProfilePageStatus`. Deletes the row and its pictures from the backend, and forgets the settings |
 
 ```ts
 ProfilePageSettings = {
   published: boolean      // false: only Mike's signed-in browser sees it
-  handle: string
+  home: boolean           // visitors at the site's front page see it; only while published
   name: string; bio: string
   links: { title: string; url: string }[]   // at most 4
   show: ("picture" | "background" | "activity" | "github" | "numbers" | "projects" | "memberSince")[]
@@ -4326,7 +4330,7 @@ ProfilePageSettings = {
   picturePath?: string; backgroundPath?: string; backgroundDim?: number  // files on this Mac
   githubUser?: string
 }
-ProfilePageStatus = { profile: ProfilePageSettings | null; url?: string; sentAt?: string; problem?: string }
+ProfilePageStatus = { profile: ProfilePageSettings | null; url?: string /* <site>/profile, or <site>/ with home */; sentAt?: string; problem?: string }
 ```
 
 Only parts in `show` are sent. Activity is the count of threads started

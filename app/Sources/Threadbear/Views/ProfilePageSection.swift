@@ -2,10 +2,12 @@ import AppKit
 import SwiftUI
 import ThreadbearCore
 
-/// The Customize panel's Profile page section: a public page about you at
-/// `<your site>/@<handle>`, with what's on it chosen part by part. Every part
-/// starts off, and nothing goes until Save; the runner sends only the parts
-/// turned on to your Convex backend (docs/guide.md, "The librarian").
+/// The Customize panel's Profile page section: a public page about you on
+/// your own Threadbear site, at /profile, or its front page if you choose.
+/// A site is one person's, so there's no handle to pick. It saves as you
+/// change it, like the rest of Customize; Publish is the one choice that
+/// shows it to anyone. Every part starts off, and the runner sends only the
+/// parts turned on to your Convex backend (docs/guide.md, "The librarian").
 struct ProfilePageSection: View {
     @Environment(AppModel.self) private var app
     let look: LibrarianLook
@@ -13,13 +15,11 @@ struct ProfilePageSection: View {
     /// What the runner last had, as the draft started from it: the draft
     /// follows the runner until it's edited, then keeps the edits.
     @State private var baseline: ProfilePageSettings?
+    @State private var pending: Task<Void, Never>?
     @State private var confirmRemove = false
 
-    private var saving: Bool { app.isBusy(BusyKey.saveProfilePage) }
+    private var saving: Bool { app.isBusy(BusyKey.saveProfilePage) || pending != nil }
     private var status: ProfilePageStatus? { app.profilePage }
-    private var handleProblem: String? { draft.handle.isEmpty ? nil : ProfilePageSettings.handleProblem(draft.handle) }
-    private var linksOK: Bool { draft.links.allSatisfy { ProfilePageSettings.linkProblem($0.url) == nil } }
-    private var changed: Bool { status?.profile.map { !same($0, draft) } ?? true }
 
     var body: some View {
         Group {
@@ -34,7 +34,7 @@ struct ProfilePageSection: View {
                 partsSection
                 if draft.shows(.numbers) { numbersSection }
                 if draft.shows(.projects) { projectsSection }
-                saveSection
+                footerSection
             }
         }
         // The app may already hold the runner's answer from an earlier
@@ -47,6 +47,12 @@ struct ProfilePageSection: View {
         .onChange(of: app.profilePage) { _, new in
             if let new { adopt(new) }
         }
+        .onChange(of: draft) { _, _ in saveSoon() }
+        // The page's picture, background, layout and GitHub name come from
+        // the Librarian page's look, so a change there goes too.
+        .onChange(of: look) { _, _ in
+            if status?.profile != nil { saveSoon(force: true) }
+        }
     }
 
     private func adopt(_ status: ProfilePageStatus) {
@@ -54,6 +60,23 @@ struct ProfilePageSection: View {
         if let baseline, !same(baseline, draft), !same(fresh, draft) { return }
         draft = fresh
         baseline = fresh
+    }
+
+    /// A moment after the last change, so typing a name sends once. Only
+    /// when the panel differs from what the runner has (or the Librarian
+    /// page's look changed), so the runner's answer coming back, which
+    /// sets the draft again, doesn't send it again.
+    private func saveSoon(force: Bool = false) {
+        guard baseline != nil else { return }
+        pending?.cancel()
+        pending = nil
+        if !force, same(draft, status?.profile ?? Self.blank) { return }
+        pending = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            pending = nil
+            app.saveProfilePage(draft, look: look)
+        }
     }
 
     private static var blank: ProfilePageSettings {
@@ -67,13 +90,10 @@ struct ProfilePageSection: View {
     private var aboutSection: some View {
         Section {
             Toggle("Publish my profile page", isOn: $draft.published)
-                .tip(draft.published ? "Public: anyone with the link can see it once you Save" : "Private: only you, signed in to your Threadbear site, can see it")
-            TextField("Handle", text: Binding(get: { draft.handle }, set: { draft.handle = ProfilePageSettings.cleanHandle($0) }), prompt: Text("Required"))
-                .tip("Your page's address: lowercase letters, numbers and single hyphens, 3 to 30 of them")
-            if let handleProblem {
-                Text(handleProblem)
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.secondary)
+                .tip(draft.published ? "Public: anyone with the link can see it. Turn it off to keep it to yourself" : "Off: only you can see it, in a browser signed in to your Threadbear site")
+            if draft.published {
+                Toggle("Show it on my site's front page", isOn: $draft.home)
+                    .tip("Visitors to your site's address see this page first. Signed in, you still get your threads there")
             }
             if let url = status?.url, let link = URL(string: url) {
                 HStack {
@@ -105,7 +125,7 @@ struct ProfilePageSection: View {
                         .frame(maxWidth: zoomed(90))
                         .tip("What the link says on your page")
                     TextField("Address", text: $draft.links[i].url, prompt: Text("https://"))
-                        .tip("Where it goes: an https:// address")
+                        .tip("Where it goes: an https:// address. It shows once the address is complete")
                     Button {
                         draft.links.remove(at: i)
                     } label: {
@@ -119,15 +139,10 @@ struct ProfilePageSection: View {
                 Button("Add a link") { draft.links.append(.init(title: "", url: "")) }
                     .tip("Up to \(ProfilePageSettings.linksMax) links, such as X, GitHub, LinkedIn or your site")
             }
-            if !linksOK {
-                Text("Each link's address starts with https://")
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.secondary)
-            }
         } header: {
             HStack(spacing: zoomed(6)) {
                 Text("Profile page")
-                InfoTip("A page about you on your own Threadbear site. It's kept on your Convex backend, which serves it. Thread titles, prompts, replies, folders and project notes are never sent, and threads in a private folder aren't counted.")
+                InfoTip("A page about you on your own Threadbear site. It's kept on your Convex backend, which serves it, and saves as you change it. Thread titles, prompts, replies, folders and project notes are never sent, and threads in a private folder aren't counted.")
             }
         }
     }
@@ -135,7 +150,7 @@ struct ProfilePageSection: View {
     // MARK: What's public
 
     private var partsSection: some View {
-        Section("What's public") {
+        Section("What's on it") {
             ForEach(ProfilePageSettings.Part.allCases) { part in
                 Toggle(part.title, isOn: Binding(get: { draft.shows(part) }, set: { draft.setShown($0, part) }))
                     .tip(part.tip)
@@ -188,69 +203,62 @@ struct ProfilePageSection: View {
         }
     }
 
-    // MARK: Save
+    // MARK: Where it stands
 
-    private var saveSection: some View {
+    private var footerSection: some View {
         Section {
-            HStack {
-                Button(draft.published ? "Save and publish" : "Save") { app.saveProfilePage(draft, look: look) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(draft.handle.isEmpty || handleProblem != nil || !linksOK)
-                    .busy(saving)
-                    .tip(draft.published ? "Send your page to your Convex backend, where anyone with the link can see it" : "Send it, kept private: only you can see it until you publish")
-                Spacer()
-                if status?.profile != nil {
-                    Button("Take the page down", role: .destructive) { confirmRemove = true }
-                        .disabled(saving)
-                        .tip("Delete your page, its pictures and its handle from your Convex backend")
+            HStack(spacing: zoomed(8)) {
+                if saving {
+                    ProgressView().controlSize(.small)
+                    Text("Saving…")
+                } else if let problem = status?.problem {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(.red)
+                    Text(problem).foregroundStyle(.red)
+                } else if status?.profile == nil {
+                    Text("Nothing's sent until you change something here.")
+                } else if status?.profile?.published == true {
+                    Image(systemName: "checkmark.circle").foregroundStyle(.secondary)
+                    Text("Saved and public. Its numbers refresh by themselves within the hour.")
+                } else {
+                    Image(systemName: "lock").foregroundStyle(.secondary)
+                    Text("Saved. Only you can see it until you publish it.")
                 }
+                Spacer(minLength: 0)
             }
-            if draft.handle.isEmpty {
-                Text("Type a handle above to save.")
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.secondary)
-            } else if let problem = status?.problem {
-                Text(problem)
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.red)
-            } else if changed, status?.profile != nil {
-                Text("Changes here aren't on your page until you Save.")
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.secondary)
-            } else if let sent = status?.sentAt {
-                Text("Up to date. Its numbers refresh by themselves within the hour. Sent \(Self.when(sent)).")
-                    .font(.system(size: TypeScale.label))
-                    .foregroundStyle(.secondary)
+            .font(.system(size: TypeScale.label))
+            .foregroundStyle(.secondary)
+            if status?.profile != nil {
+                Button("Take the page down", role: .destructive) { confirmRemove = true }
+                    .disabled(saving)
+                    .tip("Delete your page and its pictures from your Convex backend")
             }
         }
         .confirmationDialog("Take your profile page down?", isPresented: $confirmRemove) {
             Button("Take it down", role: .destructive) {
-                app.removeProfilePage()
-                draft = Self.blank
+                pending?.cancel()
+                pending = nil
                 baseline = nil
+                draft = Self.blank
+                app.removeProfilePage()
             }
         } message: {
-            Text("Its page, pictures and handle are deleted from your Convex backend. Your Librarian page doesn't change.")
+            Text("Its page and pictures are deleted from your Convex backend. Your Librarian page doesn't change.")
         }
     }
 
-    /// What Save would change: the parts the app fills in on saving (the
-    /// layout and pictures) don't count.
+    /// The same page, as far as what's sent goes: the parts the app fills in
+    /// on saving (the layout and pictures) and links still being typed
+    /// don't count.
     private func same(_ a: ProfilePageSettings, _ b: ProfilePageSettings) -> Bool {
-        var x = a, y = b
-        for s in [\ProfilePageSettings.picturePath, \.backgroundPath, \.githubUser] as [WritableKeyPath<ProfilePageSettings, String?>] {
-            x[keyPath: s] = nil
-            y[keyPath: s] = nil
+        func core(_ s: ProfilePageSettings) -> ProfilePageSettings {
+            var x = s.sendable
+            x.order = []
+            x.picturePath = nil
+            x.backgroundPath = nil
+            x.backgroundDim = nil
+            x.githubUser = nil
+            return x
         }
-        x.order = []
-        y.order = []
-        x.backgroundDim = nil
-        y.backgroundDim = nil
-        return x == y
-    }
-
-    private static func when(_ iso: String) -> String {
-        guard let date = ISO8601DateFormatter.withFractions.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) else { return iso }
-        return date.formatted(date: .omitted, time: .shortened)
+        return core(a) == core(b)
     }
 }

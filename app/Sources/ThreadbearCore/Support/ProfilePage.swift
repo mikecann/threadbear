@@ -1,9 +1,10 @@
 import Foundation
 
-/// The public profile page, `<site>/@<handle>` (docs/protocol.md,
-/// "Profile page"): what the Librarian page's Customize panel lets you put
-/// on it. The runner keeps it (profile.json) and sends only the parts
-/// turned on to your Convex backend; every part starts off.
+/// The public profile page, `<site>/profile` (docs/protocol.md, "Profile
+/// page"): what the Librarian page's Customize panel lets you put on it. A
+/// site is one person's, so there's no handle. The runner keeps it
+/// (profile.json) and sends only the parts turned on to your Convex
+/// backend; every part starts off.
 public struct ProfilePageSettings: Codable, Equatable, Sendable {
     public enum Part: String, CaseIterable, Codable, Sendable, Identifiable {
         case picture, background, activity, github, numbers, projects, memberSince
@@ -54,11 +55,10 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
     ]
 
     public static let linksMax = 4
-    public static let handleMin = 3
-    public static let handleMax = 30
 
     public var published = false
-    public var handle = ""
+    /// Visitors to the site's front page see it too. Only while published.
+    public var home = false
     public var name = ""
     public var bio = ""
     public var links: [Link] = []
@@ -79,18 +79,13 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
         if on { if !show.contains(part) { show.append(part) } } else { show.removeAll { $0 == part } }
     }
 
-    /// Why a handle won't do, or nil when it will.
-    public static func handleProblem(_ handle: String) -> String? {
-        if handle.count < handleMin { return "At least \(handleMin) characters" }
-        if handle.count > handleMax { return "At most \(handleMax) characters" }
-        let ok = handle.range(of: "^[a-z0-9]+(-[a-z0-9]+)*$", options: .regularExpression) != nil
-        return ok ? nil : "Lowercase letters, numbers and single hyphens"
-    }
-
-    /// What's typed, as a handle: lower case, no @, no spaces.
-    public static func cleanHandle(_ typed: String) -> String {
-        typed.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "@", with: "").lowercased()
-            .replacingOccurrences(of: " ", with: "-")
+    /// What's sent: links still being typed (no good address yet) wait,
+    /// and the front page needs the page published.
+    public var sendable: ProfilePageSettings {
+        var s = self
+        s.links = links.filter { Self.linkProblem($0.url) == nil }
+        s.home = published && home
+        return s
     }
 
     /// Why a link won't do, or nil.
@@ -115,13 +110,14 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case published, handle, name, bio, links, show, numbers, projectIds, order, picturePath, backgroundPath, backgroundDim, githubUser
+        case published, home, name, bio, links, show, numbers, projectIds, order, picturePath, backgroundPath, backgroundDim, githubUser
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         published = (try? c.decode(Bool.self, forKey: .published)) ?? false
-        handle = (try? c.decode(String.self, forKey: .handle)) ?? ""
+        // A `handle` from before 9 Nov is ignored: a site is one person's.
+        home = (try? c.decode(Bool.self, forKey: .home)) ?? false
         name = (try? c.decode(String.self, forKey: .name)) ?? ""
         bio = (try? c.decode(String.self, forKey: .bio)) ?? ""
         links = (try? c.decode([Link].self, forKey: .links)) ?? []
@@ -139,7 +135,7 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(published, forKey: .published)
-        try c.encode(handle, forKey: .handle)
+        try c.encode(home, forKey: .home)
         try c.encode(name, forKey: .name)
         try c.encode(bio, forKey: .bio)
         try c.encode(links, forKey: .links)
@@ -157,7 +153,7 @@ public struct ProfilePageSettings: Codable, Equatable, Sendable {
 /// What `profilePage.get` and `profilePage.update` answer.
 public struct ProfilePageStatus: Decodable, Equatable, Sendable {
     public var profile: ProfilePageSettings?
-    /// The page's address, once there's a handle and a backend.
+    /// The page's address, once it's saved and there's a backend: /profile, or the site's front page when it's shown there.
     public var url: String?
     public var sentAt: String?
     /// Why the last send didn't go, said by the runner or the backend.

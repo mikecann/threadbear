@@ -16,7 +16,7 @@ import { MessageText, Pictures, picturesByRow, ToolRun, Worked, type PageMessage
 import { ReplyButton } from './reply-button';
 import { CommandState } from './command-state';
 import { previewOf, ShareControl, SharePage } from './share';
-import { ProfilePage } from './profile';
+import { FrontPage, ProfilePage } from './profile';
 import { busy, Lists, ResizeHandle, type Row, useSidebarWidth } from './sidebar';
 import { Pop } from './menu';
 import { pastedOf } from './picture-chips';
@@ -34,9 +34,14 @@ export function App() {
   const route = useRoute();
   // A shared thread is for anyone, signed in or not.
   if (route.page === 'share') return <SharePage key={route.slug} slug={route.slug} token={token} />;
-  // So is a profile page, once it's published.
-  if (route.page === 'profile') return <ProfilePage key={route.handle} handle={route.handle} token={token} />;
-  if (!token) return <SignIn />;
+  // So is the profile page, once it's published (profile.tsx).
+  if (route.page === 'profile') return <ProfilePage token={token} />;
+  if (!token) {
+    // Someone not signed in sees the profile at the front page when Mike
+    // shows it there, and how to sign in otherwise or at /signin.
+    if (route.page === 'list') return <FrontPage otherwise={<SignIn />} />;
+    return <SignIn />;
+  }
   // Keyed on the token so a fresh sign-in clears an earlier auth error.
   return (
     <Catch key={token}>

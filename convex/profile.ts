@@ -1,18 +1,17 @@
-// The public profile page, /@<handle> (docs/guide.md, "The librarian";
-// web/src/profile.tsx). The owner runner writes the one row from what Mike
-// turned on in the Librarian page's Customize panel
+// The public profile page (docs/guide.md, "The librarian";
+// web/src/profile.tsx). A deployment is one person's, so there's one page
+// and no handle: it's at /profile, and with `home` on it's also what
+// visitors see at the site's front page. The owner runner writes the one
+// row from what Mike turned on in the Librarian page's Customize panel
 // (runner/src/public-profile.ts); anyone may read it once it's published.
-// Only what he turned on is ever sent, and the checks here hold the row to
-// that shape whatever a caller sends: no thread titles, prompts, folders or
+// Only what he turned on is ever sent, and cleanProfile holds the row to its
+// shape whatever a caller sends: no thread titles, prompts, folders or
 // project notes have a field to go in.
 import { ConvexError, v, type Infer } from 'convex/values';
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import { checkPhoneToken, runnerAuth } from './lib';
 
-export const HANDLE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-export const HANDLE_MIN = 3;
-export const HANDLE_MAX = 30;
 const LINKS_MAX = 4;
 const NUMBERS_MAX = 8;
 const DAYS_MAX = 400;
@@ -27,8 +26,10 @@ const project = v.object({ title: v.string(), threads: v.number(), symbol: v.opt
 const activity = v.object({ start: v.string(), counts: v.array(v.number()) });
 
 export const profileInput = v.object({
-  handle: v.string(),
+  // Sent by runners from before 9 Nov; kept, never needed.
+  handle: v.optional(v.string()),
   published: v.boolean(),
+  home: v.optional(v.boolean()),
   name: v.string(),
   bio: v.string(),
   links: v.array(link),
@@ -53,17 +54,6 @@ function cut(s: string, max: number): string {
   return t.length > max ? t.slice(0, max) : t;
 }
 
-export function normalHandle(handle: string): string {
-  return handle.trim().replace(/^@/, '').toLowerCase();
-}
-
-export function handleProblem(handle: string): string | undefined {
-  if (handle.length < HANDLE_MIN) return `A handle is at least ${HANDLE_MIN} characters.`;
-  if (handle.length > HANDLE_MAX) return `A handle is at most ${HANDLE_MAX} characters.`;
-  if (!HANDLE.test(handle)) return 'A handle is lowercase letters, numbers and single hyphens, with no hyphen at either end.';
-  return undefined;
-}
-
 function safeUrl(url: string): string | undefined {
   try {
     const u = new URL(url.trim());
@@ -74,10 +64,7 @@ function safeUrl(url: string): string | undefined {
 }
 
 /** The row as it may be kept: every string cut to size, every list capped. */
-export function cleanProfile(p: ProfileInput): ProfileInput {
-  const handle = normalHandle(p.handle);
-  const problem = handleProblem(handle);
-  if (problem) throw bad(problem);
+export function cleanProfile(p: ProfileInput): Omit<ProfileInput, 'handle'> {
   if (p.links.length > LINKS_MAX) throw bad(`At most ${LINKS_MAX} links.`);
   const links = p.links.map((l) => {
     const url = safeUrl(l.url);
@@ -89,8 +76,8 @@ export function cleanProfile(p: ProfileInput): ProfileInput {
   if (p.activity && (!DAY.test(p.activity.start) || p.activity.counts.length > DAYS_MAX || p.activity.counts.some((n) => !Number.isFinite(n) || n < 0))) throw bad('The activity is a start day and up to 400 counts.');
   if (p.memberSince !== undefined && !DAY.test(p.memberSince)) throw bad('Member since is a day, YYYY-MM-DD.');
   return {
-    handle,
     published: p.published,
+    home: p.published && p.home === true,
     name: cut(p.name, 60),
     bio: cut(p.bio, 160),
     links,
@@ -156,9 +143,10 @@ export const publish = mutation({
 });
 
 const page = v.object({
-  handle: v.string(),
   // Not published: only Mike's own signed-in browser gets the page.
   preview: v.boolean(),
+  // Shown at the site's front page to visitors.
+  home: v.boolean(),
   name: v.string(),
   bio: v.string(),
   links: v.array(link),
@@ -183,34 +171,42 @@ async function isMike(ctx: QueryCtx, token?: string): Promise<boolean> {
   }
 }
 
-/** The page at /@<handle>, for anyone once published. Null: no such page. */
+/**
+ * The page, for anyone once published, or for Mike's signed-in browser
+ * before then. Null: there's no page to show. `handle` is what /@<handle>
+ * links from before 9 Nov send; any handle opens the one page.
+ */
 export const view = query({
-  args: { handle: v.string(), token: v.optional(v.string()) },
+  args: { token: v.optional(v.string()), handle: v.optional(v.string()) },
   returns: v.union(v.null(), page),
-  handler: async (ctx, { handle, token }) => {
-    const row = await ctx.db.query('profile').withIndex('by_handle', (q) => q.eq('handle', normalHandle(handle))).first();
+  handler: async (ctx, { token }) => {
+    const row = await theRow(ctx);
     if (!row) return null;
     if (!row.published && !(await isMike(ctx, token))) return null;
     const picture = row.pictureId ? await ctx.storage.getUrl(row.pictureId) : null;
     const background = row.backgroundId ? await ctx.storage.getUrl(row.backgroundId) : null;
-    const { _id, _creationTime, pictureId, backgroundId, backgroundDim, updatedAt, published, ...rest } = row;
+    const { _id, _creationTime, handle, pictureId, backgroundId, backgroundDim, updatedAt, published, home, ...rest } = row;
     return {
       ...rest,
       preview: !published,
+      home: published && home === true,
       ...(picture ? { picture } : {}),
       ...(background ? { background, ...(backgroundDim === undefined ? {} : { backgroundDim }) } : {}),
     };
   },
 });
 
-/** For http.ts's link-preview tags: published pages only. */
+/**
+ * For http.ts's link-preview tags: the published page, or null. `home`: the
+ * front page asking, which gets the tags only when the page is shown there.
+ */
 export const card = internalQuery({
-  args: { handle: v.string() },
+  args: { home: v.optional(v.boolean()) },
   returns: v.union(v.null(), v.object({ title: v.string(), description: v.string(), image: v.optional(v.string()) })),
-  handler: async (ctx, { handle }) => {
-    const row = await ctx.db.query('profile').withIndex('by_handle', (q) => q.eq('handle', normalHandle(handle))).first();
-    if (!row?.published) return null;
+  handler: async (ctx, { home }) => {
+    const row = await theRow(ctx);
+    if (!row?.published || (home && !row.home)) return null;
     const image = row.pictureId ? await ctx.storage.getUrl(row.pictureId) : null;
-    return { title: row.name || `@${row.handle}`, description: row.bio, ...(image ? { image } : {}) };
+    return { title: row.name || 'Profile', description: row.bio, ...(image ? { image } : {}) };
   },
 });

@@ -22,23 +22,33 @@ extension AppModel {
     }
 
     /// Saves and sends it, with the Librarian page's layout and pictures
-    /// filled in. The section's Save spins until the backend has it; a
-    /// refusal (a handle that won't do, no backend) shows in the banner and
-    /// leaves what's typed in place to fix.
+    /// filled in. The section saves as you change it, as the rest of
+    /// Customize does, and says Saving… while this runs; a change made
+    /// meanwhile waits and goes straight after, so the last one always
+    /// lands. A refusal shows in the banner and leaves the panel as it is.
     func saveProfilePage(_ settings: ProfilePageSettings, look: LibrarianLook) {
         guard let client else { return }
-        var s = settings
+        var s = settings.sendable
         s.order = ProfilePageSettings.cardOrder(look)
         s.picturePath = Self.profilePicturePath(look)
         s.backgroundPath = look.background.map { Looks.folder.appendingPathComponent($0).path }
         s.backgroundDim = look.background == nil ? nil : look.backgroundDim
         let github = GitHubUser.clean(look.githubUser)
         s.githubUser = github.isEmpty ? nil : github
-        whileBusy(BusyKey.saveProfilePage, note: "Saving your profile page") { [self] in
-            do {
-                profilePage = try await client.updateProfilePage(s)
-            } catch {
-                show(error)
+        if isBusy(BusyKey.saveProfilePage) {
+            profilePageNext = s
+            return
+        }
+        whileBusy(BusyKey.saveProfilePage) { [self] in
+            var next: ProfilePageSettings? = s
+            while let send = next {
+                profilePageNext = nil
+                do {
+                    profilePage = try await client.updateProfilePage(send)
+                } catch {
+                    show(error)
+                }
+                next = profilePageNext
             }
         }
     }

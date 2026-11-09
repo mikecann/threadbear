@@ -12,7 +12,7 @@ const { sha256 } = load('lib') as { sha256: (s: string) => Promise<string> };
 const profile = load('profile');
 const sync = load('sync');
 
-const base = { handle: 'wayne', published: true, name: 'Wayne Sutton', bio: 'Builds with agents', links: [{ title: 'GitHub', url: 'https://github.com/waynesutton' }], order: ['numbers', 'activity'] };
+const base = { published: true, name: 'Wayne Sutton', bio: 'Builds with agents', links: [{ title: 'GitHub', url: 'https://github.com/waynesutton' }], order: ['numbers', 'activity'] };
 
 async function setup() {
   process.env.RUNNER_KEY = OWNER;
@@ -20,20 +20,24 @@ async function setup() {
   const b = memoryBackend();
   await b.ctx.db.insert('runnerKeys', { runnerId: 'bruce', keyHash: await sha256(BRUCE_KEY), name: 'bruce', createdAt: 1 });
   const publish = (p: Record<string, unknown> | undefined, key = OWNER) => call(b.ctx, profile.publish, { key, ...(p ? { profile: p } : {}) });
-  const view = (handle: string, token?: string) => call(b.ctx, profile.view, { handle, ...(token ? { token } : {}) });
+  const view = (token?: string) => call(b.ctx, profile.view, { ...(token ? { token } : {}) });
   return { b, publish, view };
 }
 
-test('the owner publishes the page and anyone reads it by handle, in any case', async () => {
+test('the owner publishes the one page and anyone reads it', async () => {
   const s = await setup();
+  assert.equal(await s.view(), null);
   await s.publish({ ...base, numbers: [{ key: 'threads', label: 'Threads this year', value: '12' }], activity: { start: '2026-01-01', counts: [0, 2, 1] } });
-  const page = await s.view('@Wayne');
+  const page = await s.view();
   assert.equal(page.name, 'Wayne Sutton');
   assert.equal(page.preview, false);
   assert.deepEqual(page.activity.counts, [0, 2, 1]);
   assert.equal(page.links[0].url, 'https://github.com/waynesutton');
-  assert.equal(await s.view('someone-else'), null);
+  // A link from when the page was /@<handle> still opens it.
+  assert.equal((await call(s.b.ctx, profile.view, { handle: 'whoever' })).name, 'Wayne Sutton');
+  await s.publish({ ...base, handle: 'wayne', name: 'Again' });
   assert.equal(s.b.rows('profile').length, 1);
+  assert.ok(!('handle' in s.b.rows('profile')[0]), 'an old runner\'s handle is not kept');
 });
 
 test('a runner key can neither write the page nor get an upload address for it', async () => {
@@ -47,12 +51,12 @@ test('a runner key can neither write the page nor get an upload address for it',
 test('a page that is not published is gone to strangers and a preview for Mike', async () => {
   const s = await setup();
   await s.publish({ ...base, published: false });
-  assert.equal(await s.view('wayne'), null);
-  assert.equal(await s.view('wayne', 'made-up-token'), null);
+  assert.equal(await s.view(), null);
+  assert.equal(await s.view('made-up-token'), null);
   const { token } = await call(s.b.ctx, sync.issueToken, { key: OWNER, kind: 'phone', name: 'browser' });
-  const page = await s.view('wayne', token);
+  const page = await s.view(token);
   assert.equal(page.preview, true);
-  assert.equal(await call(s.b.ctx, profile.card, { handle: 'wayne' }), null);
+  assert.equal(await call(s.b.ctx, profile.card, {}), null);
 });
 
 test('fields outside the shape are dropped, strings are cut and lists capped', async () => {
@@ -65,9 +69,8 @@ test('fields outside the shape are dropped, strings are cut and lists capped', a
   assert.ok(!('threadTitles' in row));
 });
 
-test('bad handles, links and GitHub names are refused', async () => {
+test('bad links, GitHub names and activity are refused', async () => {
   const s = await setup();
-  for (const handle of ['ab', '-wayne', 'way--ne', 'way ne', 'wayne!', 'w'.repeat(31)]) assert.equal(await outcome(s.publish({ ...base, handle })), 'badProfile', handle);
   assert.equal(await outcome(s.publish({ ...base, links: [{ title: 'x', url: 'javascript:alert(1)' }] })), 'badProfile');
   assert.equal(await outcome(s.publish({ ...base, links: Array.from({ length: 5 }, () => ({ title: 'x', url: 'https://a.example' })) })), 'badProfile');
   assert.equal(await outcome(s.publish({ ...base, github: 'not a name' })), 'badProfile');
@@ -80,7 +83,7 @@ test('a replaced picture is deleted, and unpublishing for good takes the row and
   const two = s.b.file('_storage:two');
   const bg = s.b.file('_storage:bg');
   await s.publish({ ...base, pictureId: one, backgroundId: bg, backgroundDim: 4 });
-  assert.equal((await s.view('wayne')).picture, 'https://files.example/_storage:one');
+  assert.equal((await s.view()).picture, 'https://files.example/_storage:one');
   assert.equal(s.b.rows('profile')[0].backgroundDim, 0.95);
   await s.publish({ ...base, pictureId: two, backgroundId: bg });
   assert.deepEqual(s.b.deleted, ['_storage:one']);
@@ -94,5 +97,18 @@ test('the link preview card has the name, bio and picture of a published page', 
   const s = await setup();
   const pic = s.b.file('_storage:pic');
   await s.publish({ ...base, pictureId: pic });
-  assert.deepEqual(await call(s.b.ctx, profile.card, { handle: 'WAYNE' }), { title: 'Wayne Sutton', description: 'Builds with agents', image: 'https://files.example/_storage:pic' });
+  assert.deepEqual(await call(s.b.ctx, profile.card, {}), { title: 'Wayne Sutton', description: 'Builds with agents', image: 'https://files.example/_storage:pic' });
+});
+
+test('the front page shows it only when published with home on', async () => {
+  const s = await setup();
+  await s.publish({ ...base, home: true });
+  assert.equal((await s.view()).home, true);
+  assert.equal((await call(s.b.ctx, profile.card, { home: true })).title, 'Wayne Sutton');
+  await s.publish({ ...base, home: false });
+  assert.equal((await s.view()).home, false);
+  assert.equal(await call(s.b.ctx, profile.card, { home: true }), null);
+  assert.ok(await call(s.b.ctx, profile.card, {}), '/profile still unfurls');
+  await s.publish({ ...base, published: false, home: true });
+  assert.equal(s.b.rows('profile')[0].home, false, 'home needs it published');
 });

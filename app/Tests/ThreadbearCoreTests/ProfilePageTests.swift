@@ -2,17 +2,19 @@ import Foundation
 import Testing
 @testable import ThreadbearCore
 
-/// The public profile page's settings (ProfilePage.swift): handle and link
-/// rules, the web page's card order from the Librarian page's layout, and
-/// decoding what another build saved.
+/// The public profile page's settings (ProfilePage.swift): link rules, what
+/// goes to the runner, the web page's card order from the Librarian page's
+/// layout, and decoding what another build saved.
 struct ProfilePageTests {
-    @Test func handles() {
-        #expect(ProfilePageSettings.handleProblem("wayne") == nil)
-        #expect(ProfilePageSettings.handleProblem("wayne-sutton-2") == nil)
-        for bad in ["ab", "-wayne", "wayne-", "way--ne", "Wayne", "way ne", String(repeating: "w", count: 31)] {
-            #expect(ProfilePageSettings.handleProblem(bad) != nil, "\(bad)")
-        }
-        #expect(ProfilePageSettings.cleanHandle(" @Wayne Sutton ") == "wayne-sutton")
+    @Test func whatIsSent() {
+        var s = ProfilePageSettings()
+        s.links = [.init(title: "GitHub", url: "https://github.com/waynesutton"), .init(title: "Half typed", url: "https://")]
+        s.home = true
+        let sent = s.sendable
+        #expect(sent.links.map(\.title) == ["GitHub"], "a link still being typed waits")
+        #expect(!sent.home, "the front page needs it published")
+        s.published = true
+        #expect(s.sendable.home)
     }
 
     @Test func links() {
@@ -44,14 +46,16 @@ struct ProfilePageTests {
     }
 
     @Test func decodesWhatOtherBuildsSaved() throws {
+        // As saved before 9 Nov, with a handle and no home.
         let json = #"{"published":true,"handle":"wayne","show":["activity","fromTheFuture"],"links":[{"title":"X","url":"https://x.com/waynesutton"}],"extra":1}"#
         let s = try JSONDecoder().decode(ProfilePageSettings.self, from: Data(json.utf8))
-        #expect(s.published && s.handle == "wayne")
+        #expect(s.published && !s.home)
+        #expect(!String(decoding: try JSONEncoder().encode(s), as: UTF8.self).contains("handle"))
         #expect(s.show == [.activity])
         #expect(s.links.count == 1 && s.name.isEmpty)
         let back = try JSONDecoder().decode(ProfilePageSettings.self, from: JSONEncoder().encode(s))
         #expect(back == s)
-        let status = try JSONDecoder().decode(ProfilePageStatus.self, from: Data(#"{"profile":null,"url":"https://a.convex.site/@wayne"}"#.utf8))
-        #expect(status.profile == nil && status.url == "https://a.convex.site/@wayne")
+        let status = try JSONDecoder().decode(ProfilePageStatus.self, from: Data(#"{"profile":null,"url":"https://a.convex.site/profile"}"#.utf8))
+        #expect(status.profile == nil && status.url == "https://a.convex.site/profile")
     }
 }

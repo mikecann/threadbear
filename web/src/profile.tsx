@@ -1,9 +1,15 @@
-// The public profile page, /@<handle> (convex/profile.ts; docs/guide.md,
-// "The librarian"). For anyone once Mike publishes it from the Librarian
-// page's Customize panel; until then, only this browser when it's signed in
-// as him, with a line saying so. It shows only what the backend's row has,
-// and the row has only what he turned on.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+// The public profile page (convex/profile.ts; docs/guide.md, "The
+// librarian"). A deployment is one person's, so there's one page: at
+// /profile, and at the front page for visitors when Mike turns that on
+// (FrontPage). Until he publishes it, only this browser sees it when it's
+// signed in as him, with a line saying so. It shows only what the
+// backend's row has, and the row has only what he turned on.
+//
+// It looks like Threadbear's own site (site/src/styles.css): warm paper,
+// Geist, white cards with a soft lift, the bear's honey brown only where
+// it means something, and faint sewn patches behind. Light only, as the
+// site is. Styles are under .pf in styles.css.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../../convex/_generated/api';
 import type { FunctionReturnType } from 'convex/server';
 import { useLiveQuery } from './live';
@@ -12,51 +18,88 @@ import { level, weeks, type Day } from './profile-grid';
 type Page = NonNullable<FunctionReturnType<typeof api.profile.view>>;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const SITE = 'https://threadbear.mikecann.app';
 
-export function ProfilePage({ handle, token }: { handle: string; token: string | null }) {
-  const page = useLiveQuery(api.profile.view, { handle, ...(token ? { token } : {}) });
-  useEffect(() => {
-    document.title = page ? `${page.name || `@${page.handle}`} · Threadbear` : 'Threadbear';
-  }, [page]);
-  if (page === undefined) return <div className="pad muted">Loading…</div>;
+/** /profile, and /@<handle> links from before there was one page. */
+export function ProfilePage({ token }: { token: string | null }) {
+  const page = useLiveQuery(api.profile.view, token ? { token } : {});
+  if (page === undefined) return <Paper />;
   if (page === null) {
     return (
-      <main className="signin">
-        <img src="/icon.png" alt="" width={72} height={72} />
-        <h1>This profile is private</h1>
-        <p className="muted">Or there's no profile at this address.</p>
-      </main>
+      <Paper>
+        <main className="pf-main pf-empty">
+          <img src="/icon.png" alt="" width={72} height={72} />
+          <h1>This profile is private</h1>
+          <p>Or there isn't one here yet.</p>
+        </main>
+      </Paper>
     );
   }
-  return <Profile page={page} />;
+  return <Profile page={page} signedIn={!!token} />;
 }
 
-export function Profile({ page }: { page: Page }) {
-  const style = page.background ? ({ '--profile-bg': `url("${page.background}")`, '--profile-dim': String(page.backgroundDim ?? 0.55) } as React.CSSProperties) : undefined;
+/** The front page for someone not signed in: the profile when it's shown there, or `otherwise`. */
+export function FrontPage({ otherwise }: { otherwise: ReactNode }) {
+  const page = useLiveQuery(api.profile.view, {});
+  if (page === undefined) return <Paper />;
+  return page?.home ? <Profile page={page} signedIn={false} /> : <>{otherwise}</>;
+}
+
+/** The site's paper, on the whole window while a profile is up. */
+function Paper({ children }: { children?: ReactNode }) {
+  useEffect(() => {
+    document.documentElement.classList.add('pf-html');
+    return () => document.documentElement.classList.remove('pf-html');
+  }, []);
   return (
-    <div className={page.background ? 'profile has-bg' : 'profile'} style={style}>
-      {page.preview && <div className="profile-preview">Only you can see this page. Publish it from the Librarian page's Customize panel in Threadbear.</div>}
-      <main className="profile-main">
-        <header className="profile-head">
-          {page.picture && <img className="profile-pic" src={page.picture} alt="" width={120} height={120} />}
-          <div>
-            <h1>{page.name || `@${page.handle}`}</h1>
-            <div className="muted">
-              @{page.handle}
-              {page.memberSince && <> · Using Threadbear since {monthYear(page.memberSince)}</>}
-            </div>
-            {page.bio && <p className="profile-bio">{page.bio}</p>}
-            {page.links.length > 0 && (
-              <nav className="profile-links">
-                {page.links.map((l) => (
-                  <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer nofollow">
-                    {l.title}
-                  </a>
-                ))}
-              </nav>
-            )}
-          </div>
-        </header>
+    <div className="pf">
+      <Patches />
+      {children}
+    </div>
+  );
+}
+
+export function Profile({ page, signedIn }: { page: Page; signedIn: boolean }) {
+  const title = page.name || 'Profile';
+  useEffect(() => {
+    document.title = `${title} · Threadbear`;
+  }, [title]);
+  const backdrop = page.background ? ({ '--pf-bg': `url("${page.background}")`, '--pf-dim': String(page.backgroundDim ?? 0.55) } as React.CSSProperties) : undefined;
+  return (
+    <Paper>
+      <header className="pf-nav-wrap">
+        <nav className="pf-nav" aria-label="Profile">
+          <span className="pf-brand">
+            <img src={page.picture ?? '/icon.png'} alt="" width={32} height={32} />
+            <b>{title}</b>
+          </span>
+          <a className="pf-btn pf-btn-sm" href={SITE}>
+            Get Threadbear
+          </a>
+        </nav>
+      </header>
+      {page.background && <div className="pf-backdrop" style={backdrop} aria-hidden="true" />}
+      <main className="pf-main">
+        {page.preview && <p className="pf-preview">Only you can see this page. Turn on Publish in the Librarian page's Customize panel to share it.</p>}
+        <section className="pf-hero">
+          {page.picture && (
+            <span className="pf-pic">
+              <img src={page.picture} alt="" width={128} height={128} />
+            </span>
+          )}
+          <h1>{title}</h1>
+          {page.bio && <p className="pf-lede">{page.bio}</p>}
+          {page.memberSince && <p className="pf-since">Using Threadbear since {monthYear(page.memberSince)}</p>}
+          {page.links.length > 0 && (
+            <nav className="pf-links" aria-label="Links">
+              {page.links.map((l) => (
+                <a key={l.url} className="pf-btn pf-btn-ghost" href={l.url} target="_blank" rel="noopener noreferrer nofollow">
+                  {l.title}
+                </a>
+              ))}
+            </nav>
+          )}
+        </section>
         {page.order.map((card) => {
           if (card === 'numbers' && page.numbers?.length) return <Numbers key={card} numbers={page.numbers} />;
           if (card === 'activity' && page.activity) return <ThreadbearActivity key={card} activity={page.activity} />;
@@ -64,19 +107,22 @@ export function Profile({ page }: { page: Page }) {
           if (card === 'projects' && page.projects?.length) return <Projects key={card} projects={page.projects} />;
           return null;
         })}
-        <footer className="profile-foot muted">
-          Made with <a href="https://threadbear.mikecann.app">Threadbear</a>
+        <footer className="pf-foot">
+          <span>
+            Made with <a href={SITE}>Threadbear</a>
+          </span>
+          {!signedIn && <a href="/signin">Sign in</a>}
         </footer>
       </main>
-    </div>
+    </Paper>
   );
 }
 
 function Numbers({ numbers }: { numbers: NonNullable<Page['numbers']> }) {
   return (
-    <section className="profile-card profile-numbers">
+    <section className="pf-numbers" aria-label="Numbers">
       {numbers.map((n) => (
-        <div key={n.key}>
+        <div key={n.key} className="pf-card pf-number">
           <b>{n.value}</b>
           <span>{n.label}</span>
         </div>
@@ -89,10 +135,10 @@ function ThreadbearActivity({ activity }: { activity: NonNullable<Page['activity
   const days = useMemo(() => activity.counts.map((count, i) => ({ date: addDays(activity.start, i), count })), [activity]);
   const total = activity.counts.slice(-365).reduce((a, b) => a + b, 0);
   return (
-    <section className="profile-card">
+    <section className="pf-card pf-section">
       <h2>Threadbear activity</h2>
-      <Grid days={days} tone="threadbear" unit="thread" />
-      <div className="profile-note muted">{total.toLocaleString('en-US')} threads in the last year</div>
+      <Grid days={days} tone="honey" unit="thread" />
+      <p className="pf-note">{total.toLocaleString('en-US')} threads in the last year</p>
     </section>
   );
 }
@@ -111,19 +157,19 @@ function GitHubActivity({ user }: { user: string }) {
   }, [user]);
   const total = days?.reduce((a, d) => a + d.count, 0) ?? 0;
   return (
-    <section className="profile-card">
+    <section className="pf-card pf-section">
       <h2>
         GitHub activity{' '}
-        <a className="muted" href={`https://github.com/${user}`} target="_blank" rel="noopener noreferrer">
+        <a href={`https://github.com/${user}`} target="_blank" rel="noopener noreferrer">
           @{user}
         </a>
       </h2>
-      {days === undefined && <div className="muted">Loading…</div>}
-      {days === null && <div className="muted">GitHub activity couldn't be loaded.</div>}
+      {days === undefined && <p className="pf-note">Loading…</p>}
+      {days === null && <p className="pf-note">GitHub activity couldn't be loaded.</p>}
       {days && (
         <>
-          <Grid days={days} tone="github" unit="contribution" link={(d) => `https://github.com/${user}?tab=overview&from=${d}&to=${d}`} />
-          <div className="profile-note muted">{total.toLocaleString('en-US')} contributions in the last year</div>
+          <Grid days={days} tone="green" unit="contribution" link={(d) => `https://github.com/${user}?tab=overview&from=${d}&to=${d}`} />
+          <p className="pf-note">{total.toLocaleString('en-US')} contributions in the last year</p>
         </>
       )}
     </section>
@@ -132,21 +178,26 @@ function GitHubActivity({ user }: { user: string }) {
 
 function Projects({ projects }: { projects: NonNullable<Page['projects']> }) {
   return (
-    <section className="profile-card">
+    <section className="pf-card pf-section">
       <h2>Projects</h2>
-      {projects.map((p) => (
-        <div className="profile-project" key={p.title}>
-          <span>{p.title}</span>
-          <span className="muted">
-            {p.threads} {p.threads === 1 ? 'thread' : 'threads'}
-          </span>
-        </div>
-      ))}
+      <ul className="pf-projects">
+        {projects.map((p) => (
+          <li key={p.title}>
+            <span className="pf-badge" aria-hidden="true">
+              {p.title.trim().charAt(0).toUpperCase()}
+            </span>
+            <span className="pf-project-title">{p.title}</span>
+            <span className="pf-note">
+              {p.threads.toLocaleString('en-US')} {p.threads === 1 ? 'thread' : 'threads'}
+            </span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
 
-function Grid({ days, tone, unit, link }: { days: Day[]; tone: 'threadbear' | 'github'; unit: string; link?: (date: string) => string }) {
+function Grid({ days, tone, unit, link }: { days: Day[]; tone: 'honey' | 'green'; unit: string; link?: (date: string) => string }) {
   const cols = useMemo(() => weeks(days), [days]);
   const max = useMemo(() => days.reduce((m, d) => Math.max(m, d.count), 0), [days]);
   // On a narrow screen the grid scrolls; it starts at today, the end.
@@ -155,13 +206,13 @@ function Grid({ days, tone, unit, link }: { days: Day[]; tone: 'threadbear' | 'g
     if (wrap.current) wrap.current.scrollLeft = wrap.current.scrollWidth;
   }, [cols]);
   return (
-    <div className="profile-grid-wrap" ref={wrap}>
-      <div className={`profile-grid ${tone}`} role="img" aria-label={`${unit}s per day over the last year`}>
+    <div className="pf-grid-wrap" ref={wrap}>
+      <div className={`pf-grid ${tone}`} role="img" aria-label={`${unit}s per day over the last year`}>
         {cols.map((col, i) => {
           const firstOfMonth = col.find((d) => d && d.date.endsWith('-01'));
           return (
-            <div className="profile-col" key={i}>
-              <div className="profile-month">{firstOfMonth ? MONTHS[Number(firstOfMonth.date.slice(5, 7)) - 1] : ''}</div>
+            <div className="pf-col" key={i}>
+              <div className="pf-month">{firstOfMonth ? MONTHS[Number(firstOfMonth.date.slice(5, 7)) - 1] : ''}</div>
               {col.map((d, j) => {
                 if (!d) return <i key={j} className="empty" />;
                 const tip = `${d.count} ${d.count === 1 ? unit : `${unit}s`} on ${longDay(d.date)}`;
@@ -178,6 +229,31 @@ function Grid({ days, tone, unit, link }: { days: Day[]; tone: 'threadbear' | 'g
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** The site's faint sewn patches, half off the page's edges (site/src/layout.html). */
+function Patches() {
+  const stitch = { fill: 'none', stroke: '#faf8f3', strokeWidth: 2.2, strokeDasharray: '5 4', strokeLinecap: 'round' as const };
+  return (
+    <div className="pf-patches" aria-hidden="true">
+      <svg className="pf-patch p1" viewBox="0 0 120 120">
+        <rect x="4" y="4" width="112" height="112" rx="16" fill="currentColor" />
+        <rect x="13" y="13" width="94" height="94" rx="8" {...stitch} />
+      </svg>
+      <svg className="pf-patch p2" viewBox="0 0 120 120">
+        <path d="M60 108 14 62a26 26 0 0 1 46-36 26 26 0 0 1 46 36z" fill="currentColor" />
+        <path d="M60 96 22 58a17 17 0 0 1 38-24 17 17 0 0 1 38 24z" {...stitch} />
+      </svg>
+      <svg className="pf-patch p3" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="54" fill="currentColor" />
+        <circle cx="60" cy="60" r="44" {...stitch} />
+      </svg>
+      <svg className="pf-patch p4" viewBox="0 0 120 120">
+        <rect x="4" y="30" width="112" height="60" rx="14" fill="currentColor" />
+        <rect x="13" y="39" width="94" height="42" rx="6" {...stitch} />
+      </svg>
     </div>
   );
 }

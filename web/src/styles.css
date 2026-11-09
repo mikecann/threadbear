@@ -504,43 +504,120 @@ button.fold:hover > svg:last-child, button.fold:focus-visible > svg:last-child {
 :root[data-theme='dark'] .reply-button.rb-pressed { color: #5fd17f; }
 :root[data-theme='light'] .reply-button.rb-pressed { color: #23863f; }
 
-/* The public profile page, /@<handle> (profile.tsx). */
-.profile { min-height: 100vh; }
-.profile.has-bg { background: linear-gradient(color-mix(in srgb, var(--bg) calc(var(--profile-dim) * 100%), transparent), var(--bg) 520px), var(--profile-bg) center top / cover no-repeat fixed; }
-.profile-preview { padding: 10px 24px; text-align: center; font-size: 13px; background: var(--accent-soft); color: var(--text); }
-.profile-main { max-width: 880px; margin: 0 auto; padding: 48px 24px 64px; }
-.profile-head { display: flex; gap: 24px; align-items: center; margin-bottom: 8px; }
-.profile-head h1 { margin: 0; font-family: var(--display); font-size: 34px; line-height: 1.15; letter-spacing: -0.02em; }
-.profile-pic { width: 120px; height: 120px; border-radius: 24px; object-fit: cover; flex: none; }
-.profile-bio { margin: 6px 0 0; }
-.profile-links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 14px; }
-.profile-links a { color: var(--accent); text-decoration: none; }
-.profile-links a:hover { text-decoration: underline; }
-.profile-card { margin-top: 18px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--bg) 92%, var(--text) 3%); }
-.profile-card h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
-.profile-card h2 a { font-weight: 400; text-decoration: none; }
-.profile-numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-.profile-numbers b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
-.profile-numbers span { font-size: 12px; color: var(--muted); }
-.profile-grid-wrap { overflow-x: auto; padding-bottom: 4px; }
-.profile-grid { display: flex; gap: 3px; width: max-content; }
-.profile-col { display: flex; flex-direction: column; gap: 3px; }
-.profile-col > a, .profile-col > span { display: block; line-height: 0; }
-.profile-month { height: 14px; font-size: 10px; line-height: 14px; color: var(--muted); white-space: nowrap; width: 11px; overflow: visible; }
-.profile-grid i { display: block; width: 11px; height: 11px; border-radius: 2px; background: var(--line); }
-.profile-grid i.empty { background: transparent; }
-.profile-grid.threadbear { --tone: #d98a3d; }
-.profile-grid.github { --tone: #2ea043; }
-.profile-grid i.l1 { background: color-mix(in srgb, var(--tone) 35%, var(--line)); }
-.profile-grid i.l2 { background: color-mix(in srgb, var(--tone) 60%, var(--line)); }
-.profile-grid i.l3 { background: color-mix(in srgb, var(--tone) 80%, var(--line)); }
-.profile-grid i.l4 { background: var(--tone); }
-.profile-note { margin-top: 8px; font-size: 12px; }
-.profile-project { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
-.profile-project:first-of-type { border-top: 0; padding-top: 0; }
-.profile-foot { margin-top: 32px; font-size: 12px; text-align: center; }
-.profile-foot a { color: inherit; }
+/* The public profile page (profile.tsx), in the look of Threadbear's own site
+   (site/src/styles.css): its paper, Geist, white cards with the same lift, honey
+   only for the button and the activity, and faint sewn patches. Light only, as the
+   site is. Everything is under .pf so the app's own pages don't change. */
+@font-face {
+  font-family: "Geist"; src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+html.pf-html, html.pf-html body { background: #faf8f3; color-scheme: light; }
+.pf {
+  --page: #faf8f3; --card: #fff; --well: #f1eee7; --line: #e7e2d7;
+  --ink: #1f1c18; --body: #46413a; --ink-soft: #6b645a; --ink-faint: #968e82;
+  --honey: #9a6b2f; --honey-d: #7f5725; --honey-tint: #f4ecdf;
+  --lift: 0 1px 2px rgba(31, 28, 24, .05), 0 8px 28px rgba(60, 45, 20, .07);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative; min-height: 100vh; min-height: 100dvh; overflow: hidden;
+  background: var(--page); color: var(--ink); color-scheme: light;
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased;
+}
+.pf a { color: var(--ink); text-decoration-color: var(--ink-faint); text-underline-offset: 3px; transition: color 300ms var(--ease); }
+.pf a:hover { color: var(--honey-d); }
+.pf :focus-visible { outline: 2px solid var(--honey); outline-offset: 2px; border-radius: 6px; }
+
+.pf-patches { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.pf-patch { position: absolute; display: block; }
+.pf-patch.p1 { top: 4%; left: -210px; width: 420px; height: 420px; transform: rotate(-8deg); color: #9a6b2f; opacity: .06; }
+.pf-patch.p2 { top: 12%; right: -180px; width: 360px; height: 360px; transform: rotate(10deg); color: #6b645a; opacity: .04; }
+.pf-patch.p3 { top: 52%; right: -200px; width: 400px; height: 400px; color: #b98a4e; opacity: .055; }
+.pf-patch.p4 { top: 70%; left: -190px; width: 380px; height: 380px; transform: rotate(-10deg); color: #9a6b2f; opacity: .06; }
+@media (max-width: 860px) { .pf-patch { scale: .55; } }
+
+.pf-nav-wrap { position: fixed; inset: 0 0 auto 0; z-index: 50; display: flex; justify-content: center; padding: 16px 16px 0; pointer-events: none; }
+.pf-nav {
+  pointer-events: auto; display: flex; align-items: center; gap: 16px; padding: 8px; border-radius: 16px;
+  border: 1px solid rgba(31, 28, 24, .08); background: rgba(255, 255, 255, .72);
+  -webkit-backdrop-filter: blur(16px) saturate(180%); backdrop-filter: blur(16px) saturate(180%); box-shadow: 0 8px 24px rgba(60, 45, 20, .08);
+}
+.pf-brand { display: flex; align-items: center; gap: 8px; padding-right: 8px; min-width: 0; }
+.pf-brand img { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; flex: none; }
+.pf-brand b { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.pf-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; border-radius: 8px; border: 0;
+  background: var(--honey); font-family: inherit; font-weight: 600; font-size: 16px; line-height: 24px; text-decoration: none; white-space: nowrap;
+  transition: background-color 300ms var(--ease), transform 500ms var(--ease);
+}
+.pf a.pf-btn { color: #fff; text-decoration: none; }
+.pf a.pf-btn:hover { background: var(--honey-d); color: #fff; transform: translateY(-1px); }
+.pf a.pf-btn:active { transform: scale(.98); }
+.pf-btn-sm { font-size: 14px; line-height: 20px; font-weight: 600; }
+.pf a.pf-btn-ghost { background: var(--card); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); font-size: 14px; line-height: 20px; font-weight: 500; }
+.pf a.pf-btn-ghost:hover { background: var(--well); color: var(--ink); }
+
+.pf-backdrop {
+  position: absolute; inset: 0 0 auto 0; height: 520px; z-index: 0;
+  background: linear-gradient(color-mix(in srgb, var(--page) calc(var(--pf-dim) * 100%), transparent), var(--page) 100%), var(--pf-bg) center / cover no-repeat;
+}
+.pf-main { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 120px 24px 64px; }
+.pf-preview { margin: 0 auto 32px; max-width: 560px; padding: 8px 16px; border-radius: 12px; background: var(--honey-tint); color: var(--honey-d); font-size: 14px; line-height: 20px; font-weight: 500; text-align: center; }
+
+.pf-hero { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 48px; }
+.pf-pic { position: relative; display: block; width: 128px; height: 128px; margin-bottom: 24px; border-radius: 24px; box-shadow: var(--lift); }
+.pf-pic img { width: 100%; height: 100%; border-radius: 24px; object-fit: cover; display: block; }
+.pf-pic::after { content: ""; position: absolute; inset: 6px; border-radius: 18px; border: 1.5px dashed rgba(255, 255, 255, .9); pointer-events: none; }
+.pf h1 { margin: 0; font-size: 60px; line-height: 1; font-weight: 600; letter-spacing: -.035em; text-wrap: balance; }
+.pf-lede { margin: 16px 0 0; max-width: 600px; font-size: 20px; line-height: 28px; color: var(--body); text-wrap: pretty; }
+.pf-since { margin: 12px 0 0; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
+.pf-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 24px; }
+
+.pf-card { background: var(--card); border-radius: 24px; box-shadow: var(--lift); }
+.pf-section { margin-top: 16px; padding: 24px; }
+.pf-section h2 { margin: 0 0 16px; font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
+.pf-section h2 a { font-weight: 500; color: var(--ink-soft); text-decoration: none; }
+.pf-note { margin: 12px 0 0; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
+
+.pf-numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+.pf-number { padding: 24px; }
+.pf-number b { display: block; font-size: 36px; line-height: 40px; font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.pf-number span { display: block; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
+
+.pf-grid-wrap { overflow-x: auto; padding-bottom: 4px; }
+.pf-grid { display: flex; gap: 3px; width: max-content; }
+.pf-col { display: flex; flex-direction: column; gap: 3px; }
+.pf-col > a, .pf-col > span { display: block; line-height: 0; }
+.pf-month { height: 16px; width: 11px; overflow: visible; white-space: nowrap; font-size: 11px; line-height: 16px; color: var(--ink-faint); }
+.pf-grid i { display: block; width: 11px; height: 11px; border-radius: 3px; background: var(--well); }
+.pf-grid i.empty { background: transparent; }
+.pf-grid.honey { --tone: #9a6b2f; }
+.pf-grid.green { --tone: #2f8a46; }
+.pf-grid i.l1 { background: color-mix(in srgb, var(--tone) 25%, var(--well)); }
+.pf-grid i.l2 { background: color-mix(in srgb, var(--tone) 50%, var(--well)); }
+.pf-grid i.l3 { background: color-mix(in srgb, var(--tone) 75%, var(--well)); }
+.pf-grid i.l4 { background: var(--tone); }
+
+.pf-projects { list-style: none; margin: 0; padding: 0; }
+.pf-projects li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.pf-projects li:first-child { border-top: 0; padding-top: 0; }
+.pf-projects li:last-child { padding-bottom: 0; }
+.pf-projects .pf-note { margin: 0; margin-left: auto; white-space: nowrap; }
+.pf-project-title { font-size: 16px; line-height: 24px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-badge {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 40px; height: 40px; border-radius: 12px;
+  background: #ebe5d8; color: var(--ink-soft); font-size: 16px; font-weight: 600;
+}
+.pf-badge::after { content: ""; position: absolute; inset: 4px; border-radius: 8px; border: 1.5px dashed rgba(255, 255, 255, .95); }
+
+.pf-foot { display: flex; justify-content: center; gap: 16px; margin-top: 48px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
+.pf-foot a { color: var(--ink-soft); }
+.pf-empty { text-align: center; }
+.pf-empty h1 { font-size: 36px; line-height: 40px; margin-top: 16px; }
+.pf-empty p { color: var(--ink-soft); margin-top: 8px; }
 @media (max-width: 560px) {
-  .profile-head { flex-direction: column; align-items: flex-start; }
-  .profile-pic { width: 96px; height: 96px; }
+  .pf h1 { font-size: 40px; }
+  .pf-lede { font-size: 18px; }
+  .pf-main { padding-top: 104px; }
+  .pf-section { padding: 20px; }
 }

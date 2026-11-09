@@ -132,41 +132,31 @@ http.route({
   }),
 });
 
-// The site's files, with one change: a profile page, /@<handle>
-// (profile.ts), is index.html with that profile's name, bio and picture in
-// the meta tags, as /s/ is for a shared thread. Convex routes a path prefix
-// only when it ends in "/", so /@wayne can't have a route of its own: the
-// static routes go on a router of their own, and this one GET route for
-// "/" hands every other path to theirs.
-const files = httpRouter();
-registerStaticRoutes(files, components.staticHosting);
-const serveFile = files.lookup('/', 'GET')?.[0] as unknown as { _handler?: (ctx: unknown, request: Request) => Promise<Response> } | undefined;
-const PROFILE_PATH = /^\/@([a-z0-9-]{3,30})\/?$/i;
-if (serveFile?._handler) {
-  const fileHandler = serveFile._handler.bind(serveFile);
+// The profile page (profile.ts) at /profile, and at the front page when
+// Mike has it shown there: index.html with the page's name, bio and picture
+// in the meta tags, so a link to his site unfurls as him, as /s/ does for a
+// shared thread. Exact routes, which Convex matches before any path prefix,
+// so the static routes below go on serving everything else. At / the page
+// itself still decides: signed in, Mike gets his threads.
+for (const path of ['/profile', '/'] as const) {
   http.route({
-    pathPrefix: '/',
+    path,
     method: 'GET',
     handler: httpAction(async (ctx, request) => {
       const url = new URL(request.url);
-      const m = url.pathname.match(PROFILE_PATH);
-      if (!m) return fileHandler(ctx, request);
       const html = await indexHtml(ctx, url);
-      if (!html) return fileHandler(ctx, request);
-      const card = await ctx.runQuery(internal.profile.card, { handle: m[1]!.toLowerCase() });
+      if (!html) return new Response('Not Found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+      const card = await ctx.runQuery(internal.profile.card, { home: path === '/' });
       return new Response(card ? withCard(html, card, url, 'profile') : html, {
         status: 200,
+        // Publishing can stop at any time; a cached card would outlive it.
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
       });
     }),
   });
-  for (const [path, method, handler] of files.getRoutes()) if (!(path === '/*' && method === 'GET')) http.route(path.endsWith('/*') ? { pathPrefix: path.slice(0, -1), method, handler } : { path, method, handler });
-} else {
-  // A static-hosting release without the handler to hand on to: the page
-  // still works, by the static routes' own fallback to index.html, just
-  // without its link preview.
-  registerStaticRoutes(http, components.staticHosting);
 }
+
+registerStaticRoutes(http, components.staticHosting);
 
 export default http;
 

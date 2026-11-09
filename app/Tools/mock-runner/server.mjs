@@ -358,6 +358,7 @@ addDemoSchedules();
 let projects = [];
 let librarian;
 let mockProfile = { profile: null };
+let mockProfileSaves = 0;
 const MOCK_GATEWAY = 'https://bruce.example.ts.net:8443';
 let connectors = {
   state: 'ok',
@@ -1308,7 +1309,9 @@ async function dispatch(client, method, p) {
       return mockProfile;
     case 'profilePage.update':
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
-      mockProfile = { profile: p, url: `https://demo.convex.site/@${p.handle}`, sentAt: new Date().toISOString() };
+      mockProfile = { profile: p, url: p.home ? 'https://demo.convex.site/' : 'https://demo.convex.site/profile', sentAt: new Date().toISOString() };
+      mockProfileSaves += 1;
+      log(`profilePage.update #${mockProfileSaves}`);
       return mockProfile;
     case 'profilePage.remove':
       mockProfile = { profile: null };

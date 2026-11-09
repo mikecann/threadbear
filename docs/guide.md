@@ -812,24 +812,27 @@ GitHub. It's fetched from the GitHub Contributions API
 the switch off puts the page back as it ships and keeps your changes for
 next time; Reset to the standard page clears them.
 
-The bottom of the Customize panel makes you a public profile page at
-`https://<your deployment>.convex.site/@<handle>`.
-Your Convex backend serves it, so it needs one (Your phone and a browser).
-Pick a handle (lowercase letters, numbers and single hyphens), a name, a
-line about you and up to four links, then turn on each part you want
-public: the Librarian page's picture, its background photo, Threadbear
+The bottom of the Customize panel makes you a public profile page on your
+own Threadbear site, at `https://<your deployment>.convex.site/profile`.
+Your site is yours alone, so there's no user name to pick, and your Convex
+backend serves the page, so it needs one (Your phone and a browser). It
+saves as you change it, like the rest of Customize. Give it a name, a line
+about you and up to four links, then turn on each part you want on it: the Librarian page's picture, its background photo, Threadbear
 activity (a year of days shaded by the threads you started), GitHub
 activity, the numbers you pick (threads this year, active days, longest
 streak, projects, models used), the projects you tick (title and thread
 count only) and the month you started. Every part starts off. The cards go
-in the order the Librarian page has its numbers and GitHub activity. Save
-sends it; until Publish my profile page is on, only you can see it, in a
-browser signed in to your Threadbear site, with a line saying so. A link
+in the order the Librarian page has its numbers and GitHub activity. Until
+Publish my profile page is on, only you can see it, in a browser signed in
+to your Threadbear site, with a line saying so. Published, Show it on my
+site's front page makes it what visitors see at your site's address; when
+you're signed in you still get your threads there, and Sign in at the
+bottom of the page says how. The page looks like Threadbear's own site. A link
 to a published page shows your name, line and picture when pasted into
 Slack, X or iMessage. Its numbers and activity refresh by themselves within
 the hour. Thread titles, prompts, replies, folders and project notes are
 never sent, and threads in a private folder aren't counted. Take the page
-down deletes it, its pictures and the handle from your backend.
+down deletes it and its pictures from your backend.
 
 ## Schedules
 <!-- slug: schedules -->
