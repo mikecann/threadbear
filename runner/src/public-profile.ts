@@ -275,7 +275,7 @@ export class PublicProfile {
     return this.sending;
   }
 
-  private async sendNow(force: boolean): Promise<void> {
+  private async sendNow(force: boolean, retried = false): Promise<void> {
     const settings = this.saved.settings;
     const backend = this.deps.backend();
     if (!settings || !backend || backend.offReason()) return;
@@ -288,8 +288,19 @@ export class PublicProfile {
       if (!backgroundId) delete (full as Record<string, unknown>).backgroundDim;
       const hash = crypto.createHash('sha256').update(JSON.stringify(full)).digest('hex');
       if (!force && hash === this.saved.sentHash) return;
-      await backend.publishProfile(full);
-      this.saved = { ...this.saved, sentHash: hash, sentAt: new Date(this.deps.clock.now()).toISOString() };
+      try {
+        await backend.publishProfile(full);
+      } catch (e) {
+        // A stored id the backend no longer has (deleted there, or by a
+        // runner from before this was kept right): upload afresh, once.
+        if (retried || !(pictureId || backgroundId) || !/never uploaded/.test(String((e as { data?: { message?: string } })?.data?.message ?? e))) throw e;
+        this.saved = { ...this.saved, files: {} };
+        return this.sendNow(force, true);
+      }
+      // The backend deletes any picture a send leaves out, so its id is
+      // forgotten too: turned on again, the same file is uploaded again.
+      const files = Object.fromEntries(Object.entries(this.saved.files ?? {}).filter(([, f]) => f.storageId === pictureId || f.storageId === backgroundId));
+      this.saved = { ...this.saved, files, sentHash: hash, sentAt: new Date(this.deps.clock.now()).toISOString() };
       this.problem = undefined;
       this.save();
       this.deps.log.info('profile page sent', { published: settings.published, cards: row.order });
