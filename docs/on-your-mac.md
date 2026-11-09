@@ -293,6 +293,17 @@ File references are where to look.
   again. It never reads it. Without the access macOS refuses, with no prompt.
 - Whether `Threadbear.app` is in `/Applications` or `~/Applications`, as a Mac
   without it is probably one nobody sits at.
+- With the Git panel experiment on, the git repos your threads work in
+  (and their projects' folders): `git status`, `log`, `diff --cached` and
+  the like while the panel is open or a chip needs its counts, with the
+  repo's own hooks and fsmonitor turned off for them, and not at all in a
+  repo whose own config sets a filter or diff driver. Its page is served
+  by the runner from its own port under `/git/`, to this Mac only
+  (`runner/src/git-panel.ts`). For the push rule it runs `gh config get
+  user -h github.com`, which reads your GitHub login from gh's settings
+  and nothing of its token. Push, Sync and Fetch reach your repo's own
+  remote when you press them; ✨ sends the staged diff to Haiku on your
+  pool, as the librarian's calls do.
 - The `.env*` files in the folders your threads work in (the folder, the
   folders directly inside it, and up to its repo's root; not `.env.example`
   and the like, your home folder or external drives), and everything in its

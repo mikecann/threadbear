@@ -206,6 +206,10 @@ export type RunnerJson = {
   // The gateway, when it isn't the `connectors` MCP server in
   // ~/.claude.json; url "" or enabled: false turns the panel's polling off.
   connectors?: { url?: string; enabled?: boolean; headersHelper?: string };
+  // The Git panel (git-panel.ts): the remote owners its Push and Sync may
+  // push to ("*" for any; absent: your GitHub login), and when its chips
+  // show ("when-needed", the default, "always" or "off").
+  gitPanel?: { pushOwners?: string[]; chips?: 'when-needed' | 'always' | 'off' };
 };
 
 // What defaults.permissionMode may be. Not Plan first: that waits for Mike

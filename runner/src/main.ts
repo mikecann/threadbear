@@ -8,7 +8,8 @@ import { readShareImage } from './share-images.ts';
 import { CallerGate } from './rpc-gate.ts';
 import { threadOfPort } from './peer.ts';
 import { threadKey as makeThreadKey } from './rpc-auth.ts';
-import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError } from './config.ts';
+import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, readRunnerJson, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError } from './config.ts';
+import { configureGitPanel, gitPanelSettings, handleGitPanel } from './git-panel.ts';
 import { startHousekeeping } from './housekeeping.ts';
 import { RELEASE, markConfigStop, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
 import { PatchTrust } from './patch-trust.ts';
@@ -955,6 +956,7 @@ async function main(): Promise<void> {
     callerOfPort: (port) => threadOfPort(port, { registry, known: (id) => runner.has(id) || peers.owns(id), log }),
     updates: () => (draining ? undefined : runnerUpdates()),
     appHello: (build) => appRestarts.appHello(build),
+    pages: handleGitPanel,
     helloNotices: () => {
       // Like a missing claude: said to every client, until it's there.
       const noCodex = missingCodex(updates.codexBinary(), cfg);
@@ -982,6 +984,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   recordListening(cfg.home, port, DEFAULT_CWD);
+  // The Git panel's page is served from this port (git-panel.ts).
+  configureGitPanel({
+    port,
+    token,
+    on: () => experimentOn(cfg.home, 'gitPanel'),
+    settings: () => gitPanelSettings(readRunnerJson(cfg.home).gitPanel),
+    generate: (p) => models.generate(p),
+  });
   log.info('runner listening', { url: `ws://${cfg.host}:${port}/rpc` });
   // Tests read this line to know the runner is up.
   process.stdout.write(`threadbear-runner listening on ${port}\n`);
