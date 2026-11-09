@@ -100,13 +100,15 @@ export function Profile({ page, signedIn }: { page: Page; signedIn: boolean }) {
             </nav>
           )}
         </section>
-        {page.order.map((card) => {
-          if (card === 'numbers' && page.numbers?.length) return <Numbers key={card} numbers={page.numbers} />;
-          if (card === 'activity' && page.activity) return <ThreadbearActivity key={card} activity={page.activity} />;
-          if (card === 'github' && page.github) return <GitHubActivity key={card} user={page.github} />;
-          if (card === 'projects' && page.projects?.length) return <Projects key={card} projects={page.projects} />;
-          return null;
-        })}
+        <div className="pf-cards">
+          {page.order.map((card) => {
+            if (card === 'numbers' && page.numbers?.length) return <Numbers key={card} numbers={page.numbers} />;
+            if (card === 'activity' && page.activity) return <ThreadbearActivity key={card} activity={page.activity} />;
+            if (card === 'github' && page.github) return <GitHubActivity key={card} user={page.github} />;
+            if (card === 'projects' && page.projects?.length) return <Projects key={card} projects={page.projects} />;
+            return null;
+          })}
+        </div>
         <footer className="pf-foot">
           <span>
             Made with <a href={SITE}>Threadbear</a>
@@ -120,7 +122,8 @@ export function Profile({ page, signedIn }: { page: Page; signedIn: boolean }) {
 
 function Numbers({ numbers }: { numbers: NonNullable<Page['numbers']> }) {
   return (
-    <section className="pf-numbers" aria-label="Numbers">
+    // One row of up to five on a wide screen, so none is left on its own.
+    <section className="pf-numbers" aria-label="Numbers" style={{ '--pf-n': numbers.length } as React.CSSProperties}>
       {numbers.map((n) => (
         <div key={n.key} className="pf-card pf-number">
           <b>{n.value}</b>

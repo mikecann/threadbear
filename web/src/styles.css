@@ -574,14 +574,15 @@ html.pf-html, html.pf-html body { background: #faf8f3; color-scheme: light; }
 .pf-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 24px; }
 
 .pf-card { background: var(--card); border-radius: 24px; box-shadow: var(--lift); }
-.pf-section { margin-top: 16px; padding: 24px; }
+.pf-cards { display: flex; flex-direction: column; gap: 24px; }
+.pf-section { padding: 24px; }
 .pf-section h2 { margin: 0 0 16px; font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -.01em; }
 .pf-section h2 a { font-weight: 500; color: var(--ink-soft); text-decoration: none; }
 .pf-note { margin: 12px 0 0; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
 
-.pf-numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
-.pf-number { padding: 24px; }
-.pf-number b { display: block; font-size: 36px; line-height: 40px; font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.pf-numbers { display: grid; grid-template-columns: repeat(var(--pf-n, 4), minmax(0, 1fr)); gap: 16px; }
+.pf-number { padding: 24px 20px; min-width: 0; }
+.pf-number b { display: block; font-size: 32px; line-height: 40px; white-space: nowrap; font-weight: 600; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
 .pf-number span { display: block; margin-top: 4px; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--ink-soft); }
 
 .pf-grid-wrap { overflow-x: auto; padding-bottom: 4px; }
@@ -620,4 +621,10 @@ html.pf-html, html.pf-html body { background: #faf8f3; color-scheme: light; }
   .pf-lede { font-size: 18px; }
   .pf-main { padding-top: 104px; }
   .pf-section { padding: 20px; }
+  .pf-cards { gap: 16px; }
+}
+@media (max-width: 720px) {
+  .pf-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* An odd one out takes the whole row rather than sitting alone. */
+  .pf-number:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
