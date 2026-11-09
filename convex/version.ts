@@ -289,4 +289,10 @@
 //    weren't queued, and sync:pruneFiles any left after a day. A runner
 //    sends pictures to another runner only from 63: an older backend would
 //    drop them and send the words alone.
-export const API_VERSION = 63;
+// 64: phone:registerDevice takes `platform: "android"`, for a phone whose
+//    token is a Firebase one (apnsToken keeps its name), and devices:targets
+//    carries it. A push for such a phone goes through the push relay to
+//    Firebase, whatever Apple key the backend has (docs/push-relay.md). An
+//    older backend refuses the argument, so an Android phone registers only
+//    with a backend of 64 or later.
+export const API_VERSION = 64;

@@ -870,6 +870,9 @@ export default defineSchema({
     // The phone's own key for encrypting what goes through the push relay
     // (API 4): base64 of 32 bytes, made on the phone and sent only here.
     pushKey: v.optional(v.string()),
+    // "android" (API 64): apnsToken is the phone's Firebase token, and a push
+    // goes through the relay to Firebase. Absent: an Apple token.
+    platform: v.optional(v.literal('android')),
   })
     .index('by_apnsToken', ['apnsToken'])
     // A token's phones: at most MAX_DEVICES_PER_TOKEN (phone:registerDevice),

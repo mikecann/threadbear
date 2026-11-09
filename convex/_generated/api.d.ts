@@ -18,6 +18,7 @@ import type * as projectNotes from "../projectNotes.js";
 import type * as push from "../push.js";
 import type * as pushHealth from "../pushHealth.js";
 import type * as pushTargets from "../pushTargets.js";
+import type * as pushSeal from "../pushSeal.js";
 import type * as pushText from "../pushText.js";
 import type * as redaction from "../redaction.js";
 import type * as relay from "../relay.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   push: typeof push;
   pushHealth: typeof pushHealth;
   pushTargets: typeof pushTargets;
+  pushSeal: typeof pushSeal;
   pushText: typeof pushText;
   redaction: typeof redaction;
   relay: typeof relay;
