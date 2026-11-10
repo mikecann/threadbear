@@ -3,7 +3,7 @@ import SwiftUI
 import ThreadbearCore
 
 /// A home page laid out as the user set it (the Librarian's, the Scheduled
-/// page's): its parts in a scrolling column over an optional background
+/// and Projects pages'): its parts in a scrolling column over an optional background
 /// photo, Customize at the top right, and the page's Customize panel
 /// sliding in beside it so each change shows as it's made. The page says
 /// what its parts and panel are; this is the frame they share.
@@ -21,6 +21,8 @@ struct CustomizedPage<Blocks: View, Buttons: View, Editor: View>: View {
     /// False: they're only the order the parts stack in, as the Librarian
     /// page has always had them.
     var pinsPlaces = false
+    /// How wide the column grows, before zoom: wider for a page of cards.
+    var maxWidth: CGFloat = 1000
     /// What Customize's tooltip says it changes.
     let customizeTip: String
     /// The parts in one place, top to bottom.
@@ -36,7 +38,7 @@ struct CustomizedPage<Blocks: View, Buttons: View, Editor: View>: View {
             GeometryReader { window in
                 ScrollView {
                     column
-                        .frame(maxWidth: zoomed(1000), alignment: .leading)
+                        .frame(maxWidth: zoomed(maxWidth), alignment: .leading)
                         .padding(.horizontal, zoomed(32))
                         // Clear of the Customize button, which a wide part
                         // (the numbers) at the top would otherwise run under.

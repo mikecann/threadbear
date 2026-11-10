@@ -61,4 +61,30 @@ final class LooksBindingTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: librarianFile.path))
         XCTAssertEqual(Looks.librarianLook(defaults).pictureFile, librarianFile.lastPathComponent)
     }
+
+    func testTheProjectsPagesLookKeepsItsOwnFiles() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "LooksBindingTests-\(UUID().uuidString)"))
+        try FileManager.default.createDirectory(at: Looks.folder, withIntermediateDirectories: true)
+        let scheduledFile = Looks.folder.appendingPathComponent("picture-scheduled-projects-test.png")
+        let projectsFile = Looks.folder.appendingPathComponent("background-projects-test.jpg")
+        try Data("x".utf8).write(to: scheduledFile)
+        try Data("x".utf8).write(to: projectsFile)
+        defer {
+            try? FileManager.default.removeItem(at: scheduledFile)
+            try? FileManager.default.removeItem(at: projectsFile)
+        }
+        Looks.scheduledBinding(defaults).wrappedValue.pictureFile = scheduledFile.lastPathComponent
+        let look = Looks.projectsBinding(defaults)
+        look.wrappedValue.background = projectsFile.lastPathComponent
+        look.wrappedValue.setPlace(.bottom, for: .header)
+        look.wrappedValue.setShown(false, for: ProjectsLook.CardPart.art)
+        let saved = Looks.projectsLook(defaults)
+        XCTAssertEqual(saved.background, projectsFile.lastPathComponent)
+        XCTAssertEqual(saved.place(.header), .bottom)
+        XCTAssertFalse(saved.shows(ProjectsLook.CardPart.art))
+        // Reset deletes the Projects page's copy, never the Scheduled page's.
+        look.wrappedValue = .standard
+        XCTAssertFalse(FileManager.default.fileExists(atPath: projectsFile.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scheduledFile.path))
+    }
 }

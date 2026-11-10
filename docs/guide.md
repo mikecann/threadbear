@@ -717,6 +717,19 @@ click one for its page, with its threads, state and notes. The search at
 the top of the Projects page looks through their names, state, goals, notes
 and folders: Return opens the top result and Escape clears it.
 
+With Customize the Projects page on (Settings › General › Look, off by
+default), the page gets a Customize button at its top right, like the
+Librarian and Scheduled pages'. The page has no bear, so its picture is
+one of your own or none, which it starts as. Its panel also puts a photo
+behind the page, with Position and Fade; moves the picture, the title and
+search, and the cards to the top, middle or bottom, or hides them; and
+picks what each card shows: the icon tile, the open thread count, the
+status and where it's up to. With the tile off, the count sits by the
+project's name. Hiding the title and search shows every project, so a
+search left typed in can't hide any. Turning the switch off puts the page
+back as it ships and keeps your changes; Reset to the standard page
+clears them.
+
 To start a thread in a project, press New Thread at the top of its page
 (or New thread… by its Threads). The message box opens with the project's
 folder picked and an "In" chip naming the project (its x starts the thread
@@ -1590,8 +1603,9 @@ it back. Fade lays the window's own colour over it so text stays
 readable in light and dark, and Show behind open threads too puts it behind
 every thread's transcript as well, a little more faded. The picture is
 copied, scaled down, into Threadbear's data folder (`looks/`), so the
-original can move; Remove deletes the copy. The Librarian and Scheduled
-pages have their own backgrounds and layouts (The librarian and Schedules).
+original can move; Remove deletes the copy. The Librarian, Scheduled and
+Projects pages have their own backgrounds and layouts (The librarian,
+Schedules and Projects).
 
 ### A ding when a thread is done
 

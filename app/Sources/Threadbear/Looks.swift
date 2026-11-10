@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import ThreadbearCore
 
 /// Pictures of the user's own on Threadbear's pages: the Librarian and
-/// Scheduled pages' pictures and backgrounds (their Customize switches) and the main
+/// Scheduled and Projects pages' pictures and backgrounds (their Customize switches) and the main
 /// window's background behind a new thread. Both are Settings > General >
 /// Look switches, off by default, kept on this Mac (UserDefaults) and
 /// never sent to the runner. Chosen pictures are copied into the data
@@ -21,6 +21,10 @@ enum Looks {
     static let scheduledOnKey = "scheduledLookOn"
     /// The Scheduled page's ScheduledLook, as JSON.
     static let scheduledKey = "scheduledLook"
+    /// Settings > General > Look: "Customize the Projects page".
+    static let projectsOnKey = "projectsLookOn"
+    /// The Projects page's ProjectsLook, as JSON.
+    static let projectsKey = "projectsLook"
     /// Settings > General > Look: "Background picture in the main window".
     static let mainBackgroundOnKey = "mainBackgroundOn"
     /// The main window background's file name in `looks/`.
@@ -79,6 +83,23 @@ enum Looks {
     static func saveScheduledLook(_ look: ScheduledLook, _ defaults: UserDefaults = .standard) {
         let old = scheduledLook(defaults)
         defaults.set(look.data(), forKey: scheduledKey)
+        removeUnused(old: old, new: look)
+    }
+
+    // MARK: The Projects page's look
+
+    static func projectsLook(_ defaults: UserDefaults = .standard) -> ProjectsLook {
+        ProjectsLook.load(defaults.data(forKey: projectsKey))
+    }
+
+    /// Read fresh on every get, for the same reason as librarianBinding.
+    static func projectsBinding(_ defaults: UserDefaults = .standard) -> Binding<ProjectsLook> {
+        Binding(get: { projectsLook(defaults) }, set: { saveProjectsLook($0, defaults) })
+    }
+
+    static func saveProjectsLook(_ look: ProjectsLook, _ defaults: UserDefaults = .standard) {
+        let old = projectsLook(defaults)
+        defaults.set(look.data(), forKey: projectsKey)
         removeUnused(old: old, new: look)
     }
 
@@ -227,7 +248,7 @@ struct BackdropPicture: View {
 
 /// The places a background photo is drawn.
 enum BackdropSlot: Hashable {
-    case main, librarian, scheduled
+    case main, librarian, scheduled, projects
 }
 
 /// The size each background was last drawn at, for Position's preview.

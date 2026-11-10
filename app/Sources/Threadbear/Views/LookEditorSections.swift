@@ -4,18 +4,23 @@ import ThreadbearCore
 import UniformTypeIdentifiers
 
 /// The Picture section of a page's Customize panel (the Librarian's, the
-/// Scheduled page's): the bear, a picture of your own or none, and its
-/// size. Works on any PictureLook, so a page that becomes customizable
+/// Scheduled and Projects pages'): the bear, a picture of your own or
+/// none, and its size. A page with no bear of its own (Projects) offers
+/// only your picture or none. Works on any PictureLook, so a page that becomes customizable
 /// gets the same picture handling, file copies and fixes as the rest.
 struct LookPictureSection<Look: PictureLook>: View {
     @Binding var look: Look
     /// What the bear option's tooltip says, as each page has its own bear.
     let bearTip: String
+    /// The choices, in the order they show.
+    var pictures: [LibrarianLook.Picture] = LibrarianLook.Picture.allCases
+    /// What Remove goes back to: the bear, or none where there isn't one.
+    var removed: LibrarianLook.Picture = .bear
     @State private var problem: String?
 
     var body: some View {
         Section("Picture") {
-            SegmentedChoice(options: LibrarianLook.Picture.allCases, selection: look.picture, title: \.title, tip: tip) { pick($0) }
+            SegmentedChoice(options: pictures, selection: look.picture, title: \.title, tip: tip) { pick($0) }
             if look.picture == .own {
                 PictureWell(image: Looks.image(look.pictureFile), empty: "Drop a picture here") { url in
                     importPicture(url)
@@ -29,10 +34,10 @@ struct LookPictureSection<Look: PictureLook>: View {
                         Button("Remove") {
                             var next = look
                             next.pictureFile = nil
-                            next.picture = .bear
+                            next.picture = removed
                             look = next
                         }
-                        .tip("Go back to the bear and delete the copy")
+                        .tip(removed == .bear ? "Go back to the bear and delete the copy" : "Take the picture off the page and delete the copy")
                     }
                 }
                 .controlSize(.small)
