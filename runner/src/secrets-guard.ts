@@ -34,7 +34,15 @@ function resolved(p: string, cwd?: string): string {
   }
 }
 
-const inside = (p: string, dir: string) => p === dir || p.startsWith(dir + path.sep);
+// Paths and commands are compared without regard to case: APFS as it's usually
+// made (and NTFS) opens the same folder whatever the letters. Where the file
+// system tells them apart, a folder of the same name in other letters is
+// refused too, which nothing has a reason to read.
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const inside = (p: string, dir: string) => {
+  const [low, root] = [p.toLowerCase(), dir.toLowerCase()];
+  return low === root || low.startsWith(root + path.sep);
+};
 
 // The reason a call is denied, or undefined if it's fine. `home` is the
 // runner's data dir.
@@ -42,24 +50,25 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
   const secrets = path.join(home, 'secrets');
   if (tool === 'Bash') {
     const command = typeof input.command === 'string' ? input.command : '';
-    // Quotes and backslashes that don't change which path it is.
-    const flat = command.replace(/\\(.)/g, '$1').replace(/["']/g, '');
+    // Quotes and backslashes that don't change which path it is, and all of
+    // it in lower case, as the forms below are (see `same`).
+    const flat = command.replace(/\\(.)/g, '$1').replace(/["']/g, '').toLowerCase();
     const home2 = os.homedir();
+    // The variables every thread is given for the data dir (threadEnv in
+    // restart.ts), the old names too, as a shell writes them.
+    const given = ['THREADBEAR_HOME', 'THREADBEAR_RUNNER_HOME', 'THREADBARE_HOME', 'THREADBARE_RUNNER_HOME'].flatMap((v) => [`$${v}`, `\${${v}}`]);
     const forms = [
       secrets,
       secrets.replace(home2, '~'),
       secrets.replace(home2, '$HOME'),
       secrets.replace(home2, '${HOME}'),
-      '$THREADBEAR_HOME/secrets',
-      '${THREADBEAR_HOME}/secrets',
-      '$THREADBARE_HOME/secrets',
-      '${THREADBARE_HOME}/secrets',
+      ...given.map((v) => `${v}/secrets`),
       'Threadbear/secrets',
-    ];
+    ].map((f) => f.toLowerCase());
     if (/\brunner-token\b/.test(flat) || forms.some((f) => flat.includes(f))) return REASON;
     // The data dir named with a wildcard after it reaches the same files
     // without those words (secr*/*).
-    const dataDir = [home, home.replace(home2, '~'), home.replace(home2, '$HOME'), '$THREADBEAR_HOME', '${THREADBEAR_HOME}', '$THREADBARE_HOME', '${THREADBARE_HOME}', 'Application Support/Threadbear'];
+    const dataDir = [home, home.replace(home2, '~'), home.replace(home2, '$HOME'), ...given, 'Application Support/Threadbear'].map((d) => d.toLowerCase());
     if (dataDir.some((d) => flat.includes(d)) && /[*?[]/.test(flat)) return REASON;
     return undefined;
   }
@@ -74,7 +83,7 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
     const base = typeof input.path === 'string' && input.path ? input.path : (cwd ?? '.');
     const dir = resolved(base, cwd);
     const pattern = typeof input.pattern === 'string' ? input.pattern : '';
-    if (dir === resolved(home) || (inside(target, dir) && /\bsecrets\b|runner-token/.test(pattern))) return REASON;
+    if (same(dir, resolved(home)) || (inside(target, dir) && /\bsecrets\b|runner-token/i.test(pattern))) return REASON;
   }
   return undefined;
 }
