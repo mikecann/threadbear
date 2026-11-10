@@ -1299,6 +1299,7 @@ const messageDoc = v.object({
   origin: v.optional(v.string()),
   toolKind: v.optional(v.string()),
   summary: v.optional(v.boolean()), // API 14
+  plan: v.optional(v.boolean()), // API 72
   turn: v.optional(v.string()), // API 26
   wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))), // API 33
   buttons: v.optional(v.array(messageButton)), // API 59

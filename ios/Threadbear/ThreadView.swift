@@ -70,6 +70,8 @@ struct ThreadView: View {
     @State private var answeredDone: Int?
     /// The working a work: link opened.
     @State private var workLink: ThreadLinks.Hit?
+    /// The plan open in its sheet, from its card or the card it waits on.
+    @State private var planShown: PhoneMessage?
     @Environment(\.pushThread) private var pushThread
     static let firstPage = 80
     static let morePerPage = 200
@@ -167,6 +169,7 @@ struct ThreadView: View {
                     }
                     ForEach(items) { item in
                         switch item {
+                        case let .message(message) where message.plan: PlanCard(message: message)
                         case let .message(message): MessageView(message: message, pinned: pins.under[message.seq] ?? [])
                         case let .tools(run): ToolRunView(items: run)
                         case let .worked(worked): WorkedView(worked: worked)
@@ -182,7 +185,8 @@ struct ThreadView: View {
                                            cancelling: cancelling.contains(send.id)) { cancel(send) }
                     }
                     if let pending = thread.pendingApproval {
-                        PendingCard(threadId: thread.threadId, runnerId: thread.runnerId, pending: pending) { sent = ($0, nil) }
+                        PendingCard(threadId: thread.threadId, runnerId: thread.runnerId, pending: pending,
+                                    plan: Plans.waiting(pending) ? Plans.latest(in: messages) : nil) { sent = ($0, nil) }
                             // Its own state per question: a tapped button doesn't carry over to the next.
                             .id(pending.id)
                             .transition(Juice.cardGoes)
@@ -267,6 +271,18 @@ struct ThreadView: View {
             .environment(\.threadLink) { url, seq in follow(url, from: seq, in: items) }
             .environment(\.buttonThreadId, threadId)
             .sheet(item: $workLink) { WorkingSheet(link: $0).environment(\.threadPictures, pictures) }
+            .environment(\.openPlan) { planShown = $0 }
+            .sheet(item: $planShown) { plan in
+                let newest = Plans.latest(in: messages)?.seq == plan.seq
+                let pending = thread.pendingApproval
+                // Go ahead only on the newest plan's own card, when it can be allowed from here.
+                PlanSheet(plan: plan, approvalId: newest && Plans.canGoAhead(pending) ? pending?.id : nil, canSendBack: newest) { approvalId in
+                    goAhead(approvalId)
+                } sendBack: { text in
+                    await send(text, to: thread)
+                }
+                .environment(\.threadPictures, pictures)
+            }
             .onChange(of: messages.last?.seq) { proxy.scrollTo("bottom", anchor: .bottom) }
             // The first page takes over from phone:thread's newest text
             // messages, usually at a different height. Stay on the newest.
@@ -662,6 +678,15 @@ struct ThreadView: View {
             model.report(error)
             return false
         }
+    }
+
+    /// Go ahead on a waiting plan from its sheet: Allow on its card, as the
+    /// card's own button does, spinning until the card goes.
+    private func goAhead(_ approvalId: String) {
+        let threadId = threadId
+        _ = model.answerCard(approvalId, choice: ApprovalOption.allow.rawValue, send: { backend in
+            try await backend.respond(threadId: threadId, approvalId: approvalId, decision: .allow)
+        }, sent: { sent = ($0, nil) })
     }
 
     private func loadEarlier(_ thread: PhoneThread, before seq: Int?) {

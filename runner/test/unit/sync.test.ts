@@ -426,7 +426,7 @@ test('the uploader never follows a redirect with the bytes, nor posts them in th
 
 // ------------------------------------------------------------ step 2 and 3
 
-import { BUTTONS_API_VERSION, MESSAGE_CHARS, toMessageDoc, toolLine, inputSummary, WokeRows, WOKE_BY_API_VERSION, type Command, type MessageDoc } from '../../src/sync.ts';
+import { BUTTONS_API_VERSION, MESSAGE_CHARS, PLAN_CHARS, toMessageDoc, toolLine, inputSummary, WokeRows, WOKE_BY_API_VERSION, type Command, type MessageDoc } from '../../src/sync.ts';
 import { REMOTE_ALLOW_REFUSED } from '../../src/tools.ts';
 
 type Fake = { h: ReturnType<typeof makeHarness>; sync: ConvexSync; calls: Call[]; push: (value: unknown) => void; applied: string[]; landed: Call[] };
@@ -663,6 +663,18 @@ test('a tool call becomes one line: the description, the file, the search, else 
   assert.equal(call('mcp', {}, 'agent-archive: search_archive'), 'agent-archive: search_archive');
   const doc = toMessageDoc('t1', { type: 'tool.call', seq: 7, ts: '2026-10-28T00:00:00.000Z', threadId: 't1', itemId: 'i', name: 'Bash', kind: 'command', title: 'ls', input: { command: 'ls' } } as never)!;
   assert.deepEqual(doc, { threadId: 't1', seq: 7, role: 'tool', text: 'Ran ls', toolKind: 'command', at: '2026-10-28T00:00:00.000Z' });
+});
+
+test('plans: a Plan first plan goes to the phone whole, as a plan row', () => {
+  const at = '2026-11-10T00:00:00.000Z';
+  const plan = (text: string) => toMessageDoc('t1', { type: 'plan.proposed', seq: 9, ts: at, itemId: 'p', text, turnId: 'abcdef1234' } as never, (t) => t.replace('sk-secret', '[key]'));
+  const body = '# Bots\n\n' + 'step\n'.repeat(2000);
+  assert.ok(body.length > MESSAGE_CHARS && body.length < PLAN_CHARS);
+  assert.deepEqual(plan(body), { threadId: 't1', seq: 9, role: 'assistant', text: body, plan: true, turn: 'abcdef12', at });
+  // Scrubbed as a reply is, cut past PLAN_CHARS, and an empty one is nothing.
+  assert.equal(plan('use sk-secret')!.text, 'use [key]');
+  assert.ok(plan('x'.repeat(PLAN_CHARS + 5))!.text.endsWith('[cut: the rest is on the Mac]'));
+  assert.equal(plan('  \n'), undefined);
 });
 
 test('approvals: the row carries what the thread waits on until it is answered', async () => {

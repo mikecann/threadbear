@@ -328,6 +328,10 @@ shown on the composer (the box you type in) and changed by clicking it.
   ahead (or Return in an empty message box) lets it start, back in the mode
   the thread had before. Send back, or just writing what you'd change, has
   it plan again. Once it's working, the same card ticks off its steps.
+  On the iPhone app the plan shows as a card in the thread: tap it to read
+  the whole plan, copy it, or share it as a Markdown file (Save to Files,
+  Notes, AirDrop). While it waits, Go ahead approves it from there, and
+  typing what should change sends it back.
 
 In Ask before edits and Auto, an edit to a file Threadbear runs by itself
 (a patch, a file a patch uses, or Claude Code's settings) always asks, with
