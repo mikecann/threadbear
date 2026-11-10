@@ -322,4 +322,8 @@
 // 71: an open card's asks can carry `run`, a command and the id of the Run
 //    button that runs it (phone:press). A runner sends it only from 71; an
 //    older phone just doesn't show it.
-export const API_VERSION = 71;
+// 72: a message row can be `plan` (a Plan first plan in full, up to 24,000
+//    characters), and phone:messages returns it, so the phone draws a plan
+//    card and reads the whole plan before Go ahead. An older runner sends
+//    none; an older backend gets the plan as an ordinary reply.
+export const API_VERSION = 72;

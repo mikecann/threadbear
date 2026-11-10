@@ -524,6 +524,9 @@ public struct PhoneMessage: Codable, Sendable, Hashable, Identifiable {
     public var toolKind: String?
     /// The turn's summary bullets from end_turn, its reply (backend API 14).
     public var summary: Bool
+    /// A Plan first plan in full (backend API 72): drawn as a plan card that
+    /// opens the whole plan, never folded into the turn's working.
+    public var plan: Bool
     /// Which turn it's from (backend API 26), as a turn the CLI started by
     /// itself has no message to mark where it starts. Absent on older rows.
     public var turn: String?
@@ -535,20 +538,21 @@ public struct PhoneMessage: Codable, Sendable, Hashable, Identifiable {
     public var buttons: [MessageButton]?
     @FlexibleDate public var at: Date
 
-    public init(seq: Int, role: Role, text: String, origin: String? = nil, toolKind: String? = nil, summary: Bool = false, turn: String? = nil, wokeBy: [WokeTask]? = nil, buttons: [MessageButton]? = nil, at: Date) {
+    public init(seq: Int, role: Role, text: String, origin: String? = nil, toolKind: String? = nil, summary: Bool = false, plan: Bool = false, turn: String? = nil, wokeBy: [WokeTask]? = nil, buttons: [MessageButton]? = nil, at: Date) {
         self.seq = seq
         self.role = role
         self.text = text
         self.origin = origin
         self.toolKind = toolKind
         self.summary = summary
+        self.plan = plan
         self.turn = turn
         self.wokeBy = wokeBy
         self.buttons = buttons
         self._at = FlexibleDate(wrappedValue: at)
     }
 
-    private enum Keys: String, CodingKey { case seq, role, text, origin, toolKind, summary, turn, wokeBy, buttons, at }
+    private enum Keys: String, CodingKey { case seq, role, text, origin, toolKind, summary, plan, turn, wokeBy, buttons, at }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -562,6 +566,7 @@ public struct PhoneMessage: Codable, Sendable, Hashable, Identifiable {
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
         toolKind = try c.decodeIfPresent(String.self, forKey: .toolKind)
         summary = (try? c.decodeIfPresent(Bool.self, forKey: .summary)).flatMap { $0 } ?? false
+        plan = (try? c.decodeIfPresent(Bool.self, forKey: .plan)).flatMap { $0 } ?? false
         turn = try? c.decodeIfPresent(String.self, forKey: .turn)
         wokeBy = (try? c.decodeIfPresent([WokeTask].self, forKey: .wokeBy)).flatMap { $0 }
         buttons = (try? c.decodeIfPresent([MessageButton].self, forKey: .buttons)).flatMap { $0 }
@@ -576,6 +581,7 @@ public struct PhoneMessage: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(origin, forKey: .origin)
         try c.encodeIfPresent(toolKind, forKey: .toolKind)
         if summary { try c.encode(true, forKey: .summary) }
+        if plan { try c.encode(true, forKey: .plan) }
         try c.encodeIfPresent(turn, forKey: .turn)
         try c.encodeIfPresent(wokeBy, forKey: .wokeBy)
         try c.encodeIfPresent(buttons, forKey: .buttons)

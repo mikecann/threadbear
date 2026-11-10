@@ -458,6 +458,7 @@ export default defineSchema({
     origin: v.optional(v.string()),
     toolKind: v.optional(v.string()), // the protocol's ToolKind, for a tool row
     summary: v.optional(v.boolean()), // end_turn's bullets, the turn's reply (since API 14)
+    plan: v.optional(v.boolean()), // a Plan first plan in full, for the phone's plan card (since API 72)
     turn: v.optional(v.string()), // the start of its turn's id (since API 26)
     wokeBy: v.optional(v.array(v.object({ kind: v.string(), description: v.string() }))), // what finished and woke this turn, on its first row (since API 33)
     buttons: v.optional(v.array(messageButton)), // the reply buttons its text links, as they are now (since API 59)
@@ -499,7 +500,7 @@ export default defineSchema({
     .index('by_state_created', ['state', 'createdAt']),
 
   // A thread moving from one runner to another (docs/protocol.md, "Moving a
-  // thread to another runner", API 64). Only the owner key starts one; each
+  // thread to another runner", API 72). Only the owner key starts one; each
   // step is the runner whose turn it is (moves.ts), and the switch itself
   // (moveClaim) is the one mutation where the thread changes hands.
   threadMoves: defineTable({
