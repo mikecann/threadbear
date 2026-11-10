@@ -14,6 +14,8 @@ protocol RowCellDelegate: AnyObject {
     func loadStartRequest(_ approvalId: String)
     /// The card's answer is on its way: a spinner, and no more clicks.
     func isAnswering(_ approvalId: String) -> Bool
+    /// Return allows this card: with several waiting, only the oldest.
+    func takesReturn(_ approvalId: String) -> Bool
     /// A card with queued calls (docs/protocol.md, "Queued calls"): which
     /// calls Mike has unticked, by item id, and ticking one again.
     func untickedCalls(_ approvalId: String) -> Set<String>
@@ -70,6 +72,7 @@ extension RowCellDelegate {
     var linkThreadId: String? { nil }
     func secretState(_ approvalId: String) -> SecretCardState { .ready }
     func isAnswering(_ approvalId: String) -> Bool { false }
+    func takesReturn(_ approvalId: String) -> Bool { true }
     func untickedCalls(_ approvalId: String) -> Set<String> { [] }
     func toggleQueuedCall(approvalId: String, itemId: String) {}
     func answerSecret(approvalId: String, _ answer: SecretAnswer) {}
@@ -1562,7 +1565,8 @@ final class ApprovalRowCell: RowCellView {
     let titleView = TranscriptTextView()
     let payloadBox = FillView()
     let payloadView = TranscriptTextView()
-    /// Return in an empty composer allows it too (ComposerView).
+    /// Return allows it too, in an empty composer or with the transcript
+    /// focused, when it's the oldest card waiting (`takesReturn`).
     let allow = PillButton(pill: "Allow", prominent: true, shortcut: "⏎")
     let always = PillButton(pill: "Always allow")
     let deny = PillButton(pill: "Deny")
@@ -1628,9 +1632,11 @@ final class ApprovalRowCell: RowCellView {
         // row has none).
         let start = item.isStartRequest
         allow.title = start ? "Start it" : "Allow"
-        allow.shortcut = start ? nil : "⏎"
+        // The ⏎ only on the card Return would allow: with two waiting, the older.
+        let returns = !start && delegate?.takesReturn(approvalId) != false
+        allow.shortcut = returns ? "⏎" : nil
         deny.title = start ? "Don't" : "Deny"
-        allow.setTip(start ? "Start this thread with this brief" : "Let it do this once (Return)")
+        allow.setTip(start ? "Start this thread with this brief" : returns ? "Let it do this once (Return)" : "Let it do this once")
         deny.setTip(start ? "Don't start it; the asking thread is told no" : "Don't let it do this; the agent is told no")
         if start {
             options = item.startRequest.map { $0.error == nil ? [.allow, .deny] : [] } ?? []
@@ -1723,8 +1729,9 @@ final class ApprovalRowCell: RowCellView {
 
         let count = stackIds.filter { !unticked.contains($0) }.count
         allow.title = "Allow \(count)"
-        allow.shortcut = "⏎"
-        allow.setTip(count == stackIds.count ? "Let it do all of these (Return)" : "Let it do the ticked ones; the rest are refused (Return)")
+        let returns = delegate?.takesReturn(approvalId) != false
+        allow.shortcut = returns ? "⏎" : nil
+        allow.setTip((count == stackIds.count ? "Let it do all of these" : "Let it do the ticked ones; the rest are refused") + (returns ? " (Return)" : ""))
         deny.title = "Deny all"
         deny.setTip("Don't let it do any of these; the agent is told no")
         always.isHidden = true

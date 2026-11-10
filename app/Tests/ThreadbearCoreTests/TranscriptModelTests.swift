@@ -278,6 +278,10 @@ final class TranscriptModelTests: XCTestCase {
             E.event(3, "approval.requested", ["approvalId": "ap2", "name": "Bash", "title": "pwd", "input": [:], "options": ["allow", "deny"]]),
         ])
         XCTAssertEqual(model.pendingApprovalIds, ["ap1", "ap2"])
+        // Return allows the oldest, then the next once that one's on its way.
+        XCTAssertEqual(model.approvalForReturn(), "ap1")
+        XCTAssertEqual(model.approvalForReturn(answering: ["ap1"]), "ap2")
+        XCTAssertNil(model.approvalForReturn(answering: ["ap1", "ap2"]))
         _ = model.apply([E.event(4, "approval.resolved", ["approvalId": "ap1", "decision": "allow"])])
         XCTAssertEqual(model.pendingApprovalIds, ["ap2"])
         _ = model.apply([E.event(5, "approval.resolved", ["approvalId": "ap2", "decision": "deny"])])
