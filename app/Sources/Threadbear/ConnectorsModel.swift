@@ -57,4 +57,31 @@ extension AppModel {
         AppLog.write("connectors", "opening the gateway's admin page")
         OpenGate.openWeb(url)
     }
+
+    // MARK: X search (an experiment): the saved xAI key
+
+    func loadXSearch() {
+        guard let client else { return }
+        Task {
+            do {
+                xSearch = try await client.xSearchStatus()
+            } catch RPCError.server(let code, _) where code == RPCError.methodNotFound {
+                xSearch = nil
+            } catch {
+                AppLog.write("rpc", "xSearch.status failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func forgetXaiKey() {
+        guard let client else { return }
+        whileBusy(BusyKey.forgetXaiKey) { [self] in
+            do {
+                xSearch = try await client.xSearchForgetKey()
+                flashDone("xAI key forgotten")
+            } catch {
+                show(error)
+            }
+        }
+    }
 }

@@ -30,6 +30,7 @@ enum BusyKey {
     static let checkClis = "checkClis"
     static let refreshRunners = "refreshRunners"
     static let refreshConnectors = "refreshConnectors"
+    static let forgetXaiKey = "forgetXaiKey"
     static let startRunner = "startRunner"
 }
 

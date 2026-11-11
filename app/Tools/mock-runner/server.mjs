@@ -385,6 +385,7 @@ addDemoSchedules();
 let projects = [];
 let librarian;
 const MOCK_GATEWAY = 'https://bruce.example.ts.net:8443';
+let mockXSearch = { on: true, keySaved: true };
 let connectors = {
   state: 'ok',
   url: MOCK_GATEWAY,
@@ -1468,6 +1469,13 @@ async function dispatch(client, method, p) {
       if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
       if (p.refresh) connectors = { ...connectors, checkedAt: iso() };
       return { connectors };
+    // X search (docs/protocol.md, "X search"): a made-up saved key.
+    case 'xSearch.status':
+      if (oldRunner) throw rpcError(-32601, `Unknown method ${method}`);
+      return mockXSearch;
+    case 'xSearch.forgetKey':
+      mockXSearch = { ...mockXSearch, keySaved: false };
+      return mockXSearch;
     case 'instructions.get':
       return { instructions: mockInstructions };
     case 'instructions.set':

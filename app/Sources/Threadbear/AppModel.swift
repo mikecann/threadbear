@@ -519,6 +519,9 @@ final class AppModel {
     /// `connectors.updated`. Nil from a runner that doesn't know about it,
     /// and then the activity bar has no Connectors icon.
     var connectors: ConnectorsStatus?
+    /// X search (an experiment): whether it's on and an xAI key is saved,
+    /// once `xSearch.status` has answered. Nil from a runner without it.
+    var xSearch: XSearchStatus?
     /// The project page showing in the detail area instead of the thread.
     /// Selecting a thread (or a new one) closes it.
     var openProjectId: String? {
