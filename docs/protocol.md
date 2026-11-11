@@ -1166,6 +1166,8 @@ the summary and then the reply.
 | `threads.setProjects` | `{ threadId, add?: string[], remove?: string[] }` | `{ thread: ThreadSummary }`. What Mike does by hand: an added project is pinned (adding one the thread is already in pins it, which is how "keep it here" works), a removed one is remembered so the librarian never puts the thread back in it |
 | `librarian.status` | `{}` | `{ librarian: LibrarianStatus }` |
 | `connectors.status` | `{ refresh?: boolean }` | `{ connectors: ConnectorsStatus }` (see Connectors). `refresh` asks the gateway's `/health` first, unless it did in the last 10 seconds; the app passes it when the Connectors panel opens. A runner from before Connectors answers `-32601` and the app leaves the panel out |
+| `xSearch.status` | `{}` | `{ on: boolean, keySaved: boolean }`. X search (an experiment, see "X search"): whether it's on and an xAI key is saved |
+| `xSearch.forgetKey` | `{}` | As `xSearch.status`. Deletes the saved xAI key, so the next `x_search` asks for one |
 | `librarian.run` | `{ threadId?: string }` | `{ librarian: LibrarianStatus }`. Queues a look at the thread now (reason `asked`), or with no `threadId`, at every thread it has never looked at (a backfill, newest first) |
 | `librarian.update` | `{ paused?: boolean }` | `{ librarian: LibrarianStatus }` |
 | `pools.list` | `{}` | `{ pools: Pool[] }` (see Pools) |
@@ -4737,6 +4739,19 @@ is refused once that turn, with an error result that starts `Not ended
 yet: this turn ran into`, names each service and its page, and asks for
 an ask with that page as a link if the work needs it. Called again, it's
 taken as it is. Nothing new reaches the app: the ask is an ordinary one.
+
+### X search
+
+An experiment (`xSearch`). Every thread's agent gets the `x_search`
+threadbear tool, which asks xAI's Grok to search X
+(`runner/src/x-search.ts`). Its xAI key is the user's own: the first call
+asks for it in a secret card and keeps it in `<home>/secrets/xai-api-key`
+(owner-only, masked like every file there), and a key xAI turns down is
+deleted. The app's Connectors panel shows an X search row while it's on,
+from `xSearch.status` (asked when the panel opens): whether a key is
+saved, and Forget key (`xSearch.forgetKey`). Neither ever sends the key.
+An older runner answers neither (method not found) and the row isn't
+shown.
 
 ## Projects
 

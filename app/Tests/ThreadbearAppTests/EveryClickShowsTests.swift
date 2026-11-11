@@ -27,6 +27,8 @@ final class EveryClickShowsTests: XCTestCase {
         "answerSecret", "checkClis", "updateCli", "setCliPolicy", "createSchedule", "updateSchedule",
         "deleteSchedule", "setRunnerOrder", "runSchedule", "createProject", "updateProject", "setProjectIcon",
         "mergeProject", "deleteProject", "deleteThread", "setThreadProjects", "runLibrarian", "updateLibrarian", "savePools", "moveThread", "cancelMove",
+        // X search (Protocol/Connectors.swift).
+        "xSearchForgetKey",
     ]
 
     /// Functions that show their click some other way, and how.

@@ -75,3 +75,34 @@ public struct ConnectorService: Sendable, Hashable, Decodable, Identifiable {
 public struct ConnectorsResult: Sendable, Decodable {
     public var connectors: ConnectorsStatus
 }
+
+/// xSearch.status (docs/protocol.md, "X search"): whether X search is on
+/// and an xAI key is saved. Never the key.
+public struct XSearchStatus: Sendable, Hashable, Decodable {
+    public var on: Bool
+    public var keySaved: Bool
+
+    public init(on: Bool = false, keySaved: Bool = false) {
+        self.on = on
+        self.keySaved = keySaved
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        on = ((try? c.decodeIfPresent(Bool.self, forKey: .on)) ?? nil) ?? false
+        keySaved = ((try? c.decodeIfPresent(Bool.self, forKey: .keySaved)) ?? nil) ?? false
+    }
+
+    enum CodingKeys: String, CodingKey { case on, keySaved }
+}
+
+public extension RPCClient {
+    func xSearchStatus() async throws -> XSearchStatus {
+        try await call("xSearch.status", .object([:]), as: XSearchStatus.self)
+    }
+
+    /// Deletes the saved xAI key; the next x_search asks for one.
+    func xSearchForgetKey() async throws -> XSearchStatus {
+        try await call("xSearch.forgetKey", .object([:]), as: XSearchStatus.self)
+    }
+}
