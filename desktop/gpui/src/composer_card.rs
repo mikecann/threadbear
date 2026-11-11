@@ -600,7 +600,7 @@ impl Composer {
     /// link in its transcript goes (a file into the pane, a page through the
     /// open gate, a review to its window).
     fn open_ask_link(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let url = if target.starts_with('/') { format!("file://{target}") } else { target.to_owned() };
+        let url = ask_link_url(target);
         if let Some(pane) = self.pane.upgrade() {
             pane.update(cx, |p, cx| p.link_clicked(&url, "", window, cx));
         }
@@ -817,6 +817,15 @@ pub(crate) fn is_paged(card: &AsksCard) -> bool {
     metrics::HEADING + metrics::HEADING_SPACING + height > 240.
 }
 
+/// The link an ask's target is handed to the thread's link handling as. A path
+/// goes as a `file:` URL made by `file_url`, which escapes what a URL would
+/// read (`#`, `%`, `?`, spaces); pasting it after `file://` cut a name at its
+/// first `#` (open_gate_source.rs holds that nothing does). Anything else is
+/// already a link.
+fn ask_link_url(target: &str) -> String {
+    if target.starts_with('/') { threadbear_core::open_policy::file_url(target) } else { target.to_owned() }
+}
+
 /// An ask's paragraph, as the agent would have written it (Decisions.paragraph):
 /// its action, then its why. The number a card of several puts by it is drawn
 /// beside it, where a list's number goes, so words that would start a heading,
@@ -1001,8 +1010,23 @@ fn small_label(text: &'static str, cx: &App) -> impl IntoElement {
 #[cfg(test)]
 mod tests {
     // By name: the kit's prelude has a `test` of its own.
-    use super::{ask_paragraph, starts_a_block};
+    use super::{ask_link_url, ask_paragraph, starts_a_block};
+    use threadbear_core::open_policy::{link_kind, LinkKind};
     use threadbear_core::reducer::Ask;
+
+    #[test]
+    fn an_asks_file_link_names_the_file_whatever_is_in_its_name() {
+        for path in ["/Users/me/notes.md", "/Users/me/Plans #2/a b.md", "/Users/me/100%/a?b.md", "/Users/me/Inspect.app#help/SKILL.md"] {
+            let url = ask_link_url(path);
+            assert!(url.starts_with("file:///"), "{url}");
+            assert!(!url.contains('#') && !url.contains('?') && !url.contains(' '), "{url}");
+            assert_eq!(link_kind(&url), LinkKind::File(path.to_owned()), "{path}");
+        }
+        // A page, or a link of the app's own, is already a link.
+        for link in ["https://example.com/a#b", "work:abc", "review:1"] {
+            assert_eq!(ask_link_url(link), link);
+        }
+    }
 
     #[test]
     fn an_ask_that_reads_as_markdown_structure_stays_words() {
