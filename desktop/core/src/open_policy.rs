@@ -247,7 +247,11 @@ pub struct Look {
 /// None when nothing's there. `app_for` says which app would open the real
 /// file (None where the system can't say).
 pub fn look(path: &Path, app_for: &dyn Fn(&Path) -> Option<OpeningApp>) -> Option<Look> {
-    let resolved = std::fs::canonicalize(path).ok()?;
+    // Not std's canonicalize, which gives a Windows path in the verbatim form
+    // (`\\?\C:\...`): `file_url` made that `file:////%3F/C%3A/...`, and a
+    // question showed it as it was. dunce gives `C:\...`, and on Mac and Linux
+    // is std's canonicalize.
+    let resolved = dunce::canonicalize(path).ok()?;
     let meta = std::fs::metadata(&resolved).ok()?;
     let linked = std::fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false) || resolved.file_name() != path.file_name();
     let runs = runs(&resolved, &meta, app_for);
@@ -554,7 +558,8 @@ mod tests {
             let dir = std::env::temp_dir().join(format!("tb-open-policy-{name}-{}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
-            Scratch(fs::canonicalize(&dir).unwrap())
+            // As `look` resolves paths, so a path made here is the one it gives back.
+            Scratch(dunce::canonicalize(&dir).unwrap())
         }
         fn path(&self, rel: &str) -> PathBuf {
             self.0.join(rel)
@@ -600,12 +605,20 @@ mod tests {
         // A link to it written as a URL keeps the %23 in the name, and a
         // bare # cuts the fragment off, as a URL parser would, before the
         // path is decoded: the .app is a folder, so it's refused as a program.
-        let encoded = format!("{}/.agents/skills/Inspect.app%23help/SKILL.md", s.0.to_string_lossy());
-        assert_eq!(link_kind(&encoded), LinkKind::File(skill.to_string_lossy().into_owned()));
-        let bare = ["file://", &s.0.to_string_lossy(), "/.agents/skills/Inspect.app#help/SKILL.md"].concat();
-        let LinkKind::File(cut) = link_kind(&bare) else { panic!() };
-        assert!(cut.ends_with("/Inspect.app"));
-        assert!(matches!(decide_file(&cut, Origin::ThisMac, &none), FileVerdict::Ask { .. }));
+        #[cfg(not(windows))]
+        {
+            let encoded = format!("{}/.agents/skills/Inspect.app%23help/SKILL.md", s.0.to_string_lossy());
+            assert_eq!(link_kind(&encoded), LinkKind::File(skill.to_string_lossy().into_owned()));
+            let bare = ["file://", &s.0.to_string_lossy(), "/.agents/skills/Inspect.app#help/SKILL.md"].concat();
+            let LinkKind::File(cut) = link_kind(&bare) else { panic!() };
+            assert!(cut.ends_with("/Inspect.app"));
+            assert!(matches!(decide_file(&cut, Origin::ThisMac, &none), FileVerdict::Ask { .. }));
+        }
+        // The two above are Unix paths: `file://` plus a drive path isn't a
+        // URL. A Windows path with a drive letter is taken as written, # and
+        // all, so nothing in it is cut off.
+        #[cfg(windows)]
+        assert_eq!(link_kind(&skill.to_string_lossy()), LinkKind::File(skill.to_string_lossy().into_owned()));
     }
 
     /// Findings 59 and 64: a `.command` (or any program) a reply links to,
@@ -652,6 +665,24 @@ mod tests {
             assert!(matches!(decide_file(&p.to_string_lossy(), Origin::ThisMac, &none), FileVerdict::Open { .. }), "{rel}");
         }
         assert!(matches!(decide_file(&s.path("docs").to_string_lossy(), Origin::ThisMac, &none), FileVerdict::Open { .. }));
+    }
+
+    /// `std::fs::canonicalize` gives a Windows path in its verbatim form,
+    /// `\\?\C:\...`. Built into a URL that was `file:////%3F/C%3A/...`, and a
+    /// question named the file by it. The real file opens by its drive path.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_on_windows_opens_by_its_drive_path() {
+        let s = Scratch::new("drive");
+        let doc = s.file("notes.md", "x");
+        let FileVerdict::Open { url, resolved } = decide_file(&doc.to_string_lossy(), Origin::ThisMac, &none) else { panic!() };
+        let text = resolved.to_string_lossy().into_owned();
+        assert!(!text.starts_with(r"\\"), "{text}");
+        assert!(url.starts_with(&["file:///", &text[..1], ":/"].concat()), "{url}");
+        assert!(url.ends_with("/notes.md"), "{url}");
+        let program = s.file("go.command", "x");
+        let FileVerdict::Ask { question, .. } = decide_file(&program.to_string_lossy(), Origin::ThisMac, &none) else { panic!() };
+        assert!(!question.detail.contains(r"\\?\"), "{}", question.detail);
     }
 
     /// A document whose app would run it (a `.md` set to open in Terminal).
