@@ -40,9 +40,6 @@ struct ProfilesSettings: View {
             }
         }
         .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
-        .scrollIndicators(.never)
-        .scrollDisabled(true)
         .onAppear { refresh() }
         .onDisappear { poll?.cancel() }
         .sheet(isPresented: $making) {
