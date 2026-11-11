@@ -117,9 +117,6 @@ struct VoiceSettings: View {
             }
         }
         .formStyle(.grouped)
-        .fixedSize(horizontal: false, vertical: true)
-        .scrollIndicators(.never)
-        .scrollDisabled(true)
         .onAppear { microphones = VoiceAudio.microphones() }
     }
 
