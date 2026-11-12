@@ -34,7 +34,7 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/src/composer.rs", "let mut options = std::fs::OpenOptions::new();", 1),
     ("gpui/src/web_runtime.rs", "std::fs::write(path, &png).map_err(|e| format!(\"couldn't save the picture: {e}\"))?;", 1),
     ("core/src/open_policy.rs", "let mut options = std::fs::OpenOptions::new();", 1),
-    ("core/src/local_path.rs", "let file = OpenOptions::new().access_mode(0x81).share_mode(3).custom_flags(0x0020_0000 | 0x0200_0000).open(path)?;", 1),
+    ("core/src/local_path.rs", "let file = OpenOptions::new().access_mode(access).share_mode(3).custom_flags(0x0020_0000 | 0x0200_0000).open(path)?;", 1),
     ("core/src/open_policy.rs", "{ std::fs::OpenOptions::new().write(true).open(path) }", 1),
 ];
 

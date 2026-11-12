@@ -8,8 +8,6 @@
 // be a copy here. The runner has no call to write a file, and that's on
 // purpose: an edit never goes anywhere but the file Mike is looking at.
 use crate::highlights::is_markdown;
-#[cfg(test)]
-use std::fs;
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -508,6 +506,7 @@ impl MarkdownView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     struct Folder(PathBuf);
 

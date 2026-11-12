@@ -1310,8 +1310,15 @@ mod tests {
         let s = Scratch::new("media-held");
         let clip = bytes(&s, "hero.mp4", MP4_HEAD);
         let MediaVerdict::Show(mut checked) = decide_media(&clip.to_string_lossy(), Origin::ThisMac) else { panic!() };
+        #[cfg(not(windows))]
+        {
         fs::remove_file(&clip).unwrap();
         fs::write(&clip, b"something else entirely").unwrap();
+        }
+        // Windows pins the name while its checked handle is open. The
+        // replacement is refused rather than leaving an unlinked snapshot.
+        #[cfg(windows)]
+        assert!(fs::remove_file(&clip).is_err());
         let mut read = Vec::new();
         checked.file.read_to_end(&mut read).unwrap();
         assert_eq!(read, MP4_HEAD);

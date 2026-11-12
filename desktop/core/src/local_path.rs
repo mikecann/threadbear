@@ -17,6 +17,55 @@ extern "system" {
     fn GetFinalPathNameByHandleW(file: *mut std::ffi::c_void, out: *mut u16, size: u32, flags: u32) -> u32;
     fn GetFileInformationByHandleEx(file: *mut std::ffi::c_void, class: u32, out: *mut std::ffi::c_void, size: u32) -> i32;
     fn ReOpenFile(file: *mut std::ffi::c_void, access: u32, share: u32, flags: u32) -> *mut std::ffi::c_void;
+    fn DeviceIoControl(
+        file: *mut std::ffi::c_void,
+        code: u32,
+        input: *const std::ffi::c_void,
+        input_len: u32,
+        output: *mut std::ffi::c_void,
+        output_len: u32,
+        returned: *mut u32,
+        overlapped: *mut std::ffi::c_void,
+    ) -> i32;
+}
+
+#[repr(C)]
+struct UnicodeString {
+    len: u16,
+    capacity: u16,
+    text: *mut u16,
+}
+#[repr(C)]
+struct ObjectAttributes {
+    len: u32,
+    root: *mut std::ffi::c_void,
+    name: *mut UnicodeString,
+    attributes: u32,
+    security: *mut std::ffi::c_void,
+    quality: *mut std::ffi::c_void,
+}
+#[repr(C)]
+struct IoStatus {
+    status: usize,
+    information: usize,
+}
+
+#[link(name = "ntdll")]
+extern "system" {
+    fn NtCreateFile(
+        file: *mut *mut std::ffi::c_void,
+        access: u32,
+        object: *const ObjectAttributes,
+        io: *mut IoStatus,
+        allocation: *const i64,
+        attributes: u32,
+        share: u32,
+        disposition: u32,
+        options: u32,
+        ea: *const std::ffi::c_void,
+        ea_len: u32,
+    ) -> i32;
+    fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 
 fn refused() -> io::Error {
@@ -219,15 +268,14 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
     // Anchor opens to the checked physical volume, so redefining a DOS drive
     // letter cannot redirect a later step to a share.
     at = PathBuf::from(format!(r"\\?\GLOBALROOT{}\", text));
-    if hold(&at, held)? {
+    if hold(&at, held, components.as_path().as_os_str().is_empty())? {
         return Err(refused());
     }
     while let Some(component) = components.next() {
         match component {
             Component::CurDir => continue,
             Component::ParentDir => {
-                at.pop();
-                continue;
+                return Err(refused());
             }
             Component::Normal(name) => {
                 // Alternate streams and NT namespace spellings aren't files
@@ -235,16 +283,18 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
                 if name.encode_wide().any(|c| c == b':' as u16) {
                     return Err(refused());
                 }
-                at.push(name);
+                let parent = held.last().ok_or_else(refused)?;
+                let file = child(parent, name, components.as_path().as_os_str().is_empty())?;
+                held.push(file);
             }
             _ => return Err(refused()),
         }
-        let reparse = hold(&at, held)?;
+        let reparse = held.last().ok_or_else(refused)?.metadata()?.file_type().is_symlink();
         if reparse {
             // read_link opens the reparse point itself, never its target.
             // Only name-surrogate reparse points are links. Cloud placeholders
             // and deduplicated files remain ordinary files (FileType's rule).
-            let target = std::fs::read_link(&at).map_err(|_| refused())?;
+            let target = link_target(held.last().ok_or_else(refused)?)?;
             let mut target = if target.is_absolute() {
                 target
             } else {
@@ -271,13 +321,74 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
     final_name(file, 0).or_else(|_| final_name(file, 1))
 }
 
-fn hold(path: &Path, held: &mut Vec<File>) -> io::Result<bool> {
+fn hold(path: &Path, held: &mut Vec<File>, final_part: bool) -> io::Result<bool> {
     // FILE_READ_DATA (LIST_DIRECTORY on a folder) | FILE_READ_ATTRIBUTES;
     // FILE_SHARE_READ | FILE_SHARE_WRITE; FILE_FLAG_OPEN_REPARSE_POINT |
     // FILE_FLAG_BACKUP_SEMANTICS (directories can be opened as handles too).
     // Attribute-only access does NOT participate in Windows sharing locks.
-    let file = OpenOptions::new().access_mode(0x81).share_mode(3).custom_flags(0x0020_0000 | 0x0200_0000).open(path)?;
+    let access = if final_part { 0x81 } else { 0xa0 }; // read data, or traverse a parent
+    let file = OpenOptions::new().access_mode(access).share_mode(3).custom_flags(0x0020_0000 | 0x0200_0000).open(path)?;
     let reparse = file.metadata()?.file_type().is_symlink();
     held.push(file);
     Ok(reparse)
+}
+
+/// One component relative to the checked parent object, with no reparse
+/// processing. No ancestor name is looked up again, even if its tag changes.
+/// This is the same single-component strategy as Go's Windows openat fallback.
+fn child(parent: &File, name: &OsStr, final_part: bool) -> io::Result<File> {
+    let mut text: Vec<u16> = name.encode_wide().collect();
+    if text.is_empty() || text.len() > 32767 || text.iter().any(|c| matches!(*c, 0 | 47 | 58 | 92)) || name == "." || name == ".." {
+        return Err(refused());
+    }
+    let mut name = UnicodeString { len: (text.len() * 2) as u16, capacity: (text.len() * 2) as u16, text: text.as_mut_ptr() };
+    let attrs = ObjectAttributes {
+        len: std::mem::size_of::<ObjectAttributes>() as u32,
+        root: parent.as_raw_handle(),
+        name: &mut name,
+        attributes: 0x40,
+        security: std::ptr::null_mut(),
+        quality: std::ptr::null_mut(),
+    };
+    let mut status = IoStatus { status: 0, information: 0 };
+    let mut raw = std::ptr::null_mut();
+    let access = 0x0010_0000 | if final_part { 0x81 } else { 0xa0 };
+    let code = unsafe { NtCreateFile(&mut raw, access, &attrs, &mut status, std::ptr::null(), 0, 3, 1, 0x0020_4020, std::ptr::null(), 0) };
+    if code < 0 {
+        return Err(io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(code) } as i32));
+    }
+    Ok(unsafe { File::from_raw_handle(raw) })
+}
+
+/// Read reparse data from the held link itself, never via its pathname.
+fn link_target(file: &File) -> io::Result<PathBuf> {
+    let mut data = vec![0u8; 16384];
+    let mut size = 0u32;
+    if unsafe { DeviceIoControl(file.as_raw_handle(), 0x0009_00a8, std::ptr::null(), 0, data.as_mut_ptr().cast(), data.len() as u32, &mut size, std::ptr::null_mut()) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    data.truncate(size as usize);
+    let u16_at = |at: usize| -> io::Result<usize> { Ok(u16::from_le_bytes(data.get(at..at + 2).ok_or_else(refused)?.try_into().unwrap()) as usize) };
+    let tag = u32::from_le_bytes(data.get(..4).ok_or_else(refused)?.try_into().unwrap());
+    let base = match tag {
+        0xa000_0003 => 16,
+        0xa000_000c => 20,
+        _ => return Err(refused()),
+    };
+    let start = base + u16_at(8)?;
+    let len = u16_at(10)?;
+    if len % 2 != 0 {
+        return Err(refused());
+    }
+    let mut text = data.get(start..start + len).ok_or_else(refused)?.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect::<Vec<_>>();
+    if text.starts_with(&[92, 63, 63, 92]) {
+        // NT \??\ to Win32 verbatim form
+        text.drain(..4);
+        if text.len() >= 4 && text[..3].iter().copied().map(|c| (c as u8).to_ascii_uppercase()).eq(b"UNC".iter().copied()) && text[3] == 92 {
+            text.splice(..4, [92, 92]);
+        } else {
+            text.splice(..0, [92, 92, 63, 92]);
+        }
+    }
+    Ok(PathBuf::from(OsString::from_wide(&text)))
 }
