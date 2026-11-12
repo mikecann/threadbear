@@ -335,7 +335,10 @@ pub fn with_local_path<T>(path: &Path, read: impl FnOnce(&Path) -> std::io::Resu
 /// A handle opened under the path guard. Reading this handle later never
 /// follows a link swapped into the path in the meantime.
 pub fn local_open(path: &Path) -> std::io::Result<std::fs::File> {
-    with_local_path(path, open_without_waiting)
+    #[cfg(windows)]
+    { with_local_path(path, open_without_waiting) }
+    #[cfg(not(windows))]
+    { open_without_waiting(&std::fs::canonicalize(path)?) }
 }
 
 /// Read a local file with its Windows ancestors held against a link swap.
@@ -1066,8 +1069,10 @@ mod tests {
         assert!(fs::rename(s.path("folder"), s.path("moved")).is_err(), "the checked ancestor must be locked");
         drop(guard);
         let mut file = local_open(&doc).unwrap();
-        fs::rename(s.path("folder"), s.path("moved")).unwrap();
-        std::os::windows::fs::symlink_dir(r"\\127.0.0.1\tb-no-share", s.path("folder")).unwrap();
+        // Windows itself disallows moving a directory with an open child;
+        // swapping the file exercises the opened handle independently.
+        fs::rename(&doc, s.path("folder/old.md")).unwrap();
+        std::os::windows::fs::symlink_file(r"\\127.0.0.1\tb-no-share\notes.md", &doc).unwrap();
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"the file opened");
