@@ -295,10 +295,13 @@ pub fn is_share_or_device(path: &str) -> bool {
     !verbatim_drive
 }
 
-/// `is_share_or_device` on Windows. Never on Mac and Linux, where `//a/b`
-/// is `/a/b`.
+/// On Windows, a path to a share or a device, or one with a part Windows
+/// reads as a device (`C:\work\NUL.pdf`), which only looking at would open
+/// (Codex's second look at PR #57). Never on Mac and Linux, where `//a/b` is
+/// `/a/b` and `NUL` is a name like any other.
 fn on_a_share(path: &Path) -> bool {
-    cfg!(windows) && is_share_or_device(&path.to_string_lossy())
+    let text = path.to_string_lossy();
+    cfg!(windows) && (is_share_or_device(&text) || text.split(['\\', '/']).any(is_device_name))
 }
 
 /// What looking at a file found.
@@ -407,6 +410,13 @@ pub fn decide_file(path: &str, origin: Origin, app_for: &dyn Fn(&Path) -> Option
     let Some(look) = look(given, app_for) else {
         return FileVerdict::Refuse(format!("{} isn't there any more.", if name.is_empty() { "That file" } else { &name }));
     };
+    // Still in the verbatim form, `real_path` found no drive path that names
+    // the same file, and `file_url` would make `file:////%3F/...` of it,
+    // which opens nothing (Codex's second look at PR #57).
+    if cfg!(windows) && look.resolved.to_string_lossy().starts_with(r"\\") {
+        let real = look.resolved.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        return FileVerdict::Refuse(format!("Threadbear can't open {real} on Windows yet: its path is too long, or it's on a network drive."));
+    }
     let url = file_url(&look.resolved.to_string_lossy());
     match &look.runs {
         None => FileVerdict::Open { url, resolved: look.resolved },
@@ -790,12 +800,31 @@ mod tests {
             assert!(matches!(decide_media(&format!("{path}.mp4"), Origin::ThisMac), MediaVerdict::Refuse(why) if why.contains("network share")), "{path}");
             assert!(real_path(Path::new(path)).is_err(), "{path}");
         }
+        // A part named as a device, however it ends, is refused unlooked too.
+        let device = Path::new(r"C:\work\NUL.part.md");
+        assert!(matches!(decide_file(&device.to_string_lossy(), Origin::ThisMac, &none), FileVerdict::Refuse(why) if why.contains("names a device")));
         // A drive's verbatim form is still this machine's file.
         let s = Scratch::new("verbatim");
         let doc = s.file("notes.md", "x");
         let verbatim = std::fs::canonicalize(&doc).unwrap();
         assert!(verbatim.to_string_lossy().starts_with(r"\\?\"));
         assert_eq!(real_path(&verbatim).unwrap(), doc);
+    }
+
+    /// A file whose path is too long for its drive form keeps the verbatim
+    /// one, which no URL the system opens can carry: refused, not handed on
+    /// as `file:////%3F/...`.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_past_windows_path_limit_is_refused_not_opened_broken() {
+        let s = Scratch::new("long");
+        let deep = s.path(&["a".repeat(100), "b".repeat(100), "c".repeat(100)].join("\\"));
+        // Made through the verbatim form, which has no length limit.
+        fs::create_dir_all(format!(r"\\?\{}", deep.display())).unwrap();
+        let doc = deep.join("notes.md");
+        fs::write(format!(r"\\?\{}", doc.display()), "x").unwrap();
+        assert!(real_path(&doc).unwrap().to_string_lossy().starts_with(r"\\?\"));
+        assert!(matches!(decide_file(&doc.to_string_lossy(), Origin::ThisMac, &none), FileVerdict::Refuse(why) if why.contains("too long")));
     }
 
     /// A document whose app would run it (a `.md` set to open in Terminal).
