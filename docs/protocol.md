@@ -4486,13 +4486,15 @@ again. The tools' descriptions say when to use them.
 The Windows desktop app refuses network shares and device paths before
 probing a local file, including a hover card or file search. Its resolver
 checks each link or junction without following it, refuses mapped network
-drives, and holds checked components against writes and replacement while
+drives, and holds checked names against replacement while
 resolving. It normalizes dot segments before following links and refuses
 ambiguous names ending in a dot or space. Local links to local files keep
 working. Windows reads its local file previews and folder listings under
 this guard, without asking the runner to resolve the raw path again; unsafe
 child links remain visible by name without probing their targets. Local
-pictures are decoded from a guarded byte snapshot in the background.
+pictures are decoded from a guarded byte snapshot in the background. Reads,
+directory enumeration and editor saves reuse checked handles; ordinary
+writers can keep a log or document open while it is previewed.
 
 **The brief.** The librarian's look (see Projects) also answers with a
 line or two on where the thread itself is up to, kept on the thread and

@@ -314,10 +314,23 @@ pub(crate) fn on_a_share(path: &Path) -> bool {
     cfg!(windows) && (is_share_or_device(&text) || text.split(['\\', '/']).any(is_device_name))
 }
 
+/// QueryDosDevice may return a physical volume or a redirector with a path
+/// tail. Only an exact physical-volume name is safe to open as a root.
+pub fn is_local_volume_device(name: &str) -> bool {
+    [r"\Device\HarddiskVolume", r"\Device\CdRom"].iter().any(|prefix| name.strip_prefix(prefix).is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|c| c.is_ascii_digit())))
+}
+
+/// A checked local path as the Windows shell accepts it. Filesystem reads
+/// keep their checked handle instead of looking this display path up again.
+pub fn system_path(path: &Path) -> &Path { dunce::simplified(path) }
+
 /// A reply's file probe uses the same local-path rules as opening it. On
 /// Windows even metadata can contact a share, so never probe the raw path.
 pub fn local_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
-    with_local_path(path, |real| std::fs::metadata(real))
+    #[cfg(windows)]
+    { crate::local_path::LocalPath::new(path)?.file()?.metadata() }
+    #[cfg(not(windows))]
+    { std::fs::metadata(path) }
 }
 
 /// Keep the checked components held until an operation opens the resolved
@@ -326,7 +339,7 @@ pub fn with_local_path<T>(path: &Path, read: impl FnOnce(&Path) -> std::io::Resu
     #[cfg(windows)]
     {
         let local = crate::local_path::LocalPath::new(path)?;
-        read(&local.path)
+        read(&local.anchored_name()?)
     }
     #[cfg(not(windows))]
     read(path)
@@ -336,9 +349,17 @@ pub fn with_local_path<T>(path: &Path, read: impl FnOnce(&Path) -> std::io::Resu
 /// follows a link swapped into the path in the meantime.
 pub fn local_open(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(windows)]
-    { with_local_path(path, open_without_waiting) }
+    { crate::local_path::LocalPath::new(path)?.file()?.try_clone() }
     #[cfg(not(windows))]
     { open_without_waiting(&std::fs::canonicalize(path)?) }
+}
+
+/// Open the checked file object for a text edit, without another path lookup.
+pub fn local_open_for_write(path: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(windows)]
+    { crate::local_path::LocalPath::new(path)?.writable() }
+    #[cfg(not(windows))]
+    { std::fs::OpenOptions::new().write(true).open(path) }
 }
 
 /// Read a local file with its Windows ancestors held against a link swap.
@@ -352,8 +373,27 @@ pub fn local_read(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
 }
 
 /// Open the directory while its checked Windows ancestors are held.
-pub fn local_read_dir(path: &Path) -> std::io::Result<std::fs::ReadDir> {
-    with_local_path(path, |real| std::fs::read_dir(real))
+pub fn local_read_dir(path: &Path) -> std::io::Result<Vec<std::io::Result<LocalDirEntry>>> {
+    #[cfg(windows)]
+    { crate::local_path::LocalPath::new(path)?.entries() }
+    #[cfg(not(windows))]
+    {
+        Ok(std::fs::read_dir(path)?.take(20_001).map(|e| {
+            let e = e?;
+            Ok(LocalDirEntry { path: e.path(), name: e.file_name(), is_folder: e.file_type()?.is_dir() })
+        }).collect())
+    }
+}
+
+pub struct LocalDirEntry {
+    pub(crate) path: PathBuf,
+    pub(crate) name: std::ffi::OsString,
+    pub is_folder: bool,
+}
+
+impl LocalDirEntry {
+    pub fn path(&self) -> PathBuf { self.path.clone() }
+    pub fn file_name(&self) -> std::ffi::OsString { self.name.clone() }
 }
 
 /// What looking at a file found.
@@ -374,8 +414,11 @@ pub fn look(path: &Path, app_for: &dyn Fn(&Path) -> Option<OpeningApp>) -> Optio
     #[cfg(windows)]
     let _local = crate::local_path::LocalPath::new(path).ok()?;
     let resolved = real_path(path).ok()?;
-    let meta = std::fs::metadata(&resolved).ok()?;
+    let meta = local_metadata(path).ok()?;
+    #[cfg(not(windows))]
     let linked = std::fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false) || resolved.file_name() != path.file_name();
+    #[cfg(windows)]
+    let linked = resolved.file_name() != path.file_name();
     let runs = runs(&resolved, &meta, app_for);
     Some(Look { resolved, runs, linked })
 }
@@ -732,7 +775,7 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
     if media_kind(&resolved.to_string_lossy()) != Some(kind) {
         return not_really();
     }
-    let Ok(mut file) = open_without_waiting(&resolved) else {
+    let Ok(mut file) = local_open(given_path) else {
         return MediaVerdict::Refuse(format!("{name} changed or went while Threadbear looked at it, so it didn't {verb}."));
     };
     let len = match file.metadata() {
@@ -1066,17 +1109,42 @@ mod tests {
         let s = Scratch::new("locked");
         let doc = s.file("folder/notes.md", "the file opened");
         let guard = crate::local_path::LocalPath::new(&doc).unwrap();
-        assert!(fs::rename(s.path("folder"), s.path("moved")).is_err(), "the checked ancestor must be locked");
+        assert!(fs::rename(&doc, s.path("folder/old.md")).is_err(), "the checked file's name must be locked");
         drop(guard);
         let mut file = local_open(&doc).unwrap();
-        // Windows itself disallows moving a directory with an open child;
-        // swapping the file exercises the opened handle independently.
-        fs::rename(&doc, s.path("folder/old.md")).unwrap();
-        std::os::windows::fs::symlink_file(r"\\127.0.0.1\tb-no-share\notes.md", &doc).unwrap();
+        assert!(fs::rename(&doc, s.path("folder/old.md")).is_err(), "the read handle keeps its checked name pinned too");
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"the file opened");
+        drop(file);
+        fs::rename(&doc, s.path("folder/old.md")).unwrap();
+        std::os::windows::fs::symlink_file(r"\\127.0.0.1\tb-no-share\notes.md", &doc).unwrap();
         assert!(local_read(&doc, 64).is_err());
+    }
+
+    #[test]
+    fn physical_volume_mappings_have_no_path_tail_or_redirector() {
+        for name in [r"\Device\HarddiskVolume3", r"\Device\CdRom0"] { assert!(is_local_volume_device(name)); }
+        for name in [r"\Device\HarddiskVolume3\repo\link", r"\Device\HarddiskVolumeShadowCopy1", r"\Device\Mup\server", r"\Device\CdRom0\x"] { assert!(!is_local_volume_device(name)); }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_editing_refuses_a_link_swap_and_reads_a_log_with_a_writer_open() {
+        let s = Scratch::new("editor");
+        let doc = s.file("notes.md", "original");
+        let writer = fs::OpenOptions::new().write(true).open(&doc).unwrap();
+        assert_eq!(local_read(&doc, 64).unwrap(), b"original");
+        drop(writer);
+        let mut editor = crate::text_file::TextFileDocument::new(&doc);
+        assert_eq!(editor.load().unwrap(), "original");
+        editor.save("local edit").unwrap();
+        assert_eq!(fs::read(&doc).unwrap(), b"local edit");
+        fs::rename(&doc, s.path("old.md")).unwrap();
+        std::os::windows::fs::symlink_file(r"\\127.0.0.1\tb-no-share\notes.md", &doc).unwrap();
+        assert!(editor.changed_on_disk().is_err());
+        assert!(editor.save("do not send this").is_err());
+        assert_eq!(fs::read(s.path("old.md")).unwrap(), b"local edit");
     }
 
     /// A file whose path is too long for its drive form keeps the verbatim

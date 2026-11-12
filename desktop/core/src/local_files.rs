@@ -13,7 +13,7 @@ fn modified(meta: &std::fs::Metadata) -> String {
 
 pub fn read(params: &Value) -> io::Result<Value> {
     let path = params["path"].as_str().ok_or_else(|| io::Error::other("path must be a string"))?;
-    let file = open_policy::local_open(Path::new(path))?;
+    let file = open_policy::local_open(Path::new(path)).map_err(|e| if e.kind() == io::ErrorKind::NotFound { io::Error::new(e.kind(), format!("No such file: {path}")) } else { e })?;
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(io::Error::other(format!("Not a file: {path}")));
@@ -32,7 +32,7 @@ pub fn list(params: &Value) -> io::Result<Value> {
     let path = params["path"].as_str().ok_or_else(|| io::Error::other("path must be a string"))?;
     let mut entries = Vec::new();
     let mut truncated = false;
-    for entry in open_policy::local_read_dir(Path::new(path))? {
+    for entry in open_policy::local_read_dir(Path::new(path)).map_err(|e| if e.kind() == io::ErrorKind::NotFound { io::Error::new(e.kind(), format!("No such folder: {path}")) } else { e })? {
         let entry = entry?;
         if entries.len() == 5000 {
             truncated = true;
@@ -41,7 +41,7 @@ pub fn list(params: &Value) -> io::Result<Value> {
         let name = entry.file_name().to_string_lossy().into_owned();
         // Never stat a link through the runner. An unsafe or broken link
         // stays visible by name, and trying to open it will be refused.
-        let meta = open_policy::local_metadata(&entry.path()).ok();
+        let meta = open_policy::local_metadata(&Path::new(path).join(&name)).ok();
         let folder = meta.as_ref().is_some_and(|m| m.is_dir());
         let mut row = json!({ "name": name, "isFolder": folder, "hidden": name.starts_with('.') });
         if let Some(meta) = meta {
@@ -71,6 +71,7 @@ mod tests {
         assert!(decoded.truncated);
         let listing = crate::folders::FolderContents::decode(&list(&json!({ "path": dir })).unwrap());
         assert!(listing.entries.iter().any(|e| e.name == "notes.md" && !e.is_folder && e.size == Some(5)));
+        assert!(super::read(&json!({ "path": dir })).unwrap_err().to_string().starts_with("Not a file"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

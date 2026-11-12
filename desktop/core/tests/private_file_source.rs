@@ -28,12 +28,14 @@ const ALLOWED: &[&str] = &["core/src/private_file.rs", "core/src/web_runtime.rs"
 ///   (`open_without_waiting`: read(true), O_NOFOLLOW, nothing written).
 /// - Windows' local-path guard opening an existing component for reading
 ///   (FILE_READ_DATA | FILE_READ_ATTRIBUTES, no create or write access), without following
-///   reparse points and without sharing writes or deletes during the check.
+///   reparse points and without sharing deletes during the check;
+/// - an existing user file saved in place by the text editor, keeping its mode.
 const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/src/composer.rs", "let mut options = std::fs::OpenOptions::new();", 1),
     ("gpui/src/web_runtime.rs", "std::fs::write(path, &png).map_err(|e| format!(\"couldn't save the picture: {e}\"))?;", 1),
     ("core/src/open_policy.rs", "let mut options = std::fs::OpenOptions::new();", 1),
-    ("core/src/local_path.rs", "let file = OpenOptions::new().access_mode(0x81).share_mode(1).custom_flags(0x0020_0000 | 0x0200_0000).open(path)?;", 1),
+    ("core/src/local_path.rs", "let file = OpenOptions::new().access_mode(0x81).share_mode(3).custom_flags(0x0020_0000 | 0x0200_0000).open(path)?;", 1),
+    ("core/src/open_policy.rs", "{ std::fs::OpenOptions::new().write(true).open(path) }", 1),
 ];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {

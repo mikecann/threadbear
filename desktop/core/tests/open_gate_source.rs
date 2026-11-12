@@ -143,6 +143,19 @@ fn reply_link_probes_use_the_local_file_gate() {
     }
     assert!(text.contains("policy::local_metadata"));
     assert!(text.contains("policy::local_read"));
+    let core = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/text_file.rs");
+    let text = std::fs::read_to_string(core).unwrap();
+    let production = text.split("#[cfg(test)]").next().unwrap();
+    assert!(!production.contains("fs::File::open("));
+    assert!(!production.contains("fs::OpenOptions::new("));
+    assert!(production.contains("open_policy::local_open("));
+    assert!(production.contains("open_policy::local_open_for_write("));
+    let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/open_gate.rs");
+    let text = std::fs::read_to_string(gate).unwrap();
+    let reveal = text.split("pub(crate) fn reveal(").nth(1).unwrap().split("// ----------------------------------------------------------------").next().unwrap();
+    assert!(reveal.contains("policy::with_local_path"));
+    let watcher = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/file_watch.rs");
+    assert!(std::fs::read_to_string(watcher).unwrap().contains("open_policy::with_local_path"));
 }
 
 /// The Mac's own video and PDF views read only the file the gate checked and

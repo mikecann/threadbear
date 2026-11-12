@@ -21,7 +21,7 @@ impl FileIdentity {
         let _local = crate::local_path::LocalPath::new(path).ok()?;
         // By its drive path on Windows, as the open gate names files.
         let real = crate::open_policy::real_path(path).ok()?;
-        let meta = std::fs::metadata(&real).ok()?;
+        let meta = crate::open_policy::local_metadata(path).ok()?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt as _;

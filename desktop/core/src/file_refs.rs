@@ -133,7 +133,7 @@ pub fn search(folder: &str, path: &str) -> Option<String> {
     let mut stack = vec![Path::new(folder).to_path_buf()];
     while let Some(dir) = stack.pop() {
         let Ok(entries) = crate::open_policy::local_read_dir(&dir) else { continue };
-        let mut children: Vec<_> = entries.flatten().collect();
+        let mut children: Vec<_> = entries.into_iter().flatten().collect();
         // A steady order, so the same click finds the same file.
         children.sort_by_key(|e| e.file_name());
         let mut folders = Vec::new();
@@ -159,7 +159,7 @@ pub fn search(folder: &str, path: &str) -> Option<String> {
                 }
             }
             let is_package = entry_name.rsplit_once('.').is_some_and(|(_, ext)| PACKAGES.contains(&ext.to_lowercase().as_str()));
-            if !is_package && entry.file_type().is_ok_and(|t| t.is_dir()) {
+            if !is_package && entry.is_folder {
                 folders.push(full);
             }
         }

@@ -315,9 +315,13 @@ pub(crate) fn reveal(path: &str, origin: Origin, cx: &mut App) {
         refuse(format!("{} is on another Mac.", threadbear_core::highlights::last_component(path)), cx);
         return;
     }
-    let result = policy::with_local_path(Path::new(path), |real| {
+    let result = policy::with_local_path(Path::new(path), |_| {
         if !scripted_opens(&format!("reveal {path}")) {
-            cx.reveal_path(real);
+            #[cfg(windows)]
+            let real = policy::real_path(Path::new(path))?;
+            #[cfg(not(windows))]
+            let real = Path::new(path).to_path_buf();
+            cx.reveal_path(policy::system_path(&real));
         }
         Ok(())
     });

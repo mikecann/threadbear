@@ -80,6 +80,9 @@ impl FolderWatch {
                 continue;
             }
             let watched = threadbear_core::open_policy::with_local_path(Path::new(asked), |local| {
+                #[cfg(windows)]
+                let real = local.to_path_buf();
+                #[cfg(not(windows))]
                 let real = std::fs::canonicalize(local)?;
                 self.watcher.watch(&real, RecursiveMode::NonRecursive).map_err(std::io::Error::other)?;
                 Ok(real)

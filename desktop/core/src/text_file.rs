@@ -8,6 +8,7 @@
 // be a copy here. The runner has no call to write a file, and that's on
 // purpose: an edit never goes anywhere but the file Mike is looking at.
 use crate::highlights::is_markdown;
+#[cfg(test)]
 use std::fs;
 use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -84,7 +85,7 @@ impl TextFileDocument {
     }
 
     fn read(&self) -> io::Result<ReadText> {
-        let file = fs::File::open(&self.path)?;
+        let file = crate::open_policy::local_open(&self.path)?;
         let mut data = Vec::new();
         file.take(LIMIT as u64).read_to_end(&mut data)?;
         let truncated = data.len() == LIMIT;
@@ -111,7 +112,8 @@ impl TextFileDocument {
         if !self.is_editable() || text == self.saved {
             return Ok(());
         }
-        let mut file = fs::OpenOptions::new().write(true).truncate(true).open(&self.path)?;
+        let mut file = crate::open_policy::local_open_for_write(&self.path)?;
+        file.set_len(0)?;
         file.write_all(text.as_bytes())?;
         self.saved = text.to_owned();
         Ok(())

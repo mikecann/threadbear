@@ -315,20 +315,16 @@ impl Terminals {
                 end_shells_now(&shells);
             }
             #[cfg(not(unix))]
-            let closing: Vec<_> = this.sessions.values().map(|s| s.update(cx, |s, _| { s.shut_down(); s.shared.clone() })).collect();
-            #[cfg(not(unix))]
-            let executor = cx.background_executor().clone();
-            async move {
-                #[cfg(not(unix))]
-                {
-                    // Close ConPTY before the process goes. Otherwise a shell
-                    // can outlive the app holding its working directory open.
-                    let deadline = Instant::now() + Duration::from_secs(5);
-                    while closing.iter().any(|s| !s.reader_closed.load(Ordering::Acquire)) && Instant::now() < deadline {
-                        executor.timer(Duration::from_millis(10)).await;
-                    }
+            {
+                let closing: Vec<_> = this.sessions.values().map(|s| s.update(cx, |s, _| { s.shut_down(); s.shared.clone() })).collect();
+                // GPUI gives returned quit futures only 200ms. Like the Unix
+                // branch, finish closing here before returning that future.
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while closing.iter().any(|s| !s.reader_closed.load(Ordering::Acquire)) && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(10));
                 }
             }
+            async {}
         });
         let home = crate::files::home_dir();
         Terminals { app: app.downgrade(), sessions: HashMap::new(), target: Target { key: TerminalKey::Home, cwd: home, note: None }, seen: None, putting: HashSet::new(), last_size: None, _subs: vec![watching, quitting] }
