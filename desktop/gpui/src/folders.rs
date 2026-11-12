@@ -169,7 +169,7 @@ impl FolderView {
 }
 
 fn core_folders_name(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
+    if threadbear_core::reducer::text::is_windows_path(path) { path.rsplit(['/', '\\']).next().unwrap_or(path) } else { path.rsplit('/').next().unwrap_or(path) }
 }
 
 /// Keeping a folder up to date while it shows: a watch on its folders here,

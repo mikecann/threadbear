@@ -18,7 +18,6 @@ setDefaultTimeout(90_000);
 export class ThreadbearWorld extends World {
   app: Driver;
   /** Remove a scenario's files only after the app and its shells have ended. */
-  afterStop: (() => Promise<void>)[] = [];
   /** What the last right-click on a sidebar row offered. */
   menuTitles?: string[];
   /** What the last command answered, for a step to read back. */

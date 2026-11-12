@@ -25,14 +25,8 @@ export function tempFolder(prefix: string): string {
 
 export function removeTempFolders(): void {
   for (const dir of made.splice(0)) {
-    try {
-      // A shell the app started may take a moment to go after it.
-      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
-    } catch (e) {
-      // A leftover in the runner's temp folder harms nothing there; a
-      // scenario that passed shouldn't fail on it.
-      if (process.platform !== 'win32') throw e;
-      console.warn(`couldn't remove ${dir}: ${(e as Error).message}`);
-    }
+    // A shell the app started may take a moment to go after it. A failure
+    // after these retries is still a leak to fix, even on Windows.
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 }

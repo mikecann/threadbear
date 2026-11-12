@@ -179,7 +179,7 @@ Then('the path bar\'s … menu starts with the folder above the first one it sho
   const menu = okValue(await this.app.do({ cmd: 'folder', pathMenu: true })).split(' | ').filter(Boolean);
   assert.ok(bar.startsWith('… > '), `the path bar has nothing tucked: ${bar}`);
   const firstShown = bar.split(' > ')[1];
-  const parts = folder.split('/');
+  const parts = folder.replaceAll('\\', '/').split('/');
   const above = parts[parts.lastIndexOf(firstShown) - 1];
   assert.equal(menu[0], above, `the … menu: ${menu.join(' | ')}, path bar: ${bar}`);
   this.lastAnswer = menu[menu.length - 1];
