@@ -213,7 +213,8 @@ File references are where to look.
   (`runner/src/peer.ts`, docs/protocol.md "Who's really calling").
 - **With the `acpAgents` experiment on** (off by default) it also starts the
   `opencode acp` and Cursor's `agent acp` CLIs for threads on them, runs each
-  with `--version` when the runner starts, and runs its own updater
+  with `--version` when the runner starts (and `opencode acp --help` once per
+  copy of OpenCode, to see whether it takes `--pure`), and runs its own updater
   (`opencode upgrade`, `agent update`) only when you press Update in the app, and each
   live thread on one has a listener on `127.0.0.1` on a port the system picks,
   serving that thread's Threadbear tools, needing a random token made for it.
