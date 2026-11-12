@@ -139,6 +139,12 @@ final class ModelPickerTests: XCTestCase {
         let asFullId = Account(id: "claude-2", title: "other@collabute.com", models: [ModelChoice(id: "claude-opus-5-5", model: "claude-opus-5-5", title: "Opus 5.5")])
         XCTAssertEqual(ModelPicker.modelMove("opus", from: behrooz, to: asFullId), .set("claude-opus-5-5"))
         XCTAssertEqual(ModelPicker.modelMove("claude-fable-5", from: team, to: Account(id: "x", title: "x", models: [])), .keep, "no list yet: don't guess")
+        let unknown = Account(id: "a", title: "a@collabute.com", models: [])
+        let onlyOpus = Account(id: "b", title: "b@collabute.com", defaultModel: "claude-opus-5", models: [opus5])
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5", from: unknown, to: onlyOpus), .clear)
+        XCTAssertEqual(ModelPicker.modelMove("opus", from: unknown, to: onlyOpus), .clear, "an unresolved alias is not this login's opus")
+        XCTAssertEqual(ModelPicker.modelMove("claude-opus-5", from: unknown, to: onlyOpus), .set("opus"))
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5", from: nil, to: onlyOpus), .clear)
     }
 
     /// The levels come from the chosen model's row when the CLI gave any,

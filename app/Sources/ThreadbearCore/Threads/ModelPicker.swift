@@ -218,11 +218,12 @@ public enum ModelPicker {
     }
 
     /// What happens to an explicit model when a thread moves onto `to`.
-    /// `.keep` leaves it: nothing was set, a list isn't known yet, or `to`
-    /// already uses that choice id for the same model. `.clear` drops a
-    /// model `to` doesn't list. `.set` is `to`'s choice id for that same
-    /// resolved model. An alias is resolved on `from`, so two logins'
-    /// "opus" rows that run as different models are not the same model.
+    /// `.keep` leaves it: nothing was set, `to`'s list isn't known yet, or
+    /// `to` already uses that choice id for the same model. `.clear` drops
+    /// a model `to` doesn't list. `.set` is `to`'s choice id for that same
+    /// resolved model. An alias is resolved on `from`. A list that hasn't
+    /// come back for `from` does not keep a model `to` doesn't list, and an
+    /// unresolved alias is not `to`'s own alias.
     public enum ModelMove: Equatable {
         case keep
         case clear
@@ -232,16 +233,22 @@ public enum ModelPicker {
     public static func modelMove(_ explicit: String?, from: Account?, to: Account?) -> ModelMove {
         guard let explicit, !explicit.isEmpty, let to else { return .keep }
         if to.models.isEmpty { return .keep }
-        if let from, from.models.isEmpty { return .keep }
         if let from, let row = from.models.first(where: { $0.id == explicit || $0.model == explicit }) {
             let resolved = runsAs(row)
             guard let there = to.models.first(where: { runsAs($0) == resolved }) else { return .clear }
             return there.id == explicit ? .keep : .set(there.id)
         }
-        // No login to resolve an alias on: don't guess. A source that
-        // doesn't list it still drops it when `to`'s list is known and lacks it.
-        if from == nil { return .keep }
-        if let there = to.models.first(where: { $0.id == explicit || $0.model == explicit }) {
+        // The login being left has a list, and this id isn't on it. `to`
+        // still decides, matched by id or model.
+        if from?.models.isEmpty == false {
+            if let there = to.models.first(where: { $0.id == explicit || $0.model == explicit }) {
+                return there.id == explicit ? .keep : .set(there.id)
+            }
+            return .clear
+        }
+        // No list yet on the login being left, so an alias can't be
+        // resolved. Only the same resolved model counts.
+        if let there = to.models.first(where: { runsAs($0) == explicit }) {
             return there.id == explicit ? .keep : .set(there.id)
         }
         return .clear

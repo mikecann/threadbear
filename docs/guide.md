@@ -1089,8 +1089,9 @@ what pools do. In the model picker, that pool lists its logins in a row
 above the models. Auto lets the pool pick. Choosing a login pins the
 thread to it, and the list is that login's: a model it doesn't offer is
 dimmed, and it isn't the one ticked. Pinning, or Auto moving before the
-next turn, drops a model that login doesn't offer and uses that login's
-default. Use the pool hands it back.
+next turn, drops a model that login doesn't offer, even when the login
+being left hasn't reported its list yet, and uses that login's default.
+The effort follows that default too. Use the pool hands it back.
 
 With more than one machine, they all share the same pools, so you set them
 up once from Settings > Pools on any of them. A pool knows its logins by

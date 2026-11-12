@@ -16,20 +16,28 @@ import { CARRY_ON_BACK, CARRY_ON_MOVED, isClaudeModel, modelRow, modelTitle } fr
 import { providerName } from '../providers.ts';
 
 // What `to` should store for the model `stored` means on `from`.
-// undefined: leave it (nothing set, a list not known yet, or `to` already
-// uses that choice id). null: `to` doesn't list it. A string: `to`'s
+// undefined: leave it (nothing set, `to`'s list isn't known yet, or `to`
+// already uses that choice id). null: `to` doesn't list it. A string: `to`'s
 // choice id for the same resolved model, when it differs from `stored`.
+// An empty list on `from` is not a reason to keep a model `to` doesn't
+// list. An alias `from` hasn't resolved is not `to`'s alias.
 function modelOnLogin(from: Account | undefined, to: Account, stored: string | undefined): string | null | undefined {
   if (!stored) return undefined;
-  if (!to.models?.length || !from?.models?.length) return undefined;
-  const row = modelRow(from, stored);
-  if (!row) {
+  if (!to.models?.length) return undefined;
+  const sourceKnown = !!from?.models?.length;
+  const row = sourceKnown && from ? modelRow(from, stored) : undefined;
+  if (row) {
+    const resolved = row.model || row.id;
+    const there = to.models.find((m) => (m.model || m.id) === resolved);
+    if (!there) return null;
+    return there.id === stored ? undefined : there.id;
+  }
+  if (sourceKnown) {
     const there = modelRow(to, stored);
     if (!there) return null;
     return there.id === stored ? undefined : there.id;
   }
-  const resolved = row.model || row.id;
-  const there = to.models.find((m) => (m.model || m.id) === resolved);
+  const there = to.models.find((m) => (m.model || m.id) === stored);
   if (!there) return null;
   return there.id === stored ? undefined : there.id;
 }
@@ -239,10 +247,11 @@ export const poolsPart = {
   // session on it, carrying the transcript across between Claude logins
   // (carryTranscript), else with a handoff note. Another provider takes
   // its own default model and effort, like any provider change. The same
-  // provider keeps the model when that login lists it (or its list isn't
-  // known yet). A model it doesn't list is dropped, alias resolved on
-  // the login being left, so two "opus" rows that run as different
-  // models don't count as one. The move is a note in the transcript.
+  // provider keeps the model when that login lists it (or that login's
+  // list isn't known yet). A model it doesn't list is dropped, even when
+  // the login being left hasn't reported a list: an alias from there is
+  // not this login's alias. Dropping the model checks the effort against
+  // this login's default. The move is a note in the transcript.
   moveLogin(this: Runner, st: ThreadState, to: Account, why: string): void {
     const { rec, rt } = st;
     const from = this.usableAccounts().find((a) => a.id === rec.accountId);
@@ -267,8 +276,12 @@ export const poolsPart = {
       if (next === null && stored) {
         const dropped = modelTitle(from ?? to, stored);
         delete rec.model;
+        const checked = this.checkSettings(to, undefined, rec.effort);
+        if (checked.effort) rec.effort = checked.effort;
+        else delete rec.effort;
         const uses = to.defaultModel ? modelTitle(to, to.defaultModel) : "the account's default model";
         note += ` ${dropped} isn't on this login, so this thread uses ${uses}.`;
+        for (const text of checked.notes) note += ` ${text}`;
       } else if (next) {
         rec.model = next;
       }

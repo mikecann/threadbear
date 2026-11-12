@@ -208,6 +208,53 @@ test('before a turn: a shared opus alias is the model it means on the login bein
   assert.match(notes(h, thread.id)[0], /Opus 5 isn't on this login, so this thread uses Opus 5\.5/);
 });
 
+test("before a turn: a model the destination doesn't list is dropped when the login being left has no list yet", async () => {
+  const opus = { id: 'opus', model: 'claude-opus-5', title: 'Opus', effortLevels: ['low' as const] };
+  const accounts: Account[] = [
+    { id: 'claude-main', provider: 'claude', title: 'main@example.com', configDir: '/tmp/main', models: [opus], defaultModel: 'claude-opus-5' },
+    { id: 'claude-3', provider: 'claude', title: 'three@example.com', configDir: '/tmp/three', models: [] },
+  ];
+  const h = poolHarness({ accounts, pools: [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3'] }] });
+  h.setUsage('claude-main', room(40));
+  h.setUsage('claude-3', room(90));
+  const { thread } = h.runner.create({ text: 'x', model: 'claude-fable-5', effort: 'max' });
+  assert.equal(thread.accountId, 'claude-3');
+  assert.equal(thread.model, 'claude-fable-5');
+  assert.equal(thread.effort, 'max');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0.5, 130));
+  h.runner.send(thread.id, 'next');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main');
+  assert.equal(h.adapter.last.opts.model, undefined);
+  assert.equal(h.adapter.last.opts.effort, undefined, 'the old effort is not sent with the new default');
+  assert.equal(h.runner.get(thread.id).model, undefined);
+  assert.equal(h.runner.get(thread.id).effort, undefined);
+  assert.match(notes(h, thread.id)[0], /claude-fable-5 isn't on this login, so this thread uses Opus/);
+  assert.match(notes(h, thread.id)[0], /doesn't offer Max effort/);
+});
+
+test('before a turn: an unresolved opus alias is dropped rather than run as the next login\'s opus', async () => {
+  const accounts: Account[] = [
+    { id: 'claude-main', provider: 'claude', title: 'main@example.com', configDir: '/tmp/main', models: [{ id: 'opus', model: 'claude-opus-5', title: 'Opus 5' }], defaultModel: 'claude-opus-5' },
+    { id: 'claude-3', provider: 'claude', title: 'three@example.com', configDir: '/tmp/three', models: [] },
+  ];
+  const h = poolHarness({ accounts, pools: [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3'] }] });
+  h.setUsage('claude-main', room(40));
+  h.setUsage('claude-3', room(90));
+  const { thread } = h.runner.create({ text: 'x', model: 'opus' });
+  assert.equal(thread.accountId, 'claude-3');
+  assert.equal(thread.model, 'opus');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0.5, 130));
+  h.runner.send(thread.id, 'next');
+  await tick();
+  assert.equal(h.adapter.last.opts.model, undefined);
+  assert.match(notes(h, thread.id)[0], /opus isn't on this login/);
+});
+
 test('before a turn: a failed copy falls back to the handoff note; a login with room stays put', async () => {
   const h = poolHarness({ copy: false });
   h.setUsage('claude-main', room(40));

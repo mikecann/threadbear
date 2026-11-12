@@ -142,6 +142,26 @@ final class PoolPickTests: XCTestCase {
         XCTAssertNil(request.model)
     }
 
+    /// The login being left hasn't reported a list. The destination's list
+    /// still drops a model it doesn't offer, and an unresolved alias.
+    func testPinningADraftDropsAModelWhenThatLoginHasNoList() {
+        let app = app()
+        app.accounts[1].models = []
+        app.remember(model: "fable", provider: "claude")
+        app.newThreadAccount = "claude-1"
+        ThreadSettings(app: app, thread: nil).pin("claude-main")
+        XCTAssertNil(app.lastModels["claude"])
+        XCTAssertNil(app.newThreadRequest(text: "hi", images: []).model)
+
+        let again = self.app()
+        again.accounts[0].models = []
+        again.accounts[1].models = [ModelChoice(id: "opus", model: "claude-opus-5", title: "Opus 5")]
+        again.remember(model: "opus", provider: "claude")
+        again.newThreadAccount = "claude-main"
+        ThreadSettings(app: again, thread: nil).pin("claude-1")
+        XCTAssertNil(again.lastModels["claude"], "opus would run as this login's own opus")
+    }
+
     /// A mixed pool lists each provider's models under its name, and a
     /// pick there moves the draft to that pool and provider and names the
     /// model, so the runner knows which provider was meant.
@@ -267,6 +287,13 @@ final class PoolPickTests: XCTestCase {
         for _ in 0..<200 where transport.updates.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(transport.updates.last?["accountId"] as? String, "claude-1")
         XCTAssertTrue(transport.updates.last?["model"] is NSNull, "the team login's opus is a different model")
+
+        app.accounts[1].models = []
+        app.threads["th3"] = ThreadSummary(id: "th3", title: "t", accountId: "claude-1", model: "fable", poolId: "claude")
+        ThreadSettings(app: app, thread: app.threads["th3"]).pin("claude-main")
+        for _ in 0..<200 where transport.updates.count < 3 { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(transport.updates.last?["accountId"] as? String, "claude-main")
+        XCTAssertTrue(transport.updates.last?["model"] is NSNull, "no list on the login being left: the destination still refuses Fable")
     }
 
     /// On Auto, a login under the floor shows the other login's list.

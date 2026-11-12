@@ -2114,8 +2114,12 @@ thread to another login when the one it's on runs out of room.
   provider change, onto that provider's default model
   (`defaults.models[provider]`, else the account's own) and effort. A
   same-provider move keeps the thread's model when that login lists it,
-  or when its list isn't known yet. A model the login doesn't list is
-  dropped, and the thread uses that login's own default. An alias is the
+  or when that login's list isn't known yet. The login being left not
+  having reported a list yet does not keep a model the destination
+  doesn't list, and an alias it hasn't resolved is dropped rather than
+  run as the destination's own alias. A dropped model takes that login's
+  default, and the effort is checked against the default the same way
+  `threads.update` does. An alias is the
   model it means on the login being left, so two logins whose `opus`
   rows run as different models are not the same model. A
   thread that spilled over stays there; it doesn't move back by itself. If
