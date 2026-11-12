@@ -124,11 +124,18 @@ impl LocalPath {
         // FILE_ID_EXTD_DIR_INFO (class 19), aligned to eight bytes. Enumerate
         // the checked directory handle, never a new lookup of `path\*`.
         let mut storage = vec![0u64; 8192];
+        let mut class = 19;
         loop {
-            if unsafe { GetFileInformationByHandleEx(file.as_raw_handle(), 19, storage.as_mut_ptr().cast(), (storage.len() * 8) as u32) } == 0 {
+            if unsafe { GetFileInformationByHandleEx(file.as_raw_handle(), class, storage.as_mut_ptr().cast(), (storage.len() * 8) as u32) } == 0 {
                 let error = io::Error::last_os_error();
                 if error.raw_os_error() == Some(18) {
                     break;
+                }
+                // FAT and older filesystems need the 64-bit directory-info
+                // layout (FILE_ID_BOTH_DIR_INFO), not the 128-bit one.
+                if class == 19 && matches!(error.raw_os_error(), Some(1 | 50 | 87)) {
+                    class = 10;
+                    continue;
                 }
                 return Err(error);
             }
@@ -139,11 +146,12 @@ impl LocalPath {
                 let next = read(0)? as usize;
                 let attributes = read(56)?;
                 let len = read(60)? as usize;
-                let tag = read(68)?;
+                let tag = if class == 19 { read(68)? } else { 0 };
+                let name_at = if class == 19 { 88 } else { 104 };
                 if len % 2 != 0 {
                     return Err(refused());
                 }
-                let raw = bytes.get(at + 88..at + 88 + len).ok_or_else(refused)?;
+                let raw = bytes.get(at + name_at..at + name_at + len).ok_or_else(refused)?;
                 let name = OsString::from_wide(&raw.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect::<Vec<_>>());
                 if name != "." && name != ".." {
                     let folder = attributes & 0x10 != 0 && (attributes & 0x400 == 0 || tag & 0x2000_0000 == 0);
@@ -155,7 +163,7 @@ impl LocalPath {
                 if next == 0 {
                     break;
                 }
-                if next < 88 || at + next >= bytes.len() {
+                if next < name_at || at + next >= bytes.len() {
                     return Err(refused());
                 }
                 at += next;
@@ -390,5 +398,18 @@ fn link_target(file: &File) -> io::Result<PathBuf> {
             text.splice(..0, [92, 92, 63, 92]);
         }
     }
-    Ok(PathBuf::from(OsString::from_wide(&text)))
+    let path = PathBuf::from(OsString::from_wide(&text));
+    let relative = if tag == 0xa000_000c {
+        let flags = u32::from_le_bytes(data.get(16..20).ok_or_else(refused)?.try_into().unwrap());
+        if flags > 1 {
+            return Err(refused());
+        }
+        flags == 1
+    } else {
+        false
+    };
+    if (relative && (path.has_root() || matches!(path.components().next(), Some(Component::Prefix(_))))) || (!relative && !path.is_absolute()) {
+        return Err(refused());
+    }
+    Ok(path)
 }
