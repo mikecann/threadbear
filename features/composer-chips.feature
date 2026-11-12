@@ -30,8 +30,9 @@ Feature: The chips under the message box
     When I pick "High" from the "model" menu
     Then the model chip says "Claude · Fable 5.1 · High"
 
-  # The Login line under the effort levels (Mike's pick, 12 Nov): the Swift
-  # app is frozen with its "Pinned to … · Unpin" line, so these are GPUI's.
+  # The Login line under the effort levels (Mike's pick, 12 Nov) is the
+  # GPUI app's. The Swift app lists the logins in a row under the search
+  # instead, so these stay GPUI's.
   @composer.modelpicker @swift-pending
   Scenario: A thread pinned to a login says so in the model picker, and Auto hands it back to a pool
     When I open the thread "Compare SQLite and plain files for the runner"
@@ -104,6 +105,19 @@ Feature: The chips under the message box
     When I open the thread "Check the photo library backup"
     And I type "Check it again" in the composer
     Then right-clicking Send doesn't offer "Schedule…"
+
+  @composer.modelpicker @gpui-pending
+  Scenario: Choosing a login in the model picker pins the thread to it
+    Then the "model" menu has a row "@ [x] Auto - best room"
+    And the "model" menu has a row "@ [ ] mike - 78% left"
+    When I pick "mike+3" from the "model" menu
+    Then the model chip says "mike+3 · Fable 5.1"
+
+  @composer.modelpicker @gpui-pending
+  Scenario: A model the login doesn't offer is dimmed and not ticked
+    When I pick "mike+4" from the "model" menu
+    Then the "model" menu has a row "    [ ] Opus 5 - Not on this login"
+    And the model chip says "mike+4 · Fable 5.1"
 
   @composer.contextring
   Scenario: The context ring says how full the thread is

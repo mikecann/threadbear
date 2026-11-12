@@ -2113,6 +2113,11 @@ thread to another login when the one it's on runs out of room.
   has a login with room: a cross-provider move, a handoff like any
   provider change, onto that provider's default model
   (`defaults.models[provider]`, else the account's own) and effort. A
+  same-provider move keeps the thread's model when that login lists it,
+  or when its list isn't known yet. A model the login doesn't list is
+  dropped, and the thread uses that login's own default. An alias is the
+  model it means on the login being left, so two logins whose `opus`
+  rows run as different models are not the same model. A
   thread that spilled over stays there; it doesn't move back by itself. If
   nothing in the pool has room before a turn, the turn starts where it is.
 - **A turn that hits the limit.** A pool thread's turn that ends `failed`

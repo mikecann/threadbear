@@ -143,6 +143,71 @@ test('before a turn: a login under the minimum moves the thread, carrying the tr
   assert.equal(h.runner.get(thread.id).poolId, 'claude', 'still a pool thread');
 });
 
+test('before a turn: a model stays when the next login has no list yet', async () => {
+  const h = poolHarness();
+  h.setUsage('claude-main', room(40));
+  h.setUsage('claude-3', room(90));
+  const { thread } = h.runner.create({ text: 'x', model: 'claude-fable-5' });
+  assert.equal(thread.accountId, 'claude-3');
+  assert.equal(thread.model, 'claude-fable-5');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0.5, 130));
+  h.runner.send(thread.id, 'next');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main');
+  assert.equal(h.adapter.last.opts.model, 'claude-fable-5', "an empty list isn't a no");
+  assert.equal(h.runner.get(thread.id).model, 'claude-fable-5');
+  assert.doesNotMatch(notes(h, thread.id)[0], /isn't on this login/);
+});
+
+test("before a turn: a model the next login doesn't list is dropped, alias resolved on the login being left", async () => {
+  const opus55 = { id: 'opus', model: 'claude-opus-5-5', title: 'Opus 5.5' };
+  const opus5 = { id: 'opus', model: 'claude-opus-5', title: 'Opus 5' };
+  const fable = { id: 'fable', model: 'claude-fable-5', title: 'Fable' };
+  const accounts: Account[] = [
+    { id: 'claude-main', provider: 'claude', title: 'main@example.com', configDir: '/tmp/main', models: [opus55], defaultModel: 'claude-opus-5-5' },
+    { id: 'claude-3', provider: 'claude', title: 'three@example.com', configDir: '/tmp/three', models: [opus5, fable], defaultModel: 'claude-opus-5' },
+  ];
+  const pools: Pool[] = [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3'] }];
+  const h = poolHarness({ accounts, pools });
+  h.setUsage('claude-main', room(40));
+  h.setUsage('claude-3', room(90));
+  const { thread } = h.runner.create({ text: 'x', model: 'fable' });
+  assert.equal(thread.accountId, 'claude-3');
+  assert.equal(thread.model, 'fable');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0.5, 130));
+  h.runner.send(thread.id, 'next');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main');
+  assert.equal(h.adapter.last.opts.model, undefined);
+  assert.equal(h.runner.get(thread.id).model, undefined);
+  assert.match(notes(h, thread.id)[0], /Fable isn't on this login, so this thread uses Opus 5\.5/);
+});
+
+test('before a turn: a shared opus alias is the model it means on the login being left', async () => {
+  const accounts: Account[] = [
+    { id: 'claude-main', provider: 'claude', title: 'main@example.com', configDir: '/tmp/main', models: [{ id: 'opus', model: 'claude-opus-5-5', title: 'Opus 5.5' }], defaultModel: 'claude-opus-5-5' },
+    { id: 'claude-3', provider: 'claude', title: 'three@example.com', configDir: '/tmp/three', models: [{ id: 'opus', model: 'claude-opus-5', title: 'Opus 5' }], defaultModel: 'claude-opus-5' },
+  ];
+  const h = poolHarness({ accounts, pools: [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3'] }] });
+  h.setUsage('claude-main', room(40));
+  h.setUsage('claude-3', room(90));
+  const { thread } = h.runner.create({ text: 'x', model: 'opus' });
+  assert.equal(thread.accountId, 'claude-3');
+  assert.equal(thread.model, 'opus');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0.5, 130));
+  h.runner.send(thread.id, 'next');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main');
+  assert.equal(h.adapter.last.opts.model, undefined);
+  assert.match(notes(h, thread.id)[0], /Opus 5 isn't on this login, so this thread uses Opus 5\.5/);
+});
+
 test('before a turn: a failed copy falls back to the handoff note; a login with room stays put', async () => {
   const h = poolHarness({ copy: false });
   h.setUsage('claude-main', room(40));
