@@ -123,6 +123,10 @@ export type Config = {
   // done. On unless runner.json has `labReview: false` (Settings > General);
   // an experiment from 6 Nov until Mike made it standard on 10 Nov 2026.
   labReview: boolean;
+  // Settings' Only make Prints when I ask: create_print asks first unless
+  // the user's latest message asked for one. Off unless runner.json says
+  // `printsWhenAsked: true`.
+  printsWhenAsked: boolean;
   // Keep the Mac out of idle sleep while threads work (keep-awake.ts). On
   // unless runner.json says `keepAwake: false` (Settings > General).
   keepAwake: boolean;
@@ -199,6 +203,7 @@ export type RunnerJson = {
   bulletReplies?: boolean;
   oneReply?: boolean;
   labReview?: boolean;
+  printsWhenAsked?: boolean;
   keepAwake?: boolean;
   // bringIn: how often a fork's runner starts a thread to bring in Mike's
   // releases (bring-in.ts): every so many days, 'important' or 'off'.
@@ -413,6 +418,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     // balance, and it's no longer in Settings).
     oneReply: json.oneReply !== false,
     labReview: json.labReview !== false,
+    printsWhenAsked: json.printsWhenAsked === true,
     // On for everyone since 10 Nov 2026, after a few days as an experiment
     // on Mike's Mac; Settings turns it off for anyone who'd rather.
     keepAwake: json.keepAwake !== false,

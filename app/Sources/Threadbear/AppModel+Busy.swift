@@ -19,6 +19,7 @@ enum BusyKey {
     static func moveThread(_ id: String) -> String { "moveThread/\(id)" }
     static func projectIcon(_ id: String) -> String { "projectIcon/\(id)" }
     static func projectTasks(_ id: String) -> String { "projectTasks/\(id)" }
+    static func page(_ id: String) -> String { "page/\(id)" }
     static func runSchedule(_ id: String) -> String { "runSchedule/\(id)" }
     static func pauseSchedule(_ id: String) -> String { "pauseSchedule/\(id)" }
     static func tickAsk(_ threadId: String, asksSeq: Int, index: Int) -> String { "tickAsk/\(threadId)/\(asksSeq)/\(index)" }

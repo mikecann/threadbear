@@ -844,6 +844,50 @@ on a card, or its right-click menu, opens it in Notion. Boards are read through
 a Connectors gateway (see [Connectors](#connectors)); without one, the
 project's page says so and nothing is read.
 
+## Prints
+
+A Print is something a thread makes for you to keep. It can be a chart, a dashboard, a report or a doc. It stays after the reply that made it scrolls away, and asking again updates it rather than making another one. It's an experiment: turn it on in Settings > General > Experiments > Prints. (Prints were called Pages until 10 Nov 2026; an older reply's page still shows as a card.)
+
+Ask in plain words, in any thread:
+
+| Say | You get |
+|---|---|
+| "Make a pie chart of this spreadsheet by region" | A **chart** print. Attach the file or name it |
+| "Make a dashboard from this data" | A **dashboard**: big numbers, a few charts and a table |
+| "Give me a report on where this project stands" | A **report**: sections of text with charts |
+| "Write up the launch plan as a print" | A **doc**. You can edit it yourself too |
+| "Draw this flow as a diagram print" | A **diagram** from Mermaid source, with text you can edit and an SVG you can download |
+
+**Where a print goes.** A thread pinned to exactly one project puts its new prints there automatically, under **Prints** on the project's page. Say "keep it out of projects" for none, or "put it in Poddle" for another. A print can be in several projects without duplicating its files. All Prints are stored in `~/Library/Application Support/Threadbear/pages/<print-id>/v<version>/`, separate from your code folders. With no project, reopen its card in the thread or ask "show my prints with no project". Download saves a separate copy wherever you choose. Nothing about a print goes to your Convex backend unless you publish it (below).
+
+**Only when you ask.** Threads also make Prints on their own, like a progress Print on a long task. To keep Prints but have them made only when you ask, turn on **Only make Prints when I ask** in Settings > General > Prints. A thread that goes to make one your message didn't ask for then asks you first, on a card, and No means none is made. A message that says print, chart, graph, dashboard or diagram counts as asking, so it goes ahead without a card. Changing a Print that already exists never asks.
+
+**In a reply**, a thread shows a print as a card: a picture of the top of it, then its title, kind, version and age, with Open, Refresh and a ⋯ menu. Click the picture or Open to open it in the side pane beside the thread. While it's open there, a new version replaces it in the pane as soon as it's saved. If you opened an older version on purpose, it stays put. A thread on another Mac opens it in a window of its own instead. On the website, the same reply shows a card too. A published print's card has its title and an Open button that goes to its page. One that isn't published says it's kept on your Mac, since its files never leave it. The iPhone app shows the block as text for now. The card always shows the print as it is now, so when a print gets a new version, the card in an earlier reply moves to it too, marked "New version", rather than a second card appearing. While a refresh is under way, the card says so.
+
+**In Highlights and on the rail.** A thread's Highlights list the Prints it made, under Prints, each with its kind, version and the projects it's in, or "No project". The Prints button on the right-hand rail, under Files, lists every Print you have, newest first, with the same details. It shows once there's at least one. Click a Print in either to open it beside the thread; right-click for Open in a Window and Refresh.
+
+**Every row under Prints on the project's page** opens its print in a window of its own when you click it. Its ⋯ menu, or a right-click, has:
+
+- **Refresh** sends the print to the thread that made it, to be made again the same way, and opens that thread so you can watch.
+- **Edit with Agent…** asks for what should change, for example "make the region chart a pie". The thread does it and saves a new version.
+- **Edit Text…** opens a doc's Markdown or a diagram's Mermaid source to edit yourself. Save redraws it as a new version marked "edited by you". Invalid diagram source shows an error and keeps the previous version.
+- **Download…** saves the print's files in a new folder. Its `index.html` opens in any browser.
+- **Download as PDF…** saves it as a PDF on US Letter pages, in the light look, so it prints and sends cleanly. A line that lands right on a page break can be cut across two pages. For print-perfect breaks, ask the thread to "download it as a PDF", which prints it through Chrome.
+- **Versions** lists the last 10. Open one, download it, or make it the newest again; nothing in between is lost.
+- **Projects** puts it in a project or takes it out.
+- **Publish…** puts the print on your own Convex backend, after asking, and copies its link. It then opens on your phone, on the website, and for anyone you give the link to, and each new version goes up by itself. **Copy Link**, **Open on the Web** and **Unpublish** replace it once it's published. Unpublish, or Delete, takes it down and the link stops working. Only the print's one page goes up, and only prints with no scripts can be published.
+- **Delete** takes it away. It waits 7 days under **Recently deleted** at the bottom of the list, where **Restore** brings it back.
+
+You can also ask a thread for any of these: "refresh the sales dashboard", "go back to version 3", "delete the old chart", "bring it back", "download it", "what prints do I have".
+
+**Keeping one up to date.** Say "refresh it every weekday morning" (or any time you like) and the thread schedules itself to make the print again from its recipe and save a new version. It tells you when it will run. It shows on the Scheduled page, where you can change or stop it, or ask the thread to.
+
+**Asking once.** In Ask before edits, the first change to a print asks you. Once you allow it, later versions of that same print from that thread go ahead without asking again, until the thread is next restarted. A different print, or deleting one, still asks.
+
+**Diagrams** are drawn on your Mac with Pele, the same library used for diagrams in replies, and kept as static SVG with their Mermaid source. No package download or network access is needed to render one. A wide diagram uses the whole window and scrolls sideways rather than shrinking its labels too small to read; printed or saved as a PDF, it fits the page. Download includes `source.mmd` and `diagram.svg`. Published diagram HTML includes the diagram and its folded source, so both become public when you publish.
+
+Prints are static: pictures, charts and text, with no scripts, so they open straight away and can't reach the internet. A thread can make a "live" print with scripts when you ask for one. Its scripts run only after you choose Run them, and again for each new version.
+
 ## The librarian
 <!-- slug: librarian -->
 

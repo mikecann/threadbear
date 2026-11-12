@@ -85,6 +85,7 @@ public enum HighlightFold {
     public static let files = "files"
     public static let links = "links"
     public static let changes = "changes"
+    public static let prints = "prints"
     public static func project(_ id: String) -> String { "project:\(id)" }
 }
 

@@ -30,7 +30,7 @@ struct HighlightsView: View {
         } else if let fetched = app.highlights[thread.id] {
             let sections = HighlightSections.build(fetched)
             let projects = HighlightProjects.build(thread: thread, project: app.project)
-            if sections.isEmpty && openAsks == nil && projects.isEmpty && toolPanels.isEmpty && schedules.isEmpty && thread.subagents.isEmpty && startedThreads.isEmpty {
+            if sections.isEmpty && openAsks == nil && projects.isEmpty && toolPanels.isEmpty && schedules.isEmpty && thread.subagents.isEmpty && startedThreads.isEmpty && prints.isEmpty {
                 PaneNote(text: "Nothing here yet. Files, links and commits from this thread show up here as it works.")
             } else {
                 ScrollView {
@@ -151,6 +151,15 @@ struct HighlightsView: View {
                 ForEach(sections.pinned) { row($0) }
             }
         }
+        // The Prints this thread made (Wayne, 11 Nov), each with the
+        // projects it's in. A click opens it in this pane.
+        let made = prints
+        if !made.isEmpty {
+            SectionHeading(title: "Prints", icon: "doc.richtext", fold: fold(HighlightFold.prints, count: made.count))
+            if !isFolded(HighlightFold.prints) {
+                ForEach(made) { PrintRow(page: $0) }
+            }
+        }
         if !sections.files.isEmpty {
             SectionHeading(title: "Files", icon: "doc", fold: fold(HighlightFold.files, count: sections.files.count))
             if !isFolded(HighlightFold.files) {
@@ -188,6 +197,10 @@ struct HighlightsView: View {
                 if folded { app.collapsedHighlights.remove(key) } else { app.collapsedHighlights.insert(key) }
             }
         }
+    }
+
+    private var prints: [Page] {
+        app.pagesOn ? PrintRows.made(by: thread.id, in: app.pages) : []
     }
 
     private var schedules: [ScheduleRows.Row] {
@@ -1180,5 +1193,28 @@ private struct ToolCard: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .tip("Open \(panel.title)")
+    }
+}
+
+/// A Print in Highlights or the rail's Prints list: its kind's icon, title,
+/// kind and version, and the projects it's in. A click opens it in the side
+/// pane, where it follows new versions; its menu has the rest.
+struct PrintRow: View {
+    @Environment(AppModel.self) private var app
+    let page: Page
+
+    var body: some View {
+        let titles = Dictionary(app.projects.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
+        PaneRow(icon: page.symbol, title: page.title, trailing: PrintRows.kindAndVersion(page),
+                detail: PrintRows.projects(of: page, titles: titles), titleTruncation: .tail, detailTruncation: .tail) {
+            app.openPageHere(page)
+        }
+        .busy(app.isBusy(BusyKey.page(page.id)))
+        .tip("Open \(page.title) beside the thread")
+        .iconContextMenu {
+            Button("Open Here", systemImage: "sidebar.right") { app.openPageHere(page) }
+            Button("Open in a Window", systemImage: "macwindow") { app.openPage(page) }
+            Button("Refresh", systemImage: "arrow.clockwise") { app.refreshPage(page) }
+        }
     }
 }

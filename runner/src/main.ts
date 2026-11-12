@@ -1,6 +1,7 @@
 // Runner entry point: `node src/main.ts`. launchd runs this (see
 // scripts/install-runner.sh); tests run it with THREADBEAR_HOME and
 // THREADBEAR_PORT pointing at temp places.
+import { Pages, followPublished, pageMethods, type PageAsk, type PagePublisher } from './pages.ts';
 import { realCopy } from './real-copy.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -252,18 +253,43 @@ async function main(): Promise<void> {
     const s = await connectors.refresh(true);
     return s.state === 'ok' ? s.services : undefined;
   };
+  // The pages experiment (pages.ts): one store for every thread, made the
+  // first time a thread is handed the page tools.
+  let pageStore: Pages | undefined;
+  // Published prints follow their newest version (pages.ts followPublished).
+  const printPublisher: PagePublisher = {
+    problem: () => sync.printsProblem(),
+    site: () => sync.site(),
+    publish: (print) => sync.publishPrint(print),
+    unpublish: (id) => sync.unpublishPrint(id),
+  };
+  const publishedKnown = new Map<string, string>();
+  // What was published when the runner started, so one deleted later still comes down.
+  const seeded = (store: Pages): Pages => {
+    for (const p of store.list()) if (p.published) publishedKnown.set(p.id, p.published.slug);
+    return store;
+  };
+  let following: Promise<void> = Promise.resolve();
+  const pagesFor = () =>
+    experimentOn(cfg.home, 'pages')
+      ? (pageStore ??= seeded(new Pages(cfg.home, Date.now, (pages) => {
+          runner.publish({ method: 'pages.updated', params: { pages } });
+          const store = pageStore;
+          if (store) following = following.then(() => followPublished(store, printPublisher, publishedKnown)).catch((e) => log.warn('published prints not followed', { error: String(e) }));
+        })))
+      : undefined;
   const claude = new ClaudeAdapter({
     claudePath: cfg.claudePath,
     registry,
     log,
-    mcpServersFor: (threadId) => ({ [SERVER_NAME]: threadbearMcpServer(router(), threadId, scheduleControl(), projectControl(), appRestarts, () => cfg.bulletReplies, pocketControl, () => cfg.oneReply, () => cfg.connectorsUrl, gatewayHealth, remoteControl, () => experimentOn(cfg.home, 'runAsks'), () => experimentOn(cfg.home, 'looseEnds')) }),
+    mcpServersFor: (threadId) => ({ [SERVER_NAME]: threadbearMcpServer(router(), threadId, scheduleControl(), projectControl(), appRestarts, () => cfg.bulletReplies, pocketControl, () => cfg.oneReply, () => cfg.connectorsUrl, gatewayHealth, remoteControl, () => experimentOn(cfg.home, 'runAsks'), () => experimentOn(cfg.home, 'looseEnds'), pagesFor, () => printPublisher, () => cfg.printsWhenAsked) }),
     oneReply: () => cfg.oneReply,
     sandboxFor: (cwd) => sandboxFor(cfg.sandbox, cwd),
     alwaysAsk: ALWAYS_ASK_TOOLS,
     neverAsk: NEVER_ASK_TOOLS,
   });
   // The threadbear tools for an agent that isn't given them in-process.
-  const codexStyleTools = (threadId: string) => buildThreadbearTools(router(), threadId, Date.now, scheduleControl(), projectControl(), appRestarts, { provider: 'codex', bulletReplies: () => cfg.bulletReplies, oneReply: () => cfg.oneReply, pocket: pocketControl, gateway: () => cfg.connectorsUrl, gatewayHealth, remote: remoteControl, runAsks: () => experimentOn(cfg.home, 'runAsks'), looseEnds: () => experimentOn(cfg.home, 'looseEnds') });
+  const codexStyleTools = (threadId: string) => buildThreadbearTools(router(), threadId, Date.now, scheduleControl(), projectControl(), appRestarts, { provider: 'codex', bulletReplies: () => cfg.bulletReplies, oneReply: () => cfg.oneReply, pocket: pocketControl, gateway: () => cfg.connectorsUrl, gatewayHealth, remote: remoteControl, runAsks: () => experimentOn(cfg.home, 'runAsks'), looseEnds: () => experimentOn(cfg.home, 'looseEnds'), pages: pagesFor, printPublisher: () => printPublisher, printsWhenAsked: () => cfg.printsWhenAsked });
   // One app-server per live Codex thread, each starting what E says is
   // current, with the same threadbear tools as dynamic tools.
   const codex = new CodexAdapter({
@@ -724,7 +750,20 @@ async function main(): Promise<void> {
   updaterReady = true;
 
   runner.attachClis(updates);
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  // Refresh and Edit with agent (pages.ts): to the thread that made the
+  // page, queued behind its turn, or a new thread in the page's project.
+  const askAboutPage: PageAsk = (page, text) => {
+    try {
+      runner.get(page.ownerThread);
+      void runner.send(page.ownerThread, text, [], { queue: true });
+      return { threadId: page.ownerThread, started: false };
+    } catch {
+      const folder = page.projects.map((x) => projects.list({ archived: true }).find((pr) => pr.id === x.id)?.folders[0]).find(Boolean);
+      const t = runner.create({ text, title: `Print: ${page.title}`, ...(folder ? { cwd: folder } : {}), startedBy: { kind: 'runner', label: 'Prints', why: 'Refresh or change a print whose thread is gone' } });
+      return { threadId: t.thread.id, started: true };
+    }
+  };
+  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...pageMethods(pagesFor, askAboutPage, printPublisher), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {

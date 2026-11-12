@@ -9,6 +9,9 @@ import WebKit
 /// Worktrees): the thread's folder to look through.
 enum BuiltinPanels {
     static let files = "threadbear.files"
+    /// Every Print, with its projects (Wayne, 11 Nov). Shown while Prints
+    /// is on and there is at least one.
+    static let prints = "threadbear.prints"
 }
 
 /// A pane section as a panel in the window's dock (WindowDock): Highlights,
@@ -49,6 +52,8 @@ struct DockPane: View {
                         // a file opens over it, Back comes back.
                         PreviewBody(thread: thread, preview: app.filesPanelPreview(for: thread))
                             .id(thread.id)
+                    case .panel(BuiltinPanels.prints):
+                        PrintsList()
                     case .panel(let id):
                         if let panel = thread.panels.first(where: { $0.id == id }) {
                             panelView(panel, in: thread)
@@ -265,6 +270,11 @@ struct PanelRail: View {
             if project == nil {
                 ActivityButton(symbol: "folder", title: "Files", tip: "The files in this thread's folder", active: app.dock.isShowing(BuiltinPanels.files)) {
                     app.clickRail(.panel(BuiltinPanels.files), in: thread)
+                }
+                if app.showsPrintsRail {
+                    ActivityButton(symbol: "doc.richtext", title: "Prints", tip: "Every Print, and the projects each is in", badge: PrintRows.all(app.pages).count, active: app.dock.isShowing(BuiltinPanels.prints)) {
+                        app.clickRail(.panel(BuiltinPanels.prints), in: thread)
+                    }
                 }
             }
             Spacer(minLength: zoomed(8))
@@ -1436,6 +1446,26 @@ private struct ListPanel: View {
         case .attention: Color(nsColor: Theme.needsYou)
         case .failed: Color(nsColor: Theme.failed)
         case .done, nil: nil
+        }
+    }
+}
+
+/// The rail's Prints: every Print, newest first, each saying which projects
+/// it's in, or "No project". A click opens it in the pane; Back comes back.
+struct PrintsList: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let all = PrintRows.all(app.pages)
+        if all.isEmpty {
+            PaneNote(text: "No Prints yet. Ask a thread for a chart, a report or a doc.")
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(all) { PrintRow(page: $0) }
+                }
+                .padding(.vertical, zoomed(8))
+            }
         }
     }
 }

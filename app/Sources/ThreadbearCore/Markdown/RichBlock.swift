@@ -8,7 +8,9 @@ import Foundation
 /// here so they're tested without AppKit: which fences count, each block's
 /// id, the colours, and the pages the app's web views are given.
 public struct RichBlock: Hashable, Sendable {
-    public enum Kind: String, Sendable { case mermaid, html }
+    /// `page` is the top of a Page's own file, drawn for its card in a
+    /// reply (PageFence); it never comes from a fence itself.
+    public enum Kind: String, Sendable { case mermaid, html, page }
 
     public let kind: Kind
     public let source: String
@@ -45,6 +47,15 @@ public struct RichBlock: Hashable, Sendable {
 
     /// What the box's header calls it.
     public var label: String { kind.rawValue }
+    /// A Page's newest file drawn for its card: the version is in the
+    /// source, so a new version is a new drawing.
+    public static func pageThumb(file: String, version: Int, nativeDiagram: Bool = false) -> RichBlock {
+        RichBlock(kind: .page, source: "\(file)\n\(version)\ncard 4\(nativeDiagram ? "\ndiagram" : "")")
+    }
+
+    /// The file a `page` block draws.
+    public var pageFile: String? { kind == .page ? source.split(separator: "\n").first.map(String.init) : nil }
+
     /// The left half of the switch.
     public var drawnTitle: String { kind == .mermaid ? "Diagram" : "Preview" }
 }
@@ -172,5 +183,24 @@ public enum RichPages {
         svg{max-width:100%;height:auto}
         </style></head><body><div class="look light">\(lightSVG)</div><div class="look dark">\(darkSVG)</div></body></html>
         """
+    }
+}
+
+/// A ```print <id> fence in a reply (the pages experiment, called Prints;
+/// ```page, its name before 10 Nov 2026, still works): the card for one
+/// of the runner's Pages, drawn from the page as it is now, so a new
+/// version shows in every reply that names it.
+public enum PageFence {
+    /// The page id in a fence whose info string is `page <id>` or whose
+    /// body is the id, or nil for anything else.
+    public static func id(language: String?, code: String) -> String? {
+        let words = (language ?? "").split(whereSeparator: { $0 == " " || $0 == "\t" })
+        guard let word = words.first?.lowercased(), word == "print" || word == "page" else { return nil }
+        let candidate = words.count > 1 ? String(words[1]) : code.trimmingCharacters(in: .whitespacesAndNewlines).split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+        return isPageId(candidate) ? candidate : nil
+    }
+
+    public static func isPageId(_ s: String) -> Bool {
+        s.hasPrefix("pg_") && s.count <= 80 && s.dropFirst(3).allSatisfy { $0.isLowercase || $0.isNumber || $0 == "_" } && s.count > 3
     }
 }

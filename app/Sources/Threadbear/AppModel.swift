@@ -114,6 +114,13 @@ final class AppModel {
     /// its draft stays in the box, greyed and locked, with a spinner for
     /// Send, so the click visibly did something however slow the runner is.
     var creatingThread = false
+    /// The pages experiment's pages (Pages.swift), newest first.
+    var pages: [Page] = [] {
+        // The cards in replies follow it (PageCards).
+        didSet { PageCards.shared.update(pages, enabled: pagesOn) }
+    }
+    /// Deleted pages, kept 7 days for Restore (Pages.swift).
+    var deletedPages: [Page] = []
     /// How long a thread may sit idle with one of Mike's messages still
     /// queued before the app gives up on it showing.
     static let queuedGrace: Double = 10

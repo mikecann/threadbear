@@ -679,6 +679,26 @@ export default defineSchema({
     // The audit's live tokens, without reading revoked ones.
     .index('by_revokedAt', ['revokedAt']),
 
+  // Published Prints (docs/protocol.md, "Prints", since API 77): one row
+  // per print its runner's user chose to publish, with the print's
+  // index.html as text, for the website's /p/<slug> page and the phone.
+  // Nothing about a print is here until it's published, and the row goes
+  // when it's unpublished or deleted. Static HTML only (sync.ts
+  // publishPrint refuses a script).
+  prints: defineTable({
+    runnerId: v.string(),
+    id: v.string(),
+    slug: v.string(),
+    title: v.string(),
+    kind: v.string(),
+    version: v.number(),
+    summary: v.string(),
+    html: v.string(),
+    updatedAt: v.string(),
+  })
+    .index('by_runner_id', ['runnerId', 'id'])
+    .index('by_slug', ['slug']),
+
   // The runner's projects, schedules and accounts (docs/protocol.md), one
   // row each, replaced as a whole when the runner's list changes.
   projects: defineTable({

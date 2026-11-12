@@ -577,6 +577,7 @@ struct AppDump: Encodable {
             }
             if app.openProject == nil {
                 right.append(RailButton(title: "Files", active: app.dock.isShowing(BuiltinPanels.files)))
+                if app.showsPrintsRail { right.append(RailButton(title: "Prints", badge: PrintRows.all(app.pages).count, active: app.dock.isShowing(BuiltinPanels.prints))) }
             }
             if !thread.patches.isEmpty {
                 right.append(RailButton(title: "Patches", badge: thread.patches.count, active: app.dock.isShowing(PaneSection.patchesId)))

@@ -245,6 +245,7 @@ enum Automation {
                 "oneReply": settings.oneReply,
                 "labReview": settings.labReview,
                 "keepAwake": settings.keepAwake.map { $0 as Any } ?? NSNull(),
+                "printsWhenAsked": settings.printsWhenAsked.map { $0 as Any } ?? NSNull(),
                 // "" is none (small jobs off), or an older runner with no pools.
                 "smallJobsPool": settings.models.pool ?? "",
                 "privateFolders": settings.models.privateFolders,
@@ -858,7 +859,7 @@ enum Automation {
             // {"cmd":"panel"} toggles. On a project's page, the project's.
             guard let thread = app.paneThread else { return "error no thread selected" }
             if let id = c["id"] as? String {
-                let ids = (app.openProject == nil ? [PaneSection.highlightsId, AgentBrowser.panelId, BuiltinPanels.files] : []) + thread.panels.map(\.id) + (thread.patches.isEmpty ? [] : [PaneSection.patchesId])
+                let ids = (app.openProject == nil ? [PaneSection.highlightsId, AgentBrowser.panelId, BuiltinPanels.files, BuiltinPanels.prints] : []) + thread.panels.map(\.id) + (thread.patches.isEmpty ? [] : [PaneSection.patchesId])
                 guard ids.contains(id) else { return "error no panel \(id); this thread has \(ids.joined(separator: ", "))" }
                 app.choosePanel(id, in: thread.id)
             } else if let show = c["show"] as? Bool {
@@ -1218,6 +1219,18 @@ enum Automation {
             }
             try? await Task.sleep(for: .milliseconds(400))
             return "ok"
+        case "pagePDF":
+            // {"cmd":"pagePDF","id":"pg_…","path":"/tmp/x.pdf"} runs Download
+            // as PDF's drawing without its save panel, for checking it.
+            guard let id = c["id"] as? String, let path = c["path"] as? String, let client = app.client else { return "error give an id and a path" }
+            do {
+                let got = try await client.getPage(id)
+                let pdf = try await RichRenderer.shared.pagePDF(file: got.file)
+                try pdf.write(to: URL(fileURLWithPath: path))
+                return "ok \(pdf.count) bytes"
+            } catch {
+                return "error \(error.localizedDescription)"
+            }
         case "project":
             // {"cmd":"project","id":"p_…"} (or "title") opens a project's page in the
             // detail area; {"cmd":"project","close":true} closes it, and

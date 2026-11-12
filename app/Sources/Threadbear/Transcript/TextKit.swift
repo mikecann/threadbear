@@ -539,6 +539,12 @@ final class TranscriptTextView: NSTextView {
             perform(action, on: box.cell.block)
             return
         }
+        // A page's card (PageCardCell): its buttons and its preview.
+        if let card = pageCard(at: point), let action = card.cell.action(at: point, in: card.frame) {
+            closeChipCard()
+            performPage(action, card.cell, at: card.cell.layout(in: card.frame).buttons[action] ?? card.frame)
+            return
+        }
         // A draft's Copy (DraftBlockCell).
         if let header = draftHeader(at: point), header.cell.isButton(at: point, in: header.frame) {
             closeChipCard()
@@ -730,6 +736,32 @@ final class TranscriptTextView: NSTextView {
         needsDisplay = true
     }
 
+    /// The page card at `point` (PageCardCell), and its frame.
+    func pageCard(at point: NSPoint) -> (cell: PageCardCell, frame: NSRect)? {
+        guard let layoutManager, let textContainer, let storage = textStorage, storage.length > 0,
+              storage.string.utf16.contains(0xFFFC) else { return nil }
+        let origin = textContainerOrigin
+        let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+        let glyph = layoutManager.glyphIndex(for: local, in: textContainer)
+        let index = layoutManager.characterIndexForGlyph(at: glyph)
+        guard index < storage.length, let cell = (storage.attribute(.attachment, at: index, effectiveRange: nil) as? NSTextAttachment)?.attachmentCell as? PageCardCell
+        else { return nil }
+        let frame = richFrame(glyph: glyph)
+        return frame.contains(point) ? (cell, frame) : nil
+    }
+
+    private func performPage(_ action: PageCardCell.Action, _ cell: PageCardCell, at rect: NSRect) {
+        guard let page = cell.page else { return }
+        let app = AppModel.shared
+        switch action {
+        case .open, .preview: app.openPageHere(page)
+        case .refresh: app.refreshPage(page)
+        case .more:
+            let menu = PageMenuBuilder.menu(for: page, app: app)
+            menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: isFlipped ? rect.maxY + 2 : rect.minY - 2), in: self)
+        }
+    }
+
     private func richFrame(glyph: Int) -> NSRect {
         guard let layoutManager, let textContainer else { return .zero }
         let box = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer)
@@ -741,6 +773,7 @@ final class TranscriptTextView: NSTextView {
 
     private func isRichButton(at point: NSPoint) -> Bool {
         if let header = draftHeader(at: point) { return header.cell.isButton(at: point, in: header.frame) }
+        if let card = pageCard(at: point) { return card.cell.action(at: point, in: card.frame) != nil }
         guard let box = richBox(at: point) else { return false }
         return box.cell.action(at: point, in: box.frame) != nil
     }
@@ -771,6 +804,17 @@ final class TranscriptTextView: NSTextView {
                 let anchor = RichTipAnchor(frame: draft.button(in: frame))
                 anchor.text = DraftBlockCell.tip
                 addSubview(anchor)
+                return
+            }
+            if let card = (value as? NSTextAttachment)?.attachmentCell as? PageCardCell {
+                let frame = richFrame(glyph: layoutManager.glyphIndexForCharacter(at: range.location))
+                let layout = card.layout(in: frame)
+                for action in PageCardCell.Action.allCases {
+                    guard let rect = layout.buttons[action] else { continue }
+                    let anchor = RichTipAnchor(frame: rect)
+                    anchor.text = action == .refresh && card.refreshing ? "Its thread is making it again" : action.tip
+                    addSubview(anchor)
+                }
                 return
             }
             guard let cell = (value as? NSTextAttachment)?.attachmentCell as? RichBlockCell else { return }

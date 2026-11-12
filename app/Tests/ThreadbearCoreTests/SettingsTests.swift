@@ -33,6 +33,14 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(settings, RunnerSettings(), "an older runner's key field is ignored")
     }
 
+    func testPrintsWhenAskedDecodesAndIsHiddenForAnOlderRunner() throws {
+        let decode = { (s: String) in try JSONDecoder().decode(RunnerSettings.self, from: Data(s.utf8)) }
+        XCTAssertEqual(try decode(#"{"printsWhenAsked":true}"#).printsWhenAsked, true)
+        XCTAssertEqual(try decode(#"{"printsWhenAsked":false}"#).printsWhenAsked, false)
+        XCTAssertNil(try decode("{}").printsWhenAsked, "an older runner sends none, so no switch")
+        XCTAssertEqual(SettingsUpdate(printsWhenAsked: true).params, ["printsWhenAsked": .bool(true)])
+    }
+
     func testExperimentsDecodeAndAnUpdateSendsOnlyTheSwitch() throws {
         let json = #"{"experiments":[{"id":"keepAwake","name":"Keep the Mac awake","does":"Stops `caffeinate`  idle sleep.","on":true},{"name":"no id"},{"id":"x"}]}"#
         let settings = try JSONDecoder().decode(RunnerSettings.self, from: Data(json.utf8))

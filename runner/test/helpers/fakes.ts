@@ -181,6 +181,7 @@ export function testConfig(home: string, extra: Partial<Config> = {}): Config {
     // On for real runners (config.ts); off here so a test's code change
     // doesn't start a review it isn't about. lab-review.test.ts turns it on.
     labReview: false,
+    printsWhenAsked: false,
     keepAwake: true,
     models: { pool: 'claude', privateFolders: [] },
     // Never the real Convex project from a test (sync.test.ts passes a fake).

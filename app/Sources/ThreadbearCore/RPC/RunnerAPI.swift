@@ -812,6 +812,63 @@ public struct RunnersResult: Sendable, Decodable {
 /// read as "no projects here" and hide them.
 public extension RPCClient {
     /// Newest activity first; archived ones only (all of them) with `archived`.
+    /// Every page (docs/protocol.md, "Pages"); empty with the experiment off.
+    func listPages(deleted: Bool = false) async throws -> [Page] {
+        try await call("pages.list", .object(deleted ? ["deleted": .bool(true)] : [:]), as: PagesResult.self).pages
+    }
+
+    func getPage(_ pageId: String, version: Int? = nil) async throws -> PageGetResult {
+        var params: [String: JSONValue] = ["pageId": .string(pageId)]
+        if let version { params["version"] = .number(Double(version)) }
+        return try await call("pages.get", .object(params), as: PageGetResult.self)
+    }
+
+    func refreshPage(_ pageId: String) async throws -> PageAskResult {
+        try await call("pages.refresh", .object(["pageId": .string(pageId)]), as: PageAskResult.self)
+    }
+
+    func editPageWithAgent(_ pageId: String, text: String) async throws -> PageAskResult {
+        try await call("pages.edit", .object(["pageId": .string(pageId), "text": .string(text)]), as: PageAskResult.self)
+    }
+
+    func savePageDoc(_ pageId: String, markdown: String) async throws -> Page {
+        try await call("pages.saveDoc", .object(["pageId": .string(pageId), "markdown": .string(markdown)]), as: PageResult.self).page
+    }
+
+    func savePageDiagram(_ pageId: String, mermaid: String) async throws -> Page {
+        try await call("pages.saveDiagram", .object(["pageId": .string(pageId), "mermaid": .string(mermaid)]), as: PageResult.self).page
+    }
+
+    func restorePageVersion(_ pageId: String, version: Int) async throws -> Page {
+        try await call("pages.restoreVersion", .object(["pageId": .string(pageId), "version": .number(Double(version))]), as: PageResult.self).page
+    }
+
+    func deletePage(_ pageId: String) async throws -> Page {
+        try await call("pages.delete", .object(["pageId": .string(pageId)]), as: PageResult.self).page
+    }
+
+    func restorePage(_ pageId: String) async throws -> Page {
+        try await call("pages.restore", .object(["pageId": .string(pageId)]), as: PageResult.self).page
+    }
+
+    func exportPage(_ pageId: String, to dest: String, version: Int? = nil) async throws -> String {
+        var params: [String: JSONValue] = ["pageId": .string(pageId), "dest": .string(dest)]
+        if let version { params["version"] = .number(Double(version)) }
+        return try await call("pages.export", .object(params), as: PageExportResult.self).file
+    }
+
+    func publishPage(_ pageId: String) async throws -> PagePublishResult {
+        try await call("pages.publish", .object(["pageId": .string(pageId)]), as: PagePublishResult.self)
+    }
+
+    func unpublishPage(_ pageId: String) async throws -> Page {
+        try await call("pages.unpublish", .object(["pageId": .string(pageId)]), as: PageResult.self).page
+    }
+
+    func setPageProjects(_ pageId: String, add: [String] = [], remove: [String] = []) async throws -> Page {
+        try await call("pages.setProjects", .object(["pageId": .string(pageId), "add": .array(add.map(JSONValue.string)), "remove": .array(remove.map(JSONValue.string))]), as: PageResult.self).page
+    }
+
     func listProjects(archived: Bool = false) async throws -> [Project] {
         var params: [String: JSONValue] = [:]
         if archived { params["archived"] = .bool(true) }

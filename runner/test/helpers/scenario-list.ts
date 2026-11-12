@@ -16,6 +16,17 @@ export type Scenario = { name: string; play: (p: Play) => void; shows: string[] 
 
 export const SCENARIOS: Scenario[] = [
   {
+    // Print files stay on their creating Mac. The website draws a card from
+    // the published list (prints:list), or says it's kept on the Mac; the
+    // phone keeps the fence. The published link stays as written.
+    name: 'a diagram Print reference and its portable published link',
+    shows: ['Task flow diagram', 'Open published diagram'],
+    play: (p) => {
+      p.say('Task flow diagram\n\n```print\npg_task_flow\n```\n\n[Open published diagram](https://prints.example.invalid/p/abcdefghijklmnopqrstuv)');
+      p.endTurn({ needs: 'nothing' });
+    },
+  },
+  {
     name: 'a decision card, with what each answer does and a pick',
     shows: ['Same thread or new?', 'One thread that moves', 'The old one is archived'],
     play: (p) => {

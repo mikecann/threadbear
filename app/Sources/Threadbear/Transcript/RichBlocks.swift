@@ -137,7 +137,15 @@ final class RichBlocks: @unchecked Sendable {
     static func mayHoldRich(_ text: String) -> Bool {
         guard text.contains("```") || text.contains("~~~") else { return false }
         let lowered = text.lowercased()
-        return lowered.contains("mermaid") || lowered.contains("html")
+        return lowered.contains("mermaid") || lowered.contains("html") || lowered.contains("print") || lowered.contains("page")
+    }
+
+    /// Renders every row that may hold a rich block or a page card again
+    /// (PageCards: a page changed).
+    @MainActor
+    func bump() {
+        inner.withLock { $0.generation += 1 }
+        NotificationCenter.default.post(name: Self.changed, object: nil)
     }
 }
 

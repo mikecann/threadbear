@@ -332,6 +332,18 @@ private struct GeneralSettings: View {
                     }
                 }
 
+                // Only while Prints is on: with it off there are no Prints
+                // to hold back (Wayne, 11 Nov).
+                if let whenAsked = settings.printsWhenAsked, settings.experiments.contains(where: { $0.id == "pages" && $0.on }) {
+                    SettingsSection("Prints",
+                                    about: "Threads can still make Prints, but only when you ask for one. If a thread goes to make one your message didn't ask for, like a progress Print on a long task, it asks you first, and No means none is made. Saying print, chart, graph, dashboard or diagram counts as asking.",
+                                    ask: "make a Print for something, or turn this on or off.") {
+                        Toggle("Only make Prints when I ask",
+                               isOn: Binding(get: { whenAsked }, set: { app.updateSettings(SettingsUpdate(printsWhenAsked: $0)) }))
+                            .tip("Have threads ask before making a Print you didn't ask for")
+                    }
+                }
+
                 // Only on someone's fork: Mike's own copy has nothing to
                 // bring in (its upstream check is off).
                 if settings.bringInSupported, let upstream = app.runnerUpdates?.upstream, upstream.state != "off" {

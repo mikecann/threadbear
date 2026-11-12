@@ -60,6 +60,7 @@ public enum RPCNotification: Sendable {
     /// Every project, archived ones too, after any change. Thread
     /// membership comes as `thread.updated`.
     case projectsUpdated([Project])
+    case pagesUpdated([Page])
     /// The librarian's status, whole, whenever it changes.
     case librarianUpdated(LibrarianStatus)
     /// The Connectors gateway's services, whole, whenever what the panel
@@ -304,6 +305,9 @@ public final class RPCClient: Sendable {
         case "projects.updated":
             guard let params = decoded(ProjectsResult.self, method: method, data: data) else { return nil }
             return .projectsUpdated(params.projects)
+        case "pages.updated":
+            guard let params = decoded(PagesResult.self, method: method, data: data) else { return nil }
+            return .pagesUpdated(params.pages)
         case "librarian.updated":
             guard let params = decoded(LibrarianResult.self, method: method, data: data) else { return nil }
             return .librarianUpdated(params.librarian)

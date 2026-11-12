@@ -1645,6 +1645,62 @@ export const setProjects = mutation({
 // in projectNotes, so the rest of a project changing doesn't rewrite them.
 const projectChange = v.object({ ...projectDoc.fields, notes: v.optional(v.string()) });
 
+// Published Prints (docs/protocol.md, "Prints"). A print is one HTML
+// document, at most PRINT_HTML_MAX characters (a Convex document holds
+// 1 MiB), and static: one with a script is refused here as well as by the
+// runner, since the website draws it for anyone with the link.
+export const PRINT_HTML_MAX = 700_000;
+const PRINTS_PER_RUNNER = 200;
+const printArg = v.object({
+  id: v.string(),
+  slug: v.string(),
+  title: v.string(),
+  kind: v.string(),
+  version: v.number(),
+  summary: v.string(),
+  html: v.string(),
+  updatedAt: v.string(),
+});
+
+export const publishPrint = mutation({
+  args: { key: v.string(), runnerId: v.string(), print: printArg },
+  returns: v.null(),
+  handler: async (ctx, { key, runnerId, print }) => {
+    const caller = await runnerAuth(ctx, key, 'publishPrint');
+    await actAs(ctx, caller, runnerId);
+    const bad = (message: string) => new ConvexError({ kind: 'badPrint', message });
+    if (!/^pg_[a-z0-9_]{1,80}$/.test(print.id)) throw bad('not a print id');
+    if (!/^[A-Za-z0-9_-]{16,64}$/.test(print.slug)) throw bad('not a link a runner makes');
+    if (print.html.length > PRINT_HTML_MAX) throw bad(`the print is over ${PRINT_HTML_MAX} characters`);
+    if (/<script/i.test(print.html)) throw bad('a print with a script can not be published');
+    const doc = { runnerId, ...print, title: print.title.slice(0, 300), kind: print.kind.slice(0, 40), summary: print.summary.slice(0, 600) };
+    // A link is one print's: another row with this slug refuses it.
+    const sameSlug = await ctx.db.query('prints').withIndex('by_slug', (q) => q.eq('slug', print.slug)).take(2);
+    if (sameSlug.some((r) => r.runnerId !== runnerId || r.id !== print.id)) throw bad('that link is taken');
+    const row = await ctx.db.query('prints').withIndex('by_runner_id', (q) => q.eq('runnerId', runnerId).eq('id', print.id)).unique();
+    if (row) {
+      await ctx.db.replace(row._id, doc);
+      return null;
+    }
+    const have = await ctx.db.query('prints').withIndex('by_runner_id', (q) => q.eq('runnerId', runnerId)).take(PRINTS_PER_RUNNER + 1);
+    if (have.length >= PRINTS_PER_RUNNER) throw bad(`at most ${PRINTS_PER_RUNNER} prints can be published; unpublish one first`);
+    await ctx.db.insert('prints', doc);
+    return null;
+  },
+});
+
+export const unpublishPrint = mutation({
+  args: { key: v.string(), runnerId: v.string(), id: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { key, runnerId, id }) => {
+    const caller = await runnerAuth(ctx, key, 'unpublishPrint');
+    await actAs(ctx, caller, runnerId);
+    const row = await ctx.db.query('prints').withIndex('by_runner_id', (q) => q.eq('runnerId', runnerId).eq('id', id)).unique();
+    if (row) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
 export const upsertProjects = mutation({
   args: { key: v.string(), runnerId: v.string(), projects: v.array(projectChange), removed: v.array(v.string()) },
   returns: v.null(),
