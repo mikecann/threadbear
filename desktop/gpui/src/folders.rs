@@ -349,6 +349,15 @@ impl SidePane {
 
     /// Asks the runner for `folder`'s rows, for the view `key`.
     fn list_folder(&mut self, key: &str, folder: &str, cx: &mut Context<Self>) {
+        if cfg!(windows) && self.thread(cx).is_some_and(|t| !t.is_remote()) {
+            if let Err(error) = threadbear_core::open_policy::local_metadata(std::path::Path::new(folder)) {
+                if let Some(view) = self.folders.views.get_mut(key) {
+                    view.failure = Some(format!("Couldn't open that folder: {error}"));
+                }
+                cx.notify();
+                return;
+            }
+        }
         let Some(view) = self.folders.views.get_mut(key) else { return };
         if !view.loading.insert(folder.to_owned()) {
             return;

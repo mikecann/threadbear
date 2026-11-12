@@ -246,7 +246,10 @@ fn raster_signature(head: &[u8]) -> bool {
 /// another runner's word in a moved thread, naming /dev/zero (Codex's review
 /// of Daybreak 95). For every `img` of a path from a thread.
 pub(crate) fn picture_file(path: &str) -> std::path::PathBuf {
+    #[cfg(windows)]
     let Ok(path) = threadbear_core::open_policy::real_path(std::path::Path::new(path)) else { return std::path::PathBuf::new() };
+    #[cfg(not(windows))]
+    let path = std::path::PathBuf::from(path);
     if raster_file(&path) { path } else { std::path::PathBuf::new() }
 }
 

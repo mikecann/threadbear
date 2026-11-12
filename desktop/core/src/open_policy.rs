@@ -92,6 +92,9 @@ pub fn link_kind(url: &str) -> LinkKind {
         }
         // A Windows path's drive letter reads as a one-letter scheme.
         Some(s) if s.len() == 1 && url[2..].starts_with(['/', '\\']) => LinkKind::File(url.to_owned()),
+        // A drive-relative path is still a file, never an app's scheme.
+        // Its missing root (or an embedded device name) is refused below.
+        Some(s) if cfg!(windows) && s.len() == 1 => LinkKind::File(url.to_owned()),
         Some(_) => LinkKind::Ask(url.to_owned()),
     }
 }
@@ -1002,6 +1005,8 @@ mod tests {
     fn windows_file_urls_round_trip_to_a_drive_path() {
         assert_eq!(link_kind("file:///C:/work/notes%20one.md"), LinkKind::File("C:/work/notes one.md".into()));
         assert_eq!(link_kind("file://localhost/C:/work/notes.md"), LinkKind::File("C:/work/notes.md".into()));
+        assert_eq!(link_kind("C:NUL"), LinkKind::File("C:NUL".into()));
+        assert!(matches!(decide_file("C:NUL", Origin::ThisMac, &none), FileVerdict::Refuse(_)));
     }
 
     /// A file whose path is too long for its drive form keeps the verbatim
