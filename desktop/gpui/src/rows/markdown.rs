@@ -146,11 +146,37 @@ fn collect_images(node: &markdown::mdast::Node, found: &mut impl FnMut(&markdown
 
 /// The file a picture's address names on this Mac, if it's a file.
 pub(crate) fn picture_path(url: &str) -> Option<std::path::PathBuf> {
-    if let Some(rest) = url.strip_prefix("file://") {
-        let path = rest.strip_prefix("localhost").unwrap_or(rest);
-        return path.starts_with('/').then(|| crate::files::percent_decode(path).into());
+    #[cfg(windows)]
+    { windows_picture_path(url) }
+    #[cfg(not(windows))]
+    {
+        if let Some(rest) = url.strip_prefix("file://") {
+            let path = rest.strip_prefix("localhost").unwrap_or(rest);
+            return path.starts_with('/').then(|| crate::files::percent_decode(path).into());
+        }
+        url.starts_with('/').then(|| url.into())
     }
-    url.starts_with('/').then(|| url.into())
+}
+
+/// Only a drive's absolute path, either as written or in a local file URL.
+/// A share or a device must be refused here, before the image checks touch it.
+#[cfg(any(windows, test))]
+fn windows_picture_path(url: &str) -> Option<std::path::PathBuf> {
+    use threadbear_core::open_policy::{is_device_name, percent_decode};
+    let path = if let Some(rest) = url.strip_prefix("file://") {
+        let rest = rest.strip_prefix("localhost/").unwrap_or(rest);
+        percent_decode(rest.strip_prefix('/').unwrap_or(rest))
+    } else {
+        url.to_owned()
+    };
+    let bytes = path.as_bytes();
+    let drive = bytes.first().is_some_and(u8::is_ascii_alphabetic)
+        && bytes.get(1) == Some(&b':')
+        && bytes.get(2).is_some_and(|b| matches!(b, b'/' | b'\\'));
+    if !drive || path.chars().any(char::is_control) || path[2..].contains(':') || path.split(['/', '\\']).any(is_device_name) {
+        return None;
+    }
+    Some(path.into())
 }
 
 /// The biggest picture file a reply draws: the image loader reads a file
@@ -503,6 +529,29 @@ const DOCUMENTS_KEPT: usize = 600;
 #[cfg(test)]
 mod tests {
     use super::{looks_like_path, pictures, prepare};
+
+    #[test]
+    fn windows_pictures_name_a_drive_file_before_any_file_access() {
+        for (url, path) in [
+            (r"C:\pictures\shot.png", r"C:\pictures\shot.png"),
+            ("c:/pictures/shot.png", "c:/pictures/shot.png"),
+            ("file:///C:/pictures/a%20b.png", "C:/pictures/a b.png"),
+            ("file://localhost/C:/pictures/shot.png", "C:/pictures/shot.png"),
+            (r"file://C:\pictures\shot.png", r"C:\pictures\shot.png"),
+        ] {
+            assert_eq!(super::windows_picture_path(url), Some(std::path::PathBuf::from(path)), "{url}");
+        }
+        for url in [
+            r"\\host\share\shot.png", "//host/share/shot.png", "file://host/share/shot.png",
+            "file:////host/share/shot.png", "file:///%5C%5Chost/share/shot.png",
+            r"\\?\C:\pictures\shot.png", r"\\.\pipe\shot.png", r"\??\C:\shot.png",
+            r"C:\pictures\NUL.tar.png", r"C:\COM¹\shot.png", r"C:\pictures\NUL:shot.png",
+            "C:/pictures/file:stream.png", "C:shot.png", "/pictures/shot.png", "shot.png",
+            "file:///C:/pictures/a%00b.png", "https://x.y/shot.png", "",
+        ] {
+            assert_eq!(super::windows_picture_path(url), None, "{url}");
+        }
+    }
 
     #[test]
     fn a_web_picture_or_another_macs_stays_a_link() {
