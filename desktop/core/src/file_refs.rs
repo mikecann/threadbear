@@ -132,11 +132,7 @@ pub fn search(folder: &str, path: &str) -> Option<String> {
     let mut seen = 0usize;
     let mut stack = vec![Path::new(folder).to_path_buf()];
     while let Some(dir) = stack.pop() {
-        #[cfg(windows)]
-        let Ok(local) = crate::open_policy::real_path(&dir) else { continue };
-        #[cfg(windows)]
-        let dir = local;
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = crate::open_policy::local_read_dir(&dir) else { continue };
         let mut children: Vec<_> = entries.flatten().collect();
         // A steady order, so the same click finds the same file.
         children.sort_by_key(|e| e.file_name());

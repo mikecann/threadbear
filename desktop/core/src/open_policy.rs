@@ -338,6 +338,14 @@ pub fn local_read(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Open the directory while its checked Windows ancestors are held. Keep the
+/// caller's spelling in DirEntry paths (notably /var and Windows 8.3 aliases).
+pub fn local_read_dir(path: &Path) -> std::io::Result<std::fs::ReadDir> {
+    #[cfg(windows)]
+    let _local = crate::local_path::LocalPath::new(path)?;
+    std::fs::read_dir(path)
+}
+
 /// What looking at a file found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Look {
@@ -353,6 +361,8 @@ pub struct Look {
 /// None when nothing's there. `app_for` says which app would open the real
 /// file (None where the system can't say).
 pub fn look(path: &Path, app_for: &dyn Fn(&Path) -> Option<OpeningApp>) -> Option<Look> {
+    #[cfg(windows)]
+    let _local = crate::local_path::LocalPath::new(path).ok()?;
     let resolved = real_path(path).ok()?;
     let meta = std::fs::metadata(&resolved).ok()?;
     let linked = std::fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false) || resolved.file_name() != path.file_name();
@@ -700,6 +710,11 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
     if !given_path.is_absolute() {
         return MediaVerdict::Refuse(format!("Threadbear couldn't tell where {name} is."));
     }
+    #[cfg(windows)]
+    let _local = match crate::local_path::LocalPath::new(given_path) {
+        Ok(local) => local,
+        Err(_) => return MediaVerdict::Refuse(format!("{name} isn't an accessible local file.")),
+    };
     let Ok(resolved) = real_path(given_path) else {
         return MediaVerdict::Refuse(format!("{name} isn't there any more."));
     };

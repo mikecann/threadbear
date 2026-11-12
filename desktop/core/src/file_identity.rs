@@ -17,6 +17,8 @@ pub struct FileIdentity {
 impl FileIdentity {
     /// The file `path` leads to now; None when it leads nowhere.
     pub fn of(path: &Path) -> Option<FileIdentity> {
+        #[cfg(windows)]
+        let _local = crate::local_path::LocalPath::new(path).ok()?;
         // By its drive path on Windows, as the open gate names files.
         let real = crate::open_policy::real_path(path).ok()?;
         let meta = std::fs::metadata(&real).ok()?;
