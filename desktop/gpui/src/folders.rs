@@ -249,7 +249,8 @@ fn document_image() -> Arc<Image> {
 /// side or 256 MB decoded, whatever the file says.
 fn make_thumbnail(path: &str) -> Option<Arc<Image>> {
     use image::imageops::FilterType;
-    let mut reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    let bytes = threadbear_core::open_policy::local_read(std::path::Path::new(path), 24 * 1024 * 1024).ok()?;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(8192);
     limits.max_image_height = Some(8192);
@@ -1085,6 +1086,10 @@ impl SidePane {
         let name = core_folders_name(&path).to_owned();
         self.leave_folder(key, path.clone(), name, true, memory, thread, preview, cx);
         if let Some(selecting) = selecting {
+            // A Windows parent/breadcrumb uses forward slashes, while the
+            // folder we came out of may still have its runner's backslashes.
+            // Rows use the destination listing's spelling too.
+            let selecting = join(&path, core_folders_name(&selecting));
             if let Some(view) = self.folders.views.get_mut(&view_key(&thread.id, &path)) {
                 view.selection = Selection::of(vec![selecting]);
             } else if let Some(p) = self.previews.get_mut(&thread.id) {

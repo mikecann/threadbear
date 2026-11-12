@@ -1,12 +1,12 @@
 // Windows must not follow a reply's symlink into an SMB share just to find
 // out what it points at. Open each component without following reparse points,
-// and keep its handle until resolution ends. Not sharing delete prevents a
-// checked name being replaced. Reads and listings reuse that handle too.
+// and keep its handle until resolution ends. Reads and listings reuse that
+// handle; only callers handing a name on need to prevent replacement too.
 use std::ffi::{OsStr, OsString};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::os::windows::fs::OpenOptionsExt;
+use std::os::windows::fs::MetadataExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::{Component, Path, PathBuf, Prefix};
 
@@ -76,14 +76,34 @@ fn refused() -> io::Error {
 /// The caller keeps these handles while inspecting the resolved file.
 pub(crate) struct LocalPath {
     pub(crate) path: PathBuf,
+    pub(crate) linked: bool,
     _held: Vec<File>,
+}
+
+#[derive(Clone, Copy)]
+struct Access {
+    final_access: u32,
+    share: u32,
 }
 
 impl LocalPath {
     pub(crate) fn new(path: &Path) -> io::Result<Self> {
+        Self::with_access(path, Access { final_access: 0x81, share: 3 })
+    }
+
+    pub(crate) fn stat(path: &Path) -> io::Result<Self> {
+        Self::with_access(path, Access { final_access: 0x80, share: 7 })
+    }
+
+    pub(crate) fn for_read(path: &Path) -> io::Result<Self> {
+        Self::with_access(path, Access { final_access: 0x81, share: 7 })
+    }
+
+    fn with_access(path: &Path, access: Access) -> io::Result<Self> {
         let mut held = Vec::new();
-        let path = walk(path, &mut held, 0, false)?;
-        Ok(Self { path, _held: held })
+        let path = walk(path, &mut held, 0, false, access)?;
+        let linked = held.iter().any(|f| f.metadata().is_ok_and(|m| m.file_type().is_symlink()));
+        Ok(Self { path, linked, _held: held })
     }
 
     pub(crate) fn file(&self) -> io::Result<&File> {
@@ -99,24 +119,52 @@ impl LocalPath {
         Ok(PathBuf::from(format!(r"\\?\GLOBALROOT{}", native.to_string_lossy())))
     }
 
+    pub(crate) fn identity(&self) -> io::Result<[u64; 3]> {
+        // FILE_ID_INFO: volume serial number, then the opaque 128-bit ID.
+        let mut id = [0u64; 3];
+        if unsafe { GetFileInformationByHandleEx(self.file()?.as_raw_handle(), 18, id.as_mut_ptr().cast(), 24) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(id)
+    }
+
     pub(crate) fn writable(&self) -> io::Result<File> {
+        let file = self.reopen(0x4000_0000)?;
+        if !file.metadata()?.is_file() {
+            return Err(refused());
+        }
+        Ok(file)
+    }
+
+    pub(crate) fn readable(&self) -> io::Result<File> {
+        if self.file()?.metadata()?.file_attributes() & 0x400 != 0 {
+            self.reopen(0x8000_0000)
+        } else {
+            self.file()?.try_clone()
+        }
+    }
+
+    fn reopen(&self, access: u32) -> io::Result<File> {
         let file = self.file()?;
         // Reopen the same file object, without resolving its name again and
-        // without truncating it before checking the returned handle.
-        let raw = unsafe { ReOpenFile(file.as_raw_handle(), 0x4000_0000, 7, 0x0020_0000) };
+        // without truncating it. A non-link reparse point needs its owning
+        // filter (OneDrive, WOF or dedup) for data, rather than its raw stream.
+        // Name-surrogate links have already been followed or refused.
+        let flags = if file.metadata()?.file_attributes() & 0x400 != 0 { 0x0200_0000 } else { 0x0220_0000 };
+        let raw = unsafe { ReOpenFile(file.as_raw_handle(), access, 7, flags) };
         if raw as isize == -1 {
             return Err(io::Error::last_os_error());
         }
         let file = unsafe { File::from_raw_handle(raw) };
         let meta = file.metadata()?;
-        if !meta.is_file() || meta.file_type().is_symlink() {
+        if meta.file_type().is_symlink() {
             return Err(refused());
         }
         Ok(file)
     }
 
     pub(crate) fn entries(&self) -> io::Result<Vec<io::Result<super::open_policy::LocalDirEntry>>> {
-        let file = self.file()?;
+        let file = self.readable()?;
         if !file.metadata()?.is_dir() {
             return Err(io::Error::other("Not a folder"));
         }
@@ -203,7 +251,7 @@ fn normalize(path: &Path, from_link: bool) -> io::Result<PathBuf> {
     for part in path.components() {
         if let Component::Normal(name) = part {
             let chars: Vec<u16> = name.encode_wide().collect();
-            if chars.last().is_some_and(|c| matches!(*c, 32 | 46)) || chars.iter().any(|c| matches!(*c, 0 | 58)) {
+            if chars.last().is_some_and(|c| matches!(*c, 32 | 46)) || chars.iter().any(|c| matches!(*c, 0 | 58)) || super::open_policy::is_device_name(&name.to_string_lossy()) {
                 return Err(refused());
             }
         }
@@ -237,7 +285,7 @@ fn normalize(path: &Path, from_link: bool) -> io::Result<PathBuf> {
     Ok(PathBuf::from(OsString::from_wide(&extended)))
 }
 
-fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io::Result<PathBuf> {
+fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool, access: Access) -> io::Result<PathBuf> {
     if links > 40 {
         return Err(refused());
     }
@@ -268,15 +316,15 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
     if let Some(local) = text.strip_prefix(r"\??\") {
         let mut target = PathBuf::from(local);
         target.extend(components);
-        return walk(&target, held, links + 1, false);
+        return walk(&target, held, links + 1, false, access);
     }
     if !super::open_policy::is_local_volume_device(&text) {
         return Err(refused());
     }
     // Anchor opens to the checked physical volume, so redefining a DOS drive
     // letter cannot redirect a later step to a share.
-    at = PathBuf::from(format!(r"\\?\GLOBALROOT{}\", text));
-    if hold(&at, held, components.as_path().as_os_str().is_empty())? {
+    at = PathBuf::from(format!(r"{}\", text));
+    if hold(&at, held, components.as_path().as_os_str().is_empty(), access)? {
         return Err(refused());
     }
     while let Some(component) = components.next() {
@@ -292,7 +340,7 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
                     return Err(refused());
                 }
                 let parent = held.last().ok_or_else(refused)?;
-                let file = child(parent, name, components.as_path().as_os_str().is_empty())?;
+                let file = child(parent, name, components.as_path().as_os_str().is_empty(), access)?;
                 held.push(file);
             }
             _ => return Err(refused()),
@@ -320,7 +368,7 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
                 parent.join(target)
             };
             target.extend(components);
-            return walk(&target, held, links + 1, true);
+            return walk(&target, held, links + 1, true, access);
         }
     }
     // Read the checked object's name from its handle. A last-component
@@ -329,13 +377,13 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
     final_name(file, 0).or_else(|_| final_name(file, 1))
 }
 
-fn hold(path: &Path, held: &mut Vec<File>, final_part: bool) -> io::Result<bool> {
+fn hold(path: &Path, held: &mut Vec<File>, final_part: bool, access: Access) -> io::Result<bool> {
     // FILE_READ_DATA (LIST_DIRECTORY on a folder) | FILE_READ_ATTRIBUTES;
     // FILE_SHARE_READ | FILE_SHARE_WRITE; FILE_FLAG_OPEN_REPARSE_POINT |
     // FILE_FLAG_BACKUP_SEMANTICS (directories can be opened as handles too).
     // Attribute-only access does NOT participate in Windows sharing locks.
-    let access = if final_part { 0x81 } else { 0xa0 }; // read data, or traverse a parent
-    let file = OpenOptions::new().access_mode(access).share_mode(3).custom_flags(0x0020_0000 | 0x0200_0000).open(path)?;
+    let rights = if final_part { access.final_access } else { 0xa0 };
+    let file = native_file(std::ptr::null_mut(), path.as_os_str(), rights, access.share)?;
     let reparse = file.metadata()?.file_type().is_symlink();
     held.push(file);
     Ok(reparse)
@@ -344,24 +392,25 @@ fn hold(path: &Path, held: &mut Vec<File>, final_part: bool) -> io::Result<bool>
 /// One component relative to the checked parent object, with no reparse
 /// processing. No ancestor name is looked up again, even if its tag changes.
 /// This is the same single-component strategy as Go's Windows openat fallback.
-fn child(parent: &File, name: &OsStr, final_part: bool) -> io::Result<File> {
-    let mut text: Vec<u16> = name.encode_wide().collect();
+fn child(parent: &File, name: &OsStr, final_part: bool, access: Access) -> io::Result<File> {
+    let text: Vec<u16> = name.encode_wide().collect();
     if text.is_empty() || text.len() > 32767 || text.iter().any(|c| matches!(*c, 0 | 47 | 58 | 92)) || name == "." || name == ".." {
         return Err(refused());
     }
+    native_file(parent.as_raw_handle(), name, if final_part { access.final_access } else { 0xa0 }, access.share)
+}
+
+fn native_file(root: *mut std::ffi::c_void, name: &OsStr, access: u32, share: u32) -> io::Result<File> {
+    let mut text: Vec<u16> = name.encode_wide().collect();
+    if text.len() > 32767 || text.contains(&0) {
+        return Err(refused());
+    }
     let mut name = UnicodeString { len: (text.len() * 2) as u16, capacity: (text.len() * 2) as u16, text: text.as_mut_ptr() };
-    let attrs = ObjectAttributes {
-        len: std::mem::size_of::<ObjectAttributes>() as u32,
-        root: parent.as_raw_handle(),
-        name: &mut name,
-        attributes: 0x40,
-        security: std::ptr::null_mut(),
-        quality: std::ptr::null_mut(),
-    };
+    let attrs = ObjectAttributes { len: std::mem::size_of::<ObjectAttributes>() as u32, root, name: &mut name, attributes: 0x40, security: std::ptr::null_mut(), quality: std::ptr::null_mut() };
     let mut status = IoStatus { status: 0, information: 0 };
     let mut raw = std::ptr::null_mut();
-    let access = 0x0010_0000 | if final_part { 0x81 } else { 0xa0 };
-    let code = unsafe { NtCreateFile(&mut raw, access, &attrs, &mut status, std::ptr::null(), 0, 3, 1, 0x0020_4020, std::ptr::null(), 0) };
+    let access = 0x0010_0000 | access;
+    let code = unsafe { NtCreateFile(&mut raw, access, &attrs, &mut status, std::ptr::null(), 0, share, 1, 0x0020_4020, std::ptr::null(), 0) };
     if code < 0 {
         return Err(io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(code) } as i32));
     }

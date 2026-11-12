@@ -319,6 +319,8 @@ pub(crate) fn reveal(path: &str, origin: Origin, cx: &mut App) {
         if !scripted_opens(&format!("reveal {path}")) {
             #[cfg(windows)]
             let real = policy::real_path(Path::new(path))?;
+            #[cfg(windows)]
+            if real.to_string_lossy().starts_with(r"\\") { return Err(std::io::Error::other("That path can't be shown by the Windows shell.")); }
             #[cfg(not(windows))]
             let real = Path::new(path).to_path_buf();
             cx.reveal_path(policy::system_path(&real));

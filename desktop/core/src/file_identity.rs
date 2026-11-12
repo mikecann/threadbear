@@ -12,22 +12,32 @@ pub struct FileIdentity {
     /// Which file that is on its disk, where the system says.
     #[cfg(unix)]
     node: (u64, u64),
+    #[cfg(windows)]
+    node: [u64; 3],
 }
 
 impl FileIdentity {
     /// The file `path` leads to now; None when it leads nowhere.
     pub fn of(path: &Path) -> Option<FileIdentity> {
         #[cfg(windows)]
-        let _local = crate::local_path::LocalPath::new(path).ok()?;
+        let _local = crate::local_path::LocalPath::stat(path).ok()?;
         // By its drive path on Windows, as the open gate names files.
+        #[cfg(windows)]
+        let real = crate::open_policy::system_path(&_local.path).to_path_buf();
+        #[cfg(not(windows))]
         let real = crate::open_policy::real_path(path).ok()?;
+        #[cfg(not(windows))]
         let meta = crate::open_policy::local_metadata(path).ok()?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt as _;
             Some(FileIdentity { real, node: (meta.dev(), meta.ino()) })
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            Some(FileIdentity { real, node: _local.identity().ok()? })
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = meta;
             Some(FileIdentity { real })
@@ -42,6 +52,26 @@ impl FileIdentity {
     /// Whether `path` still leads to this same file.
     pub fn still_at(&self, path: &Path) -> bool {
         FileIdentity::of(path).is_some_and(|now| now == *self)
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    #[test]
+    fn a_hard_link_swap_does_not_keep_the_grabbed_file_identity() {
+        let dir = std::env::temp_dir().join(format!("tb-win-identity-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (shot, private) = (dir.join("shot.png"), dir.join("private.txt"));
+        std::fs::write(&shot, b"picture").unwrap();
+        std::fs::write(&private, b"private bytes").unwrap();
+        let grabbed = FileIdentity::of(&shot).unwrap();
+        std::fs::write(&shot, b"updated picture").unwrap();
+        assert!(grabbed.still_at(&shot));
+        std::fs::rename(&shot, dir.join("old.png")).unwrap();
+        std::fs::hard_link(&private, &shot).unwrap();
+        assert!(!grabbed.still_at(&shot));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
 

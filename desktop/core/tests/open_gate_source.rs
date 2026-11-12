@@ -156,6 +156,11 @@ fn reply_link_probes_use_the_local_file_gate() {
     assert!(reveal.contains("policy::with_local_path"));
     let watcher = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/file_watch.rs");
     assert!(std::fs::read_to_string(watcher).unwrap().contains("open_policy::with_local_path"));
+    let folders = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/folders.rs");
+    let text = std::fs::read_to_string(folders).unwrap();
+    assert!(!text.contains("ImageReader::open("));
+    assert!(!text.contains("image::open("));
+    assert!(text.contains("open_policy::local_read("));
 }
 
 /// The Mac's own video and PDF views read only the file the gate checked and

@@ -4495,6 +4495,9 @@ child links remain visible by name without probing their targets. Local
 pictures are decoded from a guarded byte snapshot in the background. Reads,
 directory enumeration and editor saves reuse checked handles; ordinary
 writers can keep a log or document open while it is previewed.
+Folder thumbnails use guarded bytes too, and omit rows whose size couldn't
+be checked. A Windows drag also checks the volume and file ID, so a hard
+link swapped in at the same path isn't the file that was grabbed.
 
 **The brief.** The librarian's look (see Projects) also answers with a
 line or two on where the thread itself is up to, kept on the thread and

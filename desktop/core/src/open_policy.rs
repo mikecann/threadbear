@@ -328,7 +328,7 @@ pub fn system_path(path: &Path) -> &Path { dunce::simplified(path) }
 /// Windows even metadata can contact a share, so never probe the raw path.
 pub fn local_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
     #[cfg(windows)]
-    { crate::local_path::LocalPath::new(path)?.file()?.metadata() }
+    { crate::local_path::LocalPath::stat(path)?.file()?.metadata() }
     #[cfg(not(windows))]
     { std::fs::metadata(path) }
 }
@@ -349,7 +349,7 @@ pub fn with_local_path<T>(path: &Path, read: impl FnOnce(&Path) -> std::io::Resu
 /// follows a link swapped into the path in the meantime.
 pub fn local_open(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(windows)]
-    { crate::local_path::LocalPath::new(path)?.file()?.try_clone() }
+    { crate::local_path::LocalPath::for_read(path)?.readable() }
     #[cfg(not(windows))]
     { open_without_waiting(&std::fs::canonicalize(path)?) }
 }
@@ -357,7 +357,7 @@ pub fn local_open(path: &Path) -> std::io::Result<std::fs::File> {
 /// Open the checked file object for a text edit, without another path lookup.
 pub fn local_open_for_write(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(windows)]
-    { crate::local_path::LocalPath::new(path)?.writable() }
+    { crate::local_path::LocalPath::for_read(path)?.writable() }
     #[cfg(not(windows))]
     { std::fs::OpenOptions::new().write(true).open(path) }
 }
@@ -375,7 +375,7 @@ pub fn local_read(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
 /// Open the directory while its checked Windows ancestors are held.
 pub fn local_read_dir(path: &Path) -> std::io::Result<Vec<std::io::Result<LocalDirEntry>>> {
     #[cfg(windows)]
-    { crate::local_path::LocalPath::new(path)?.entries() }
+    { crate::local_path::LocalPath::for_read(path)?.entries() }
     #[cfg(not(windows))]
     {
         Ok(std::fs::read_dir(path)?.take(20_001).map(|e| {
@@ -413,12 +413,18 @@ pub struct Look {
 pub fn look(path: &Path, app_for: &dyn Fn(&Path) -> Option<OpeningApp>) -> Option<Look> {
     #[cfg(windows)]
     let _local = crate::local_path::LocalPath::new(path).ok()?;
+    #[cfg(windows)]
+    let resolved = system_path(&_local.path).to_path_buf();
+    #[cfg(windows)]
+    let meta = _local.file().ok()?.metadata().ok()?;
+    #[cfg(not(windows))]
     let resolved = real_path(path).ok()?;
+    #[cfg(not(windows))]
     let meta = local_metadata(path).ok()?;
     #[cfg(not(windows))]
     let linked = std::fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false) || resolved.file_name() != path.file_name();
     #[cfg(windows)]
-    let linked = resolved.file_name() != path.file_name();
+    let linked = _local.linked;
     let runs = runs(&resolved, &meta, app_for);
     Some(Look { resolved, runs, linked })
 }
@@ -775,7 +781,11 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
     if media_kind(&resolved.to_string_lossy()) != Some(kind) {
         return not_really();
     }
-    let Ok(mut file) = local_open(given_path) else {
+    #[cfg(windows)]
+    let opened = local_open(given_path);
+    #[cfg(not(windows))]
+    let opened = open_without_waiting(&resolved);
+    let Ok(mut file) = opened else {
         return MediaVerdict::Refuse(format!("{name} changed or went while Threadbear looked at it, so it didn't {verb}."));
     };
     let len = match file.metadata() {
@@ -1112,13 +1122,12 @@ mod tests {
         assert!(fs::rename(&doc, s.path("folder/old.md")).is_err(), "the checked file's name must be locked");
         drop(guard);
         let mut file = local_open(&doc).unwrap();
-        assert!(fs::rename(&doc, s.path("folder/old.md")).is_err(), "the read handle keeps its checked name pinned too");
+        fs::rename(&doc, s.path("folder/old.md")).unwrap();
+        std::os::windows::fs::symlink_file(r"\\127.0.0.1\tb-no-share\notes.md", &doc).unwrap();
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, b"the file opened");
         drop(file);
-        fs::rename(&doc, s.path("folder/old.md")).unwrap();
-        std::os::windows::fs::symlink_file(r"\\127.0.0.1\tb-no-share\notes.md", &doc).unwrap();
         assert!(local_read(&doc, 64).is_err());
     }
 
@@ -1310,15 +1319,8 @@ mod tests {
         let s = Scratch::new("media-held");
         let clip = bytes(&s, "hero.mp4", MP4_HEAD);
         let MediaVerdict::Show(mut checked) = decide_media(&clip.to_string_lossy(), Origin::ThisMac) else { panic!() };
-        #[cfg(not(windows))]
-        {
         fs::remove_file(&clip).unwrap();
         fs::write(&clip, b"something else entirely").unwrap();
-        }
-        // Windows pins the name while its checked handle is open. The
-        // replacement is refused rather than leaving an unlinked snapshot.
-        #[cfg(windows)]
-        assert!(fs::remove_file(&clip).is_err());
         let mut read = Vec::new();
         checked.file.read_to_end(&mut read).unwrap();
         assert_eq!(read, MP4_HEAD);

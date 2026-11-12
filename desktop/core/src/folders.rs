@@ -357,7 +357,7 @@ pub const REMOTE_POLL_SECS: u64 = 15;
 /// Swift app also has Quick Look's frames of videos).
 pub fn thumbnails(entry: &FolderEntry) -> bool {
     const MOST: i64 = 24 * 1024 * 1024;
-    if entry.is_folder || entry.size.is_some_and(|s| s > MOST) {
+    if entry.is_folder || !entry.size.is_some_and(|s| (0..=MOST).contains(&s)) {
         return false;
     }
     let ext = entry.name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default();
@@ -746,6 +746,7 @@ mod tests {
         assert!(!thumbnails(&picture("clip.mov", 6000)));
         assert!(!thumbnails(&picture("huge.png", 200 * 1024 * 1024)));
         assert!(!thumbnails(&FolderEntry { name: "x.png".into(), is_folder: true, ..Default::default() }));
+        assert!(!thumbnails(&FolderEntry { name: "refused-link.png".into(), size: None, ..Default::default() }));
         assert_eq!(settle_ms(10), 300);
         assert_eq!(settle_ms(5000), 3000);
     }

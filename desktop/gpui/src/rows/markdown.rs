@@ -2,8 +2,8 @@
 // does the blocks; this sets its sizes, spacing and colours to the Swift
 // app's, and sends links where they should go.
 use super::metrics::CODE_PAD;
-use crate::style::{self, size};
 use crate::open_gate::Origin;
+use crate::style::{self, size};
 use crate::thread::ThreadPane;
 use gpui_kit::base::{TextViewState, TextViewStyle};
 use gpui_kit::component::ActiveTheme as _;
@@ -35,13 +35,7 @@ pub(crate) fn reading_style(cx: &App) -> TextViewStyle {
         cx.theme().mono_font_family.clone(),
     );
     let rem = f32::from(cx.theme().font_size);
-    let code_block = StyleRefinement::default()
-        .rounded(px(7.))
-        .border_0()
-        .p(px(CODE_PAD))
-        .text_size(px(size::CODE))
-        .line_height(px(size::CODE_LINE))
-        .font_family(mono.clone());
+    let code_block = StyleRefinement::default().rounded(px(7.)).border_0().p(px(CODE_PAD)).text_size(px(size::CODE)).line_height(px(size::CODE_LINE)).font_family(mono.clone());
     // The pill behind inline code, with a little room either side (pillPad);
     // the kit reads padding and radius from this.
     let inline_code = StyleRefinement::default().bg(inline_bg).rounded(px(4.)).px(px(2.5)).py(px(1.)).text_size(px(size::CODE)).font_family(mono.clone()).text_color(label);
@@ -150,7 +144,9 @@ fn collect_images(node: &markdown::mdast::Node, found: &mut impl FnMut(&markdown
 /// The file a picture's address names on this Mac, if it's a file.
 pub(crate) fn picture_path(url: &str) -> Option<std::path::PathBuf> {
     #[cfg(windows)]
-    { windows_picture_path(url) }
+    {
+        windows_picture_path(url)
+    }
     #[cfg(not(windows))]
     {
         if let Some(rest) = url.strip_prefix("file://") {
@@ -173,9 +169,7 @@ fn windows_picture_path(url: &str) -> Option<std::path::PathBuf> {
         url.to_owned()
     };
     let bytes = path.as_bytes();
-    let drive = bytes.first().is_some_and(u8::is_ascii_alphabetic)
-        && bytes.get(1) == Some(&b':')
-        && bytes.get(2).is_some_and(|b| matches!(b, b'/' | b'\\'));
+    let drive = bytes.first().is_some_and(u8::is_ascii_alphabetic) && bytes.get(1) == Some(&b':') && bytes.get(2).is_some_and(|b| matches!(b, b'/' | b'\\'));
     if !drive || path.chars().any(char::is_control) || path[2..].contains(':') || path.split(['/', '\\']).any(is_device_name) {
         return None;
     }
@@ -247,7 +241,11 @@ fn raster_signature(head: &[u8]) -> bool {
 /// of Daybreak 95). For every `img` of a path from a thread.
 pub(crate) fn picture_file(path: &str) -> std::path::PathBuf {
     let path = std::path::PathBuf::from(path);
-    if raster_file(&path) { path } else { std::path::PathBuf::new() }
+    if raster_file(&path) {
+        path
+    } else {
+        std::path::PathBuf::new()
+    }
 }
 
 pub(crate) fn picture_source(uri: &gpui_kit::SharedUri, local: bool) -> gpui_kit::ImageSource {
@@ -260,8 +258,8 @@ pub(crate) fn picture_source(uri: &gpui_kit::SharedUri, local: bool) -> gpui_kit
     }
     #[cfg(not(windows))]
     {
-    let path = picture_path(uri.as_ref()).filter(|path| local && is_picture_file(path)).map(|path| picture_file(&path.to_string_lossy())).unwrap_or_default();
-    gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(std::sync::Arc::from(path.as_path())))
+        let path = picture_path(uri.as_ref()).filter(|path| local && is_picture_file(path)).map(|path| picture_file(&path.to_string_lossy())).unwrap_or_default();
+        gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(std::sync::Arc::from(path.as_path())))
     }
 }
 
@@ -272,24 +270,53 @@ pub(crate) fn file_picture(path: &str) -> ImageSource {
     #[cfg(windows)]
     {
         let path = std::path::PathBuf::from(path);
-        ImageSource::Custom(std::sync::Arc::new(move |window, cx| window.use_asset::<LocalPicture>(&path, cx)))
+        ImageSource::Custom(std::sync::Arc::new(move |window, cx| {
+            let result = window.use_asset::<LocalPicture>(&path, cx);
+            if result.as_ref().is_some_and(|r| r.is_err()) && cx.default_global::<PictureRetries>().pending.insert(path.clone()) {
+                let path = path.clone();
+                cx.spawn(async move |cx| {
+                    cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                    let _ = cx.update(|cx| {
+                        cx.remove_asset::<LocalPicture>(&path);
+                        cx.default_global::<PictureRetries>().pending.remove(&path);
+                        cx.refresh_windows();
+                    });
+                })
+                .detach();
+            }
+            result
+        }))
     }
     #[cfg(not(windows))]
-    { picture_file(path).into() }
+    {
+        picture_file(path).into()
+    }
 }
 
 #[cfg(windows)]
 struct LocalPicture;
 
 #[cfg(windows)]
+#[derive(Default)]
+struct PictureRetries {
+    pending: std::collections::HashSet<std::path::PathBuf>,
+}
+#[cfg(windows)]
+impl Global for PictureRetries {}
+
+#[cfg(windows)]
 fn checked_picture_bytes(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
     let file = threadbear_core::open_policy::local_open(path)?;
     let meta = file.metadata()?;
-    if !meta.is_file() || meta.len() > PICTURE_MAX_BYTES { return Err(std::io::Error::other("Not a picture file")); }
+    if !meta.is_file() || meta.len() > PICTURE_MAX_BYTES {
+        return Err(std::io::Error::other("Not a picture file"));
+    }
     let mut bytes = Vec::new();
     file.take(PICTURE_MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > PICTURE_MAX_BYTES || !raster_signature(&bytes) { return Err(std::io::Error::other("Not a raster picture")); }
+    if bytes.len() as u64 > PICTURE_MAX_BYTES || !raster_signature(&bytes) {
+        return Err(std::io::Error::other("Not a raster picture"));
+    }
     Ok(bytes)
 }
 
@@ -565,7 +592,6 @@ impl ThreadPane {
             Origin::ThisMac
         }
     }
-
 }
 
 /// How many row documents a thread keeps parsed.
@@ -587,12 +613,24 @@ mod tests {
             assert_eq!(super::windows_picture_path(url), Some(std::path::PathBuf::from(path)), "{url}");
         }
         for url in [
-            r"\\host\share\shot.png", "//host/share/shot.png", "file://host/share/shot.png",
-            "file:////host/share/shot.png", "file:///%5C%5Chost/share/shot.png",
-            r"\\?\C:\pictures\shot.png", r"\\.\pipe\shot.png", r"\??\C:\shot.png",
-            r"C:\pictures\NUL.tar.png", r"C:\COM¹\shot.png", r"C:\pictures\NUL:shot.png",
-            "C:/pictures/file:stream.png", "C:shot.png", "/pictures/shot.png", "shot.png",
-            "file:///C:/pictures/a%00b.png", "https://x.y/shot.png", "",
+            r"\\host\share\shot.png",
+            "//host/share/shot.png",
+            "file://host/share/shot.png",
+            "file:////host/share/shot.png",
+            "file:///%5C%5Chost/share/shot.png",
+            r"\\?\C:\pictures\shot.png",
+            r"\\.\pipe\shot.png",
+            r"\??\C:\shot.png",
+            r"C:\pictures\NUL.tar.png",
+            r"C:\COM¹\shot.png",
+            r"C:\pictures\NUL:shot.png",
+            "C:/pictures/file:stream.png",
+            "C:shot.png",
+            "/pictures/shot.png",
+            "shot.png",
+            "file:///C:/pictures/a%00b.png",
+            "https://x.y/shot.png",
+            "",
         ] {
             assert_eq!(super::windows_picture_path(url), None, "{url}");
         }
@@ -668,7 +706,8 @@ mod tests {
         // An SVG named as a picture, whose <image> would have the loader
         // read /dev/zero, and text: neither starts as a picture does.
         let svg = dir.join("payload.png");
-        std::fs::write(&svg, br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1" height="1"><image width="1" height="1" xlink:href="/dev/zero"/></svg>"#).unwrap();
+        std::fs::write(&svg, br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1" height="1"><image width="1" height="1" xlink:href="/dev/zero"/></svg>"#)
+            .unwrap();
         let text = dir.join("notes.jpg");
         std::fs::write(&text, b"hello").unwrap();
         for path in [&svg, &text] {
