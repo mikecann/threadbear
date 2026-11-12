@@ -805,11 +805,12 @@ impl ThreadPane {
             LinkTarget::File(_) if self.summary.is_remote() => None,
             LinkTarget::File(None) => None,
             LinkTarget::File(Some(file)) => {
-                let exists = Path::new(&file.path).exists();
+                let meta = policy::local_metadata(Path::new(&file.path)).ok();
+                let exists = meta.is_some();
                 let words = rules::file_peek(&file.path, exists, None, &crate::files::home_dir());
                 let picture = match (exists, rules::peek_picture(&file.path)) {
-                    (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::picture_file(&file.path)),
-                    _ => FilePicture::Symbol(if Path::new(&file.path).is_dir() { "folder" } else { hl::file_symbol(&file.path) }),
+                    (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::file_picture(&file.path)),
+                    _ => FilePicture::Symbol(if meta.is_some_and(|m| m.is_dir()) { "folder" } else { hl::file_symbol(&file.path) }),
                 };
                 Some(Card::File { words, picture })
             }
