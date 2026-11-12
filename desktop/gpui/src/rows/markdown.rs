@@ -548,6 +548,10 @@ mod tests {
         // a file too big to read whole.
         let device = dir.join("zero.png");
         let _ = std::fs::remove_file(&device);
+        // Windows has no /dev/zero to link to (and this didn't compile
+        // there, which stopped the Windows job's tests), so there the path
+        // leads nowhere, which is refused too.
+        #[cfg(unix)]
         std::os::unix::fs::symlink("/dev/zero", &device).unwrap();
         assert_eq!(source_path(&device.to_string_lossy(), true), "");
         let folder = dir.join("folder.png");
