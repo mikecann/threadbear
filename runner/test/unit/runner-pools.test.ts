@@ -255,6 +255,55 @@ test('before a turn: an unresolved opus alias is dropped rather than run as the 
   assert.match(notes(h, thread.id)[0], /opus isn't on this login/);
 });
 
+test('before a turn: a stored Fable 1M choice id stays when the destination lists that row and the login being left has no list', async () => {
+  const fable = { id: 'claude-fable-5-1[1m]', model: 'claude-fable-5-1', title: 'Fable 5.1' };
+  const accounts: Account[] = [
+    { id: 'claude-main', provider: 'claude', title: 'main@example.com', configDir: '/tmp/main', models: [fable], defaultModel: 'claude-opus-5' },
+    { id: 'claude-3', provider: 'claude', title: 'three@example.com', configDir: '/tmp/three', models: [] },
+  ];
+  const h = poolHarness({ accounts, pools: [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3'] }] });
+  h.setUsage('claude-main', room(40));
+  h.setUsage('claude-3', room(90));
+  const { thread } = h.runner.create({ text: 'x', model: 'claude-fable-5-1[1m]' });
+  assert.equal(thread.accountId, 'claude-3');
+  assert.equal(thread.model, 'claude-fable-5-1[1m]');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0.5, 130));
+  h.runner.send(thread.id, 'next');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main');
+  assert.equal(h.adapter.last.opts.model, 'claude-fable-5-1[1m]');
+  assert.equal(h.runner.get(thread.id).model, 'claude-fable-5-1[1m]');
+  assert.doesNotMatch(notes(h, thread.id)[0], /isn't on this login/);
+});
+
+test('before a turn: rewriting the choice id drops an effort the model it lands on does not offer', async () => {
+  const accounts: Account[] = [
+    { id: 'claude-main', provider: 'claude', title: 'main@example.com', configDir: '/tmp/main', models: [{ id: 'claude-opus-5', model: 'claude-opus-5', title: 'Opus 5', effortLevels: ['low' as const] }], defaultModel: 'claude-opus-5' },
+    { id: 'claude-3', provider: 'claude', title: 'three@example.com', configDir: '/tmp/three', models: [{ id: 'opus', model: 'claude-opus-5', title: 'Opus', effortLevels: ['low' as const, 'max' as const] }], defaultModel: 'claude-opus-5' },
+  ];
+  const h = poolHarness({ accounts, pools: [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3'] }] });
+  h.setUsage('claude-main', room(40));
+  h.setUsage('claude-3', room(90));
+  const { thread } = h.runner.create({ text: 'x', model: 'opus', effort: 'max' });
+  assert.equal(thread.accountId, 'claude-3');
+  assert.equal(thread.model, 'opus');
+  assert.equal(thread.effort, 'max');
+  h.adapter.last.init();
+  h.adapter.last.result();
+  h.setUsage('claude-3', room(0.5, 130));
+  h.runner.send(thread.id, 'next');
+  await tick();
+  assert.equal(h.adapter.last.opts.account.id, 'claude-main');
+  assert.equal(h.adapter.last.opts.model, 'claude-opus-5');
+  assert.equal(h.adapter.last.opts.effort, undefined, 'the old effort is not sent with the rewritten id');
+  assert.equal(h.runner.get(thread.id).model, 'claude-opus-5');
+  assert.equal(h.runner.get(thread.id).effort, undefined);
+  assert.match(notes(h, thread.id)[0], /doesn't offer Max effort/);
+  assert.doesNotMatch(notes(h, thread.id)[0], /isn't on this login/);
+});
+
 test('before a turn: a failed copy falls back to the handoff note; a login with room stays put', async () => {
   const h = poolHarness({ copy: false });
   h.setUsage('claude-main', room(40));

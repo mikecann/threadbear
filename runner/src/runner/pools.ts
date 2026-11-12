@@ -10,17 +10,28 @@ import { cutOut } from '../store.ts';
 import { resetTime } from '../usage.ts';
 import { DEFAULT_POOL_FOLDERS, peekRunnerJson, readRunnerJson, writeRunnerJson } from '../config.ts';
 import { UNKNOWN_WAIT_MS, WAIT_SLACK_MS, backAt, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from '../pools.ts';
+import { stripModelSuffix } from '../accounts.ts';
 import { historyItems, selectHistory } from '../handoff-history.ts';
 import type { ThreadState } from '../runner.ts';
 import { CARRY_ON_BACK, CARRY_ON_MOVED, isClaudeModel, modelRow, modelTitle } from '../runner.ts';
 import { providerName } from '../providers.ts';
+
+// Claude's short aliases. Two logins can resolve the same word to different
+// models. `opus[1m]` is still `opus`. A stored choice id such as
+// `claude-fable-5-1[1m]` is not an alias: its resolved model is shorter.
+const CLAUDE_ALIASES = new Set(['opus', 'sonnet', 'haiku', 'default', 'opusplan']);
+
+function unresolvedAlias(id: string): boolean {
+  return CLAUDE_ALIASES.has(stripModelSuffix(id).toLowerCase());
+}
 
 // What `to` should store for the model `stored` means on `from`.
 // undefined: leave it (nothing set, `to`'s list isn't known yet, or `to`
 // already uses that choice id). null: `to` doesn't list it. A string: `to`'s
 // choice id for the same resolved model, when it differs from `stored`.
 // An empty list on `from` is not a reason to keep a model `to` doesn't
-// list. An alias `from` hasn't resolved is not `to`'s alias.
+// list. An alias `from` hasn't resolved is not `to`'s alias. A stored
+// choice id is that row when `to` lists the id.
 function modelOnLogin(from: Account | undefined, to: Account, stored: string | undefined): string | null | undefined {
   if (!stored) return undefined;
   if (!to.models?.length) return undefined;
@@ -37,7 +48,7 @@ function modelOnLogin(from: Account | undefined, to: Account, stored: string | u
     if (!there) return null;
     return there.id === stored ? undefined : there.id;
   }
-  const there = to.models.find((m) => (m.model || m.id) === stored);
+  const there = to.models.find((m) => (m.model || m.id) === stored || (!unresolvedAlias(stored) && m.id === stored));
   if (!there) return null;
   return there.id === stored ? undefined : there.id;
 }
@@ -250,8 +261,10 @@ export const poolsPart = {
   // provider keeps the model when that login lists it (or that login's
   // list isn't known yet). A model it doesn't list is dropped, even when
   // the login being left hasn't reported a list: an alias from there is
-  // not this login's alias. Dropping the model checks the effort against
-  // this login's default. The move is a note in the transcript.
+  // not this login's alias, and a stored choice id is kept when this
+  // login lists it. Dropping the model checks the effort against this
+  // login's default. Rewriting the choice id checks it against the model
+  // it lands on. The move is a note in the transcript.
   moveLogin(this: Runner, st: ThreadState, to: Account, why: string): void {
     const { rec, rt } = st;
     const from = this.usableAccounts().find((a) => a.id === rec.accountId);
@@ -273,17 +286,24 @@ export const poolsPart = {
     } else {
       const stored = rec.model;
       const next = modelOnLogin(from, to, stored);
+      // The model the thread lands on: the default when one is dropped,
+      // the rewritten choice id when the same model is stored under
+      // another id. A pin runs this through threads.update.
+      const settleEffort = (model: string | undefined): void => {
+        const checked = this.checkSettings(to, model, rec.effort);
+        if (checked.effort) rec.effort = checked.effort;
+        else delete rec.effort;
+        for (const text of checked.notes) note += ` ${text}`;
+      };
       if (next === null && stored) {
         const dropped = modelTitle(from ?? to, stored);
         delete rec.model;
-        const checked = this.checkSettings(to, undefined, rec.effort);
-        if (checked.effort) rec.effort = checked.effort;
-        else delete rec.effort;
         const uses = to.defaultModel ? modelTitle(to, to.defaultModel) : "the account's default model";
         note += ` ${dropped} isn't on this login, so this thread uses ${uses}.`;
-        for (const text of checked.notes) note += ` ${text}`;
+        settleEffort(undefined);
       } else if (next) {
         rec.model = next;
+        settleEffort(next);
       }
     }
     if (rt.session) {

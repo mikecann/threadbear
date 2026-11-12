@@ -2116,10 +2116,12 @@ thread to another login when the one it's on runs out of room.
   same-provider move keeps the thread's model when that login lists it,
   or when that login's list isn't known yet. The login being left not
   having reported a list yet does not keep a model the destination
-  doesn't list, and an alias it hasn't resolved is dropped rather than
-  run as the destination's own alias. A dropped model takes that login's
-  default, and the effort is checked against the default the same way
-  `threads.update` does. An alias is the
+  doesn't list. A stored choice id that login lists is kept, even when
+  its resolved model is a shorter id, and an alias it hasn't resolved is
+  dropped rather than run as the destination's own alias. A dropped model
+  takes that login's default. The effort is checked against the model the
+  thread lands on, the same way `threads.update` does, including when the
+  choice id is rewritten. An alias is the
   model it means on the login being left, so two logins whose `opus`
   rows run as different models are not the same model. A
   thread that spilled over stays there; it doesn't move back by itself. If

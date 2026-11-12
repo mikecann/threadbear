@@ -145,6 +145,11 @@ final class ModelPickerTests: XCTestCase {
         XCTAssertEqual(ModelPicker.modelMove("opus", from: unknown, to: onlyOpus), .clear, "an unresolved alias is not this login's opus")
         XCTAssertEqual(ModelPicker.modelMove("claude-opus-5", from: unknown, to: onlyOpus), .set("opus"))
         XCTAssertEqual(ModelPicker.modelMove("claude-fable-5", from: nil, to: onlyOpus), .clear)
+        let fable1m = ModelChoice(id: "claude-fable-5-1[1m]", model: "claude-fable-5-1", title: "Fable 5.1")
+        let withFable = Account(id: "c", title: "c@collabute.com", models: [fable1m])
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5-1[1m]", from: unknown, to: withFable), .keep, "the stored choice id is that row")
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5-1[1m]", from: nil, to: withFable), .keep)
+        XCTAssertEqual(ModelPicker.modelMove("opus[1m]", from: unknown, to: onlyOpus), .clear, "a suffixed alias is still an alias")
     }
 
     /// The levels come from the chosen model's row when the CLI gave any,

@@ -222,8 +222,9 @@ public enum ModelPicker {
     /// `to` already uses that choice id for the same model. `.clear` drops
     /// a model `to` doesn't list. `.set` is `to`'s choice id for that same
     /// resolved model. An alias is resolved on `from`. A list that hasn't
-    /// come back for `from` does not keep a model `to` doesn't list, and an
-    /// unresolved alias is not `to`'s own alias.
+    /// come back for `from` does not keep a model `to` doesn't list. A
+    /// stored choice id is that row when `to` lists it, and an unresolved
+    /// alias is not `to`'s own alias.
     public enum ModelMove: Equatable {
         case keep
         case clear
@@ -247,11 +248,21 @@ public enum ModelPicker {
             return .clear
         }
         // No list yet on the login being left, so an alias can't be
-        // resolved. Only the same resolved model counts.
-        if let there = to.models.first(where: { runsAs($0) == explicit }) {
+        // resolved. The same resolved model counts, and so does a stored
+        // choice id (Fable's "claude-fable-5-1[1m]", whose resolved model
+        // is shorter). A bare alias is not this login's alias.
+        if let there = to.models.first(where: { runsAs($0) == explicit || (!unresolvedAlias(explicit) && $0.id == explicit) }) {
             return there.id == explicit ? .keep : .set(there.id)
         }
         return .clear
+    }
+
+    /// Claude's short aliases. `opus[1m]` is still `opus`. A stored choice
+    /// id such as `claude-fable-5-1[1m]` is not one: its resolved model is
+    /// shorter, and the id is the same row on every login.
+    private static func unresolvedAlias(_ id: String) -> Bool {
+        let bare = id.replacingOccurrences(of: #"\[[^\]]*\]$"#, with: "", options: .regularExpression).lowercased()
+        return ["opus", "sonnet", "haiku", "default", "opusplan"].contains(bare)
     }
 
     private static func matches(_ c: ModelChoice, _ id: String?, in choices: [ModelChoice]) -> Bool {

@@ -160,6 +160,15 @@ final class PoolPickTests: XCTestCase {
         again.newThreadAccount = "claude-main"
         ThreadSettings(app: again, thread: nil).pin("claude-1")
         XCTAssertNil(again.lastModels["claude"], "opus would run as this login's own opus")
+
+        let kept = self.app()
+        let fable1m = ModelChoice(id: "claude-fable-5-1[1m]", model: "claude-fable-5-1", title: "Fable 5.1")
+        kept.accounts[0].models = [fable1m]
+        kept.accounts[1].models = []
+        kept.remember(model: "claude-fable-5-1[1m]", provider: "claude")
+        kept.newThreadAccount = "claude-1"
+        ThreadSettings(app: kept, thread: nil).pin("claude-main")
+        XCTAssertEqual(kept.lastModels["claude"], "claude-fable-5-1[1m]", "the destination lists that choice id")
     }
 
     /// A mixed pool lists each provider's models under its name, and a
