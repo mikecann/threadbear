@@ -143,6 +143,7 @@ fn reply_link_probes_use_the_local_file_gate() {
     }
     assert!(text.contains("policy::local_metadata"));
     assert!(text.contains("policy::local_read"));
+    assert!(!text.contains("FilePicture::Image(crate::rows::markdown::picture_file("), "hover pictures must use the guarded Windows loader too");
     let core = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/text_file.rs");
     let text = std::fs::read_to_string(core).unwrap();
     let production = text.split("#[cfg(test)]").next().unwrap();
