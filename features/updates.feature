@@ -82,9 +82,8 @@ Feature: The Updates panel
     When I write "not before Friday" as my own answer to ask 1
     Then a restart onto it waits for the words typed
 
-  # @windows-pending: there the Terminal can't tell its shell is idle at the
-  # prompt (terminal.rs, shell_in_front is Unix only), so a fresh shell
-  # already holds the restart off.
+  # Windows has no foreground-process check for ConPTY yet. Every live shell
+  # holds a restart, as it could be running a command the app cannot see.
   @system.selfupdate @swift-pending @windows-pending
   Scenario: The next version waits while a shell is typed in or running something
     Given the thread "Rename the Settings tabs" works in a folder of its own

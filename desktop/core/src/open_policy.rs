@@ -82,6 +82,8 @@ pub fn link_kind(url: &str) -> LinkKind {
                 rest
             };
             let path = url_path(path);
+            #[cfg(windows)]
+            let path = if path.starts_with('/') && crate::reducer::text::is_windows_path(&path[1..]) { path[1..].to_owned() } else { path };
             if path.is_empty() {
                 LinkKind::Refuse
             } else {
@@ -246,12 +248,17 @@ pub struct OpeningApp {
 /// `\\.\pipe\...`) is refused, before anything touches it: looking at
 /// `\\host\share\a.md` would have Windows reach that machine, and offer it
 /// your sign-in, from a link a reply wrote. That's what `file://host/a` is
-/// refused for in `link_kind`. A file on a drive mapped to a share still
-/// resolves (to `\\?\UNC\...`): the drive's yours, not a reply's.
+/// refused for in `link_kind`. Mapped shares and links to them are refused
+/// too: local_path walks links without following them into the network.
 pub fn real_path(path: &Path) -> std::io::Result<PathBuf> {
     if on_a_share(path) {
         return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "a network share or a device"));
     }
+    #[cfg(windows)]
+    let local = crate::local_path::LocalPath::new(path)?;
+    #[cfg(windows)]
+    let real = local.path.clone();
+    #[cfg(not(windows))]
     let real = std::fs::canonicalize(path)?;
     let simple = dunce::simplified(&real);
     // dunce reads only the last extension off a name, so `NUL.tar.gz` passes
@@ -299,9 +306,33 @@ pub fn is_share_or_device(path: &str) -> bool {
 /// reads as a device (`C:\work\NUL.pdf`), which only looking at would open
 /// (Codex's second look at PR #57). Never on Mac and Linux, where `//a/b` is
 /// `/a/b` and `NUL` is a name like any other.
-fn on_a_share(path: &Path) -> bool {
+pub(crate) fn on_a_share(path: &Path) -> bool {
     let text = path.to_string_lossy();
     cfg!(windows) && (is_share_or_device(&text) || text.split(['\\', '/']).any(is_device_name))
+}
+
+/// A reply's file probe uses the same local-path rules as opening it. On
+/// Windows even metadata can contact a share, so never probe the raw path.
+pub fn local_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    #[cfg(windows)]
+    {
+        let local = crate::local_path::LocalPath::new(path)?;
+        std::fs::metadata(&local.path)
+    }
+    #[cfg(not(windows))]
+    std::fs::metadata(path)
+}
+
+/// Read a local file with its Windows ancestors held against a link swap.
+pub fn local_read(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    #[cfg(windows)]
+    let local = crate::local_path::LocalPath::new(path)?;
+    #[cfg(windows)]
+    let path = local.path.as_path();
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?.take(max as u64).read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 /// What looking at a file found.
@@ -334,7 +365,7 @@ fn runs(file: &Path, meta: &std::fs::Metadata, app_for: &dyn Fn(&Path) -> Option
     }
     if meta.is_dir() {
         // A bundle is a folder macOS launches or installs rather than shows.
-        if file.join("Contents/Info.plist").exists() || file.join("Contents/MacOS").exists() || file.join("Info.plist").exists() {
+        if ["Contents/Info.plist", "Contents/MacOS", "Info.plist"].iter().any(|p| local_metadata(&file.join(p)).is_ok()) {
             return Some("It's an app or a bundle, which runs when it's opened.".to_owned());
         }
     }
@@ -934,6 +965,43 @@ mod tests {
         let verbatim = std::fs::canonicalize(&doc).unwrap();
         assert!(verbatim.to_string_lossy().starts_with(r"\\?\"));
         assert_eq!(real_path(&verbatim).unwrap(), doc);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_links_are_resolved_locally_before_any_file_probe() {
+        use std::os::windows::fs::{symlink_file, symlink_dir};
+        let s = Scratch::new("local-links");
+        let doc = s.file("real/notes.md", "notes");
+        let local = s.path("local.md");
+        symlink_file(&doc, &local).unwrap();
+        assert_eq!(real_path(&local).unwrap(), doc);
+        assert_eq!(local_read(&local, 4096).unwrap(), b"notes");
+        let dir_link = s.path("folder");
+        symlink_dir(doc.parent().unwrap(), &dir_link).unwrap();
+        assert_eq!(real_path(&dir_link.join("notes.md")).unwrap(), doc);
+        // No server is needed: permission denied comes from the path guard,
+        // not a failed network lookup. Both a final link and an ancestor.
+        let remote = s.path("remote.md");
+        symlink_file(r"\\127.0.0.1\tb-no-share\notes.md", &remote).unwrap();
+        let ancestor = s.path("remote-folder");
+        symlink_dir(r"\\127.0.0.1\tb-no-share", &ancestor).unwrap();
+        let device = s.path("device.md");
+        symlink_file(r"\\.\NUL", &device).unwrap();
+        for path in [remote, ancestor.join("notes.md"), device] {
+            assert_eq!(real_path(&path).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied, "{}", path.display());
+            assert_eq!(local_metadata(&path).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+            assert_eq!(local_read(&path, 4096).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+            assert!(matches!(decide_file(&path.to_string_lossy(), Origin::ThisMac, &none), FileVerdict::Refuse(_)));
+            assert!(crate::file_identity::FileIdentity::of(&path).is_none());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_file_urls_round_trip_to_a_drive_path() {
+        assert_eq!(link_kind("file:///C:/work/notes%20one.md"), LinkKind::File("C:/work/notes one.md".into()));
+        assert_eq!(link_kind("file://localhost/C:/work/notes.md"), LinkKind::File("C:/work/notes.md".into()));
     }
 
     /// A file whose path is too long for its drive form keeps the verbatim

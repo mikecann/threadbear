@@ -201,10 +201,9 @@ fn is_picture_file(path: &std::path::Path) -> bool {
 /// (Codex's second look at Daybreak 95). Remembered by the file's size and
 /// time, as rows ask on every frame.
 fn raster_file(path: &std::path::Path) -> bool {
-    use std::io::Read as _;
     use std::sync::{LazyLock, Mutex};
     static SEEN: LazyLock<Mutex<std::collections::HashMap<(std::path::PathBuf, u64, Option<std::time::SystemTime>), bool>>> = LazyLock::new(Default::default);
-    let Ok(meta) = std::fs::metadata(path) else { return false };
+    let Ok(meta) = threadbear_core::open_policy::local_metadata(path) else { return false };
     if !meta.is_file() || meta.len() > PICTURE_MAX_BYTES {
         return false;
     }
@@ -212,18 +211,7 @@ fn raster_file(path: &std::path::Path) -> bool {
     if let Some(known) = SEEN.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
         return *known;
     }
-    let mut head = [0u8; 12];
-    let read = std::fs::File::open(path).and_then(|mut f| {
-        let mut n = 0;
-        while n < head.len() {
-            match f.read(&mut head[n..])? {
-                0 => break,
-                got => n += got,
-            }
-        }
-        Ok(n)
-    });
-    let raster = read.is_ok_and(|n| raster_signature(&head[..n]));
+    let raster = threadbear_core::open_policy::local_read(path, 12).is_ok_and(|head| raster_signature(&head));
     let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
     if seen.len() > 2000 {
         seen.clear();
@@ -258,11 +246,12 @@ fn raster_signature(head: &[u8]) -> bool {
 /// another runner's word in a moved thread, naming /dev/zero (Codex's review
 /// of Daybreak 95). For every `img` of a path from a thread.
 pub(crate) fn picture_file(path: &str) -> std::path::PathBuf {
-    if raster_file(std::path::Path::new(path)) { path.into() } else { std::path::PathBuf::new() }
+    let Ok(path) = threadbear_core::open_policy::real_path(std::path::Path::new(path)) else { return std::path::PathBuf::new() };
+    if raster_file(&path) { path } else { std::path::PathBuf::new() }
 }
 
 pub(crate) fn picture_source(uri: &gpui_kit::SharedUri, local: bool) -> gpui_kit::ImageSource {
-    let path = picture_path(uri.as_ref()).filter(|path| local && is_picture_file(path)).unwrap_or_default();
+    let path = picture_path(uri.as_ref()).filter(|path| local && is_picture_file(path)).map(|path| picture_file(&path.to_string_lossy())).unwrap_or_default();
     gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(std::sync::Arc::from(path.as_path())))
 }
 

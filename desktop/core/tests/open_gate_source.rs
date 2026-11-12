@@ -132,6 +132,19 @@ fn the_gate_opens_in_one_place() {
     assert!(!text.contains("format!(\"file://"));
 }
 
+#[test]
+fn reply_link_probes_use_the_local_file_gate() {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gpui/src/reply_links.rs");
+    let text = std::fs::read_to_string(file).unwrap();
+    // A probe or a hover runs before a click has reached the opener. On
+    // Windows exists/is_dir/open can already contact an SMB server.
+    for unsafe_probe in ["Path::new(p).exists()", "Path::new(&file.path).exists()", "Path::new(&file.path).is_dir()", "Path::new(&path).is_dir()", "std::fs::File::open(path)"] {
+        assert!(!text.contains(unsafe_probe), "reply link bypasses the local path gate: {unsafe_probe}");
+    }
+    assert!(text.contains("policy::local_metadata"));
+    assert!(text.contains("policy::local_read"));
+}
+
 /// The Mac's own video and PDF views read only the file the gate checked and
 /// send their links back to it (Codex's review of the views, 12 Nov):
 /// - a `PDFView` with no delegate of its own hands a clicked link to

@@ -286,9 +286,24 @@ fn idle_seconds() -> f64 {
     crate::hang_watch::idle_seconds().unwrap_or(0.)
 }
 
-/// Elsewhere there's no asking yet, so it never counts as idle: in front it
+#[cfg(windows)]
+fn idle_seconds() -> f64 {
+    #[repr(C)]
+    struct LastInput { size: u32, tick: u32 }
+    #[link(name = "user32")]
+    extern "system" { fn GetLastInputInfo(info: *mut LastInput) -> i32; }
+    #[link(name = "kernel32")]
+    extern "system" { fn GetTickCount() -> u32; }
+    let mut info = LastInput { size: std::mem::size_of::<LastInput>() as u32, tick: 0 };
+    // Both clocks use the same wrapping millisecond counter. A failed query
+    // counts as active, so an update cannot interrupt input we couldn't read.
+    if unsafe { GetLastInputInfo(&mut info) } == 0 { return 0.; }
+    unsafe { GetTickCount() }.wrapping_sub(info.tick) as f64 / 1000.
+}
+
+/// On Linux there's no asking yet, so it never counts as idle: in front it
 /// waits for Restart to Update or for another app to be in front.
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 fn idle_seconds() -> f64 {
     0.
 }

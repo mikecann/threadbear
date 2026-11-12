@@ -193,12 +193,17 @@ fn trimmed(path: &str) -> &str {
 /// (the Finder's long run up from the disk says nothing Mike wants to click),
 /// else from the top of the disk (`FolderListing.crumbs`).
 pub fn crumbs(path: &str, home: &str) -> Vec<Crumb> {
-    let home = trimmed(home);
-    let path = trimmed(path);
+    let home = separators(home);
+    let path = separators(path);
+    let home = trimmed(&home);
+    let path = trimmed(&path);
     let mut out = Vec::new();
     let (mut at, rest) = if !home.is_empty() && home != "/" && (path == home || path.starts_with(&format!("{home}/"))) {
         out.push(Crumb { name: name_of(home).to_owned(), path: home.to_owned() });
         (home.to_owned(), &path[home.len()..])
+    } else if crate::reducer::text::is_windows_path(path) || (path.len() == 2 && path.as_bytes()[0].is_ascii_alphabetic() && path.ends_with(':')) {
+        out.push(Crumb { name: path[..2].to_owned(), path: format!("{}/", &path[..2]) });
+        (path[..2].to_owned(), &path[2..])
     } else {
         out.push(Crumb { name: "/".into(), path: "/".into() });
         (String::new(), path)
@@ -217,12 +222,18 @@ fn name_of(path: &str) -> &str {
 
 /// The folder above, or none at the top of the disk (`FolderListing.parent`).
 pub fn parent(path: &str) -> Option<String> {
-    let path = trimmed(path);
-    if path == "/" || path.is_empty() {
+    let path = separators(path);
+    let path = trimmed(&path);
+    if path == "/" || path.is_empty() || (path.len() == 2 && path.ends_with(':')) {
         return None;
     }
     let up = path.rsplit_once('/').map_or("", |(up, _)| up);
-    Some(if up.is_empty() { "/".to_owned() } else { up.to_owned() })
+    Some(if up.is_empty() { "/".to_owned() } else if up.len() == 2 && up.ends_with(':') { format!("{up}/") } else { up.to_owned() })
+}
+
+// A runner's Windows paths can be browsed from another system too.
+fn separators(path: &str) -> String {
+    if crate::reducer::text::is_windows_path(path) { path.replace('\\', "/") } else { path.to_owned() }
 }
 
 pub fn join(folder: &str, name: &str) -> String {
@@ -496,6 +507,16 @@ pub fn failure_words(code: i64, message: &str, away: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_breadcrumbs_start_at_the_drive_and_keep_each_folder() {
+        let got = super::crumbs(r"C:\work\site\logs", r"C:\Users\mike");
+        assert_eq!(got.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["C:", "work", "site", "logs"]);
+        assert_eq!(got.last().unwrap().path, "C:/work/site/logs");
+        assert_eq!(super::parent(r"C:\work\site\logs").as_deref(), Some("C:/work/site"));
+        assert_eq!(super::parent("C:/"), None);
+        let home = super::crumbs(r"C:\Users\mike\site\logs", "C:/Users/mike");
+        assert_eq!(home.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["mike", "site", "logs"]);
+    }
     use super::*;
     use serde_json::json;
 

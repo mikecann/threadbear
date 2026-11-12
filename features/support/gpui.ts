@@ -68,7 +68,19 @@ export class GpuiDriver implements Driver {
   }
 
   /** Stops a child and everything it started: the whole process group it leads (see `child`). */
-  private killChild(c: ChildProcess): void {
+  private async killChild(c: ChildProcess): Promise<void> {
+    if (process.platform === 'win32') {
+      // Killing just the app leaves its ConPTY shell holding its working
+      // directory open. This is our own child's tree, never another app's.
+      if (c.pid && c.exitCode === null && c.signalCode === null) {
+        await new Promise<void>((resolve, reject) => {
+          const kill = spawn('taskkill', ['/PID', String(c.pid), '/T', '/F'], { stdio: 'ignore' });
+          kill.once('error', reject);
+          kill.once('exit', () => resolve());
+        });
+      }
+      return;
+    }
     if (c.pid && process.platform !== 'win32') {
       try {
         process.kill(-c.pid, 'SIGTERM');
@@ -141,7 +153,7 @@ export class GpuiDriver implements Driver {
     const old = this.appProcess;
     if (old) {
       const gone = new Promise<void>((done) => old.once('exit', () => done()));
-      this.killChild(old);
+      await this.killChild(old);
       await Promise.race([gone, sleep(4000)]);
       this.children = this.children.filter((c) => c !== old);
     }
@@ -198,14 +210,16 @@ export class GpuiDriver implements Driver {
 
   async stop(): Promise<void> {
     this.socket?.destroy();
-    for (const c of this.children.reverse()) {
-      this.killChild(c);
+    for (const c of this.children.splice(0).reverse()) {
+      const exited = c.exitCode !== null || c.signalCode !== null ? Promise.resolve() : new Promise<void>((resolve) => c.once('exit', () => resolve()));
+      await this.killChild(c);
+      await Promise.race([exited, sleep(5000)]);
       // dbus-run-session's children can outlive it holding these pipes open,
       // and Node then waits on them for ever.
       c.stdout?.destroy();
       c.stderr?.destroy();
     }
     await sleep(100);
-    if (this.home && !process.env.TB_RUNNER_HOME) fs.rmSync(this.home, { recursive: true, force: true });
+    if (this.home && !process.env.TB_RUNNER_HOME) await fs.promises.rm(this.home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }

@@ -1,5 +1,6 @@
 import { Given, Then, When } from '@cucumber/cucumber';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import type { Dump } from '../support/driver.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 
@@ -74,7 +75,7 @@ When('I tick follow-up {int} on the card', async function (this: ThreadbearWorld
 });
 
 // A sample picture the runner can read, as sending.steps.ts has it.
-const samplePicture = new URL('../support/sample.png', import.meta.url).pathname;
+const samplePicture = fileURLToPath(new URL('../support/sample.png', import.meta.url));
 
 // What another lab's review left on the turn that answered it (docs/protocol.md,
 // "Review by another lab"), through the mock's streamed turn.

@@ -65,5 +65,7 @@ pub mod updates;
 pub mod usage;
 pub mod web_runtime;
 pub mod zoom;
+#[cfg(windows)]
+mod local_path;
 pub use chrono;
 pub mod reducer;

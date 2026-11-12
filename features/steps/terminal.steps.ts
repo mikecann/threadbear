@@ -75,6 +75,8 @@ When('I bring up the Terminal without starting a shell', async function (this: T
 When('I type {string} and press Return in the Terminal', async function (this: ThreadbearWorld, text: string) {
   // As the feature file has it: `\033` and `\n` stay as the shell's printf reads them.
   await this.until('a shell running', (d) => d.terminal?.shell === 'running');
+  // PowerShell formats `pwd` as a table, shortening a long path to `...`.
+  if (process.platform === 'win32' && text === 'pwd') text = '(Get-Location).Path';
   await this.app.do({ cmd: 'terminal', keys: text });
   await this.app.do({ cmd: 'terminal', press: 'enter' });
 });
@@ -135,8 +137,10 @@ Then('the Terminal has the keyboard', async function (this: ThreadbearWorld) {
 
 Then("the Terminal shows the thread's folder", async function (this: ThreadbearWorld) {
   const folder = openFolder(this, await this.app.dump());
+  // PowerShell expands a short temp-directory alias such as RUNNER~1.
+  const realFolder = fs.realpathSync.native(folder);
   // A long folder wraps onto the next line, so the screen is read whole.
-  await untilScreen(this, `the folder "${folder}"`, (lines) => lines.join('').includes(folder));
+  await untilScreen(this, `the folder "${realFolder}"`, (lines) => lines.join('').includes(realFolder));
 });
 
 Then('the Terminal shows the line {string}', async function (this: ThreadbearWorld, line: string) {

@@ -10,8 +10,6 @@ Feature: The Terminal
   # trap, /bin/bash), and Windows' Terminal runs PowerShell; and there a
   # command from a reply is always copied, never typed, as only a Unix can
   # tell its shell is the one at the prompt (terminal.rs, shell_in_front).
-  # None of this file has run on Windows yet: the Windows build stopped at
-  # its Rust tests from 10 Nov.
 
   Background:
     Given the app is connected to a runner with the demo threads

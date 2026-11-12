@@ -250,6 +250,12 @@ plain document (a `.command`, an app, a kind Threadbear can't place).
 Another Mac's program never opens here, and its replies never show
 pictures from this Mac.
 
+On Windows, file links and their hover cards only read local drives. A UNC
+share, mapped network drive or device path is refused, including through a
+local symbolic link or junction. A local link to another local file works.
+An open Terminal shell holds off an automatic update restart on Windows:
+the app cannot yet tell whether PowerShell is waiting or running a command.
+
 The Browser panel, the globe on a thread's right-hand rail, lists the pages a
 thread's agents have open through [BrowserBear](https://github.com/mikecann/browserbear):
 in the agents' own browser ([Helium](https://helium.computer), in real windows

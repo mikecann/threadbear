@@ -4483,6 +4483,12 @@ way never opens in its app (a project file included), and a link only
 opens by itself if it's a web page, where a click on it would go. `unpin { id }` takes one off
 again. The tools' descriptions say when to use them.
 
+The Windows desktop app refuses network shares and device paths before
+probing a local file, including a hover card or file search. Its resolver
+checks each link or junction without following it, refuses mapped network
+drives, and holds checked components against writes and replacement while
+resolving. Local links to local files keep working.
+
 **The brief.** The librarian's look (see Projects) also answers with a
 line or two on where the thread itself is up to, kept on the thread and
 sent as `brief`. No extra model call: it's the same look.

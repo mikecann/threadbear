@@ -380,6 +380,14 @@ impl SidePane {
 
     /// Asks the runner for the file's bytes.
     fn read_file(&mut self, thread: &ThreadSummary, path: String, opened: u64, cx: &mut Context<Self>) {
+        // A local preview asks the runner to read the file too. Refuse a
+        // Windows share or a link into one before sending that request.
+        if !thread.is_remote() && cfg!(windows) {
+            if let Err(error) = threadbear_core::open_policy::local_metadata(Path::new(&path)) {
+                self.fail_file(&thread.id, &path, opened, format!("Couldn't open that file: {error}"), cx);
+                return;
+            }
+        }
         let keep_previous = self.files.open.get(&thread.id).is_some_and(|f| f.path == path);
         let here = !thread.is_remote();
         if !keep_previous {

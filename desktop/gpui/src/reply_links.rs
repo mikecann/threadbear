@@ -261,7 +261,7 @@ impl ThreadPane {
             return file_refs::file_link(text, root, &known, &home, &|p| p.starts_with('/'), &|_, _| None);
         }
         let known = file_refs::tool_paths(self.feed.model().items(), &local_home);
-        file_refs::file_link(text, root, &known, &local_home, &|p| Path::new(p).exists(), &file_refs::search)
+        file_refs::file_link(text, root, &known, &local_home, &|p| policy::local_metadata(Path::new(p)).is_ok(), &file_refs::search)
     }
 
     /// Whether the pane beside the transcript is this thread's: it is for
@@ -317,7 +317,11 @@ impl ThreadPane {
             }
             return;
         }
-        let mut action = action.resolved(&path, Path::new(&path).is_dir());
+        let meta = match policy::local_metadata(Path::new(&path)) {
+            Ok(meta) => meta,
+            Err(error) => { self.show_error(format!("Couldn't open that file: {error}"), cx); return; }
+        };
+        let mut action = action.resolved(&path, meta.is_dir());
         // A plain click on a kind the pane can't draw yet (a PDF, a film)
         // goes to its app, rather than to a note saying it opens there.
         if clicked && action == FileLinkAction::Panel && !pane_draws(&path) && file_click() == FileLinkAction::Automatic {
@@ -736,10 +740,8 @@ impl Card {
 
 /// The start of a file, as its card's lines.
 fn first_lines_of(path: &Path) -> Option<Vec<String>> {
-    use std::io::Read as _;
-    let mut sample = vec![0u8; 4096];
-    let read = std::fs::File::open(path).ok()?.read(&mut sample).ok()?;
-    rules::first_lines(&sample[..read], 10, 70)
+    let sample = policy::local_read(path, 4096).ok()?;
+    rules::first_lines(&sample, 10, 70)
 }
 
 impl ThreadPane {
@@ -755,12 +757,13 @@ impl ThreadPane {
             LinkTarget::File(_) if self.summary.is_remote() => None,
             LinkTarget::File(None) => None,
             LinkTarget::File(Some(file)) => {
-                let exists = Path::new(&file.path).exists();
+                let meta = policy::local_metadata(Path::new(&file.path)).ok();
+                let exists = meta.is_some();
                 let words = rules::file_peek(&file.path, exists, None, &crate::files::home_dir());
                 let picture = match (exists, rules::peek_picture(&file.path)) {
                     (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::picture_file(&file.path)),
                     (true, PeekPicture::Lines) => FilePicture::Lines(PathBuf::from(&file.path), None),
-                    _ => FilePicture::Symbol(if Path::new(&file.path).is_dir() { "folder" } else { hl::file_symbol(&file.path) }),
+                    _ => FilePicture::Symbol(if meta.is_some_and(|m| m.is_dir()) { "folder" } else { hl::file_symbol(&file.path) }),
                 };
                 Some(Card::File { words, picture })
             }
@@ -937,7 +940,7 @@ pub(crate) fn peek_command(app: &Entity<crate::app::Threadbear>, cmd: &serde_jso
     let named = |url: &str| -> Option<String> {
         match pane.read(cx).link_target(url)? {
             LinkTarget::Web(web) => Some(web),
-            LinkTarget::File(Some(file)) if !pane.read(cx).summary.is_remote() && Path::new(&file.path).exists() => Some(file.path),
+            LinkTarget::File(Some(file)) if !pane.read(cx).summary.is_remote() && policy::local_metadata(Path::new(&file.path)).is_ok() => Some(file.path),
             LinkTarget::File(_) => None,
         }
     };
