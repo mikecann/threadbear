@@ -35,6 +35,13 @@ it means Mike himself (his releases, the About credit);
 
 The shared files most features hook into:
 
+- Desktop file access: `desktop/core/src/open_policy.rs` and Windows'
+  `local_path.rs` guard links, probes, reads and editor saves. `local_files.rs`
+  supplies Windows previews and folder listings; `desktop/gpui/src/main.rs`
+  routes local `files.read` and `files.list` there. The Windows picture
+  loader is in `rows/markdown.rs`. Keep these checks wherever a fork keeps
+  local file previews or editing, including hover, Reveal and file watches.
+
 - `runner/src/main.ts`: builds every service, holds the RPC method table
   (`const methods = {...}`), and stops each service in `stop()` and
   `handOver()`.
