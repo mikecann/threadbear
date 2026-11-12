@@ -143,7 +143,19 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool) -> io:
             // Only name-surrogate reparse points are links. Cloud placeholders
             // and deduplicated files remain ordinary files (FileType's rule).
             let target = std::fs::read_link(&at).map_err(|_| refused())?;
-            let mut target = if target.is_absolute() { target } else { at.parent().ok_or_else(refused)?.join(target) };
+            let mut target = if target.is_absolute() {
+                target
+            } else {
+                let parent = at.parent().ok_or_else(refused)?;
+                // A relative symlink target may contain `..`. Apply normal
+                // Windows normalization to that substitution before walking
+                // it, rather than treating it as a verbatim input path.
+                let parent = if matches!(parent.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::VerbatimDisk(_))) {
+                    let wide: Vec<u16> = parent.as_os_str().encode_wide().collect();
+                    PathBuf::from(OsString::from_wide(&wide[4..]))
+                } else { parent.to_path_buf() };
+                parent.join(target)
+            };
             target.extend(components);
             return walk(&target, held, links + 1, true);
         }

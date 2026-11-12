@@ -1002,6 +1002,10 @@ mod tests {
         symlink_file(&doc, &local).unwrap();
         assert_eq!(real_path(&local).unwrap(), doc);
         assert_eq!(local_read(&local, 4096).unwrap(), b"notes");
+        fs::create_dir_all(s.path("nested")).unwrap();
+        let relative = s.path("nested/link.md");
+        symlink_file(r"..\real\notes.md", &relative).unwrap();
+        assert_eq!(local_read(&relative, 4096).unwrap(), b"notes");
         let dir_link = s.path("folder");
         symlink_dir(doc.parent().unwrap(), &dir_link).unwrap();
         assert_eq!(real_path(&dir_link.join("notes.md")).unwrap(), doc);
