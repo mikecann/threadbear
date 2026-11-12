@@ -235,13 +235,70 @@ pub struct OpeningApp {
 /// Where `path` really is, every link followed: std's canonicalize, but on
 /// Windows by its drive path (`C:\...`) rather than the verbatim form
 /// (`\\?\C:\...`) std gives. `file_url` made that `file:////%3F/C%3A/...`,
-/// and a question showed it as it was (PR #57). dunce keeps the verbatim form
-/// only where the drive path would name something else (a UNC share, a name
-/// Windows reserves, a path over 260 characters). On Mac and Linux it is
-/// std's canonicalize. Everything that hands a resolved path on (to a URL, a
-/// question, a drag) goes through here, so they all name a file alike.
+/// and a question showed it as it was (PR #57). The verbatim form stays where
+/// the drive path would name something else: a name Windows reserves, a path
+/// over 260 characters (dunce's checks), and a name that's a device however
+/// it ends (`is_device_name`). Everything that hands a resolved path on (to a
+/// URL, a question, a drag, the pane's player) goes through here, so they all
+/// name a file alike. On Mac and Linux it is std's canonicalize.
+///
+/// On Windows a share or a device (`\\server\share`, `\\?\UNC\...`,
+/// `\\.\pipe\...`) is refused, before anything touches it: looking at
+/// `\\host\share\a.md` would have Windows reach that machine, and offer it
+/// your sign-in, from a link a reply wrote. That's what `file://host/a` is
+/// refused for in `link_kind`. A file on a drive mapped to a share still
+/// resolves (to `\\?\UNC\...`): the drive's yours, not a reply's.
 pub fn real_path(path: &Path) -> std::io::Result<PathBuf> {
-    dunce::canonicalize(path)
+    if on_a_share(path) {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "a network share or a device"));
+    }
+    let real = std::fs::canonicalize(path)?;
+    let simple = dunce::simplified(&real);
+    // dunce reads only the last extension off a name, so `NUL.tar.gz` passes
+    // its check, and it doesn't know COM0, COM¹ and the like. Stripped, those
+    // name the device rather than the file canonicalize found (Codex's review
+    // of PR #57, 12 Nov).
+    let changed = simple.as_os_str().len() != real.as_os_str().len();
+    if changed && simple.components().any(|c| matches!(c, std::path::Component::Normal(n) if is_device_name(&n.to_string_lossy()))) {
+        return Ok(real);
+    }
+    Ok(simple.to_path_buf())
+}
+
+/// Whether Windows reads a file name as a device: its part before the first
+/// dot, less trailing spaces, is one of the names Microsoft lists ("Naming
+/// Files, Paths, and Namespaces": `NUL.tar.gz` is `NUL`), or the console's.
+pub fn is_device_name(name: &str) -> bool {
+    let base = name.split('.').next().unwrap_or_default().trim_end_matches(' ').to_uppercase();
+    if matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") {
+        return true;
+    }
+    ["COM", "LPT"].iter().any(|p| base.strip_prefix(p).is_some_and(|n| (n.len() == 1 && n.as_bytes()[0].is_ascii_digit()) || matches!(n, "¹" | "²" | "³")))
+}
+
+/// Whether Windows takes `path` to a network share, a device or a namespace
+/// other than a drive's: anything starting with two slashes either way
+/// (`\\host\share`, `//host/share`, `\\?\UNC\...`, `\\.\pipe\...`,
+/// `\\?\GLOBALROOT\...`) or with `\??\`, which Windows passes on as an NT
+/// path, except `\\?\C:\...`, a drive's verbatim form. Read from the text,
+/// not std's prefix parsing, so it's the same test as Windows' own.
+pub fn is_share_or_device(path: &str) -> bool {
+    let s = path.as_bytes();
+    let sep = |i: usize| s.get(i).is_some_and(|b| matches!(b, b'\\' | b'/'));
+    if sep(0) && s.get(1..3) == Some(b"??") && sep(3) {
+        return true;
+    }
+    if !(sep(0) && sep(1)) {
+        return false;
+    }
+    let verbatim_drive = s.get(2) == Some(&b'?') && sep(3) && s.get(4).is_some_and(u8::is_ascii_alphabetic) && s.get(5) == Some(&b':') && (sep(6) || s.len() == 6);
+    !verbatim_drive
+}
+
+/// `is_share_or_device` on Windows. Never on Mac and Linux, where `//a/b`
+/// is `/a/b`.
+fn on_a_share(path: &Path) -> bool {
+    cfg!(windows) && is_share_or_device(&path.to_string_lossy())
 }
 
 /// What looking at a file found.
@@ -341,6 +398,9 @@ pub fn decide_file(path: &str, origin: Origin, app_for: &dyn Fn(&Path) -> Option
         return FileVerdict::Refuse(format!("{} is on another Mac, so Threadbear doesn't open it here. It shows in the pane instead.", if name.is_empty() { "That file" } else { &name }));
     }
     let given = Path::new(path);
+    if on_a_share(given) {
+        return FileVerdict::Refuse(format!("{} is on a network share or names a device, so Threadbear doesn't open it from here.", if name.is_empty() { "That file" } else { &name }));
+    }
     if !given.is_absolute() {
         return FileVerdict::Refuse(format!("Threadbear couldn't tell where {name} is."));
     }
@@ -477,6 +537,9 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
         return MediaVerdict::Refuse(format!("{name} is on another Mac, so it can't {} here yet.", if kind == Media::Video { "play" } else { "show" }));
     }
     let given_path = Path::new(path);
+    if on_a_share(given_path) {
+        return MediaVerdict::Refuse(format!("{name} is on a network share or names a device, so Threadbear doesn't open it from here."));
+    }
     if !given_path.is_absolute() {
         return MediaVerdict::Refuse(format!("Threadbear couldn't tell where {name} is."));
     }
@@ -691,6 +754,48 @@ mod tests {
         let program = s.file("go.command", "x");
         let FileVerdict::Ask { question, .. } = decide_file(&program.to_string_lossy(), Origin::ThisMac, &none) else { panic!() };
         assert!(!question.detail.contains(r"\\?\"), "{}", question.detail);
+    }
+
+    /// Names Windows reads as a device however they end, which dunce lets
+    /// through as a drive path (Codex's review of PR #57).
+    #[test]
+    fn device_names_are_known_whatever_follows_them() {
+        for name in ["NUL", "nul.txt", "NUL.tar.gz", "Con .md", "com0", "COM9.x", "lpt¹.md", "LPT³", "CONIN$", "conout$.log"] {
+            assert!(is_device_name(name), "{name}");
+        }
+        for name in ["NULL", "console.md", "COM10", "LPT", "notes.md", "AUXILIARY.txt", "xNUL.md", "COMx"] {
+            assert!(!is_device_name(name), "{name}");
+        }
+    }
+
+    /// What Windows would take to another machine or a device, read from
+    /// the text alike everywhere.
+    #[test]
+    fn shares_and_devices_are_known_by_their_start() {
+        for path in [r"\\host\share\a.md", "//host/share/a.md", r"\/host/share", r"\\?\UNC\host\share\a.md", r"\\.\pipe\x", r"\\?\GLOBALROOT\Device\x", r"\??\UNC\host\share\x", r"\??\C:\x", r"\\?\Volume{1}\x"] {
+            assert!(is_share_or_device(path), "{path}");
+        }
+        for path in [r"C:\work\a.md", "C:/work/a.md", r"\\?\C:\work\a.md", r"\\?\c:", r"\work\a.md", "/Users/m/a.md", "a.md", ""] {
+            assert!(!is_share_or_device(path), "{path}");
+        }
+    }
+
+    /// A share or a device a reply links to is refused before anything looks
+    /// at it: looking would reach that machine with the user's sign-in.
+    #[cfg(windows)]
+    #[test]
+    fn a_share_or_a_device_on_windows_is_refused_unlooked() {
+        for path in [r"\\attacker\share\a.md", "//attacker/share/a.md", r"\\?\UNC\attacker\share\a.md", r"\\.\pipe\x", r"\\?\GLOBALROOT\Device\x.md"] {
+            assert!(matches!(decide_file(path, Origin::ThisMac, &none), FileVerdict::Refuse(why) if why.contains("network share")), "{path}");
+            assert!(matches!(decide_media(&format!("{path}.mp4"), Origin::ThisMac), MediaVerdict::Refuse(why) if why.contains("network share")), "{path}");
+            assert!(real_path(Path::new(path)).is_err(), "{path}");
+        }
+        // A drive's verbatim form is still this machine's file.
+        let s = Scratch::new("verbatim");
+        let doc = s.file("notes.md", "x");
+        let verbatim = std::fs::canonicalize(&doc).unwrap();
+        assert!(verbatim.to_string_lossy().starts_with(r"\\?\"));
+        assert_eq!(real_path(&verbatim).unwrap(), doc);
     }
 
     /// A document whose app would run it (a `.md` set to open in Terminal).
