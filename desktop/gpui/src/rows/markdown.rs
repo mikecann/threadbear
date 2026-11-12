@@ -184,7 +184,17 @@ const PICTURE_MAX_BYTES: u64 = 50 * 1024 * 1024;
 /// (`raster_file`) with a picture's extension.
 fn is_picture_file(path: &std::path::Path) -> bool {
     let kind = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
-    matches!(kind.as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff")) && raster_file(path)
+    let picture = matches!(kind.as_deref(), Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff"));
+    // Windows' asset loader checks the file and its bytes off the drawing
+    // thread. A guard walk per picture per frame would make scrolling stall.
+    #[cfg(windows)]
+    {
+        picture
+    }
+    #[cfg(not(windows))]
+    {
+        picture && raster_file(path)
+    }
 }
 
 /// A regular file (not a device like /dev/zero, a pipe or a folder; a link
@@ -272,10 +282,20 @@ pub(crate) fn file_picture(path: &str) -> ImageSource {
         let path = std::path::PathBuf::from(path);
         ImageSource::Custom(std::sync::Arc::new(move |window, cx| {
             let result = window.use_asset::<LocalPicture>(&path, cx);
+            if result.as_ref().is_some_and(|r| r.is_ok()) {
+                cx.default_global::<PictureRetries>().attempts.remove(&path);
+            }
             if result.as_ref().is_some_and(|r| r.is_err()) && cx.default_global::<PictureRetries>().pending.insert(path.clone()) {
+                let retries = cx.default_global::<PictureRetries>();
+                if retries.attempts.len() > 2000 {
+                    retries.attempts.clear();
+                }
+                let attempt = retries.attempts.entry(path.clone()).or_default();
+                let delay = 1u64 << (*attempt).min(6);
+                *attempt = attempt.saturating_add(1);
                 let path = path.clone();
                 cx.spawn(async move |cx| {
-                    cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                    cx.background_executor().timer(std::time::Duration::from_secs(delay)).await;
                     let _ = cx.update(|cx| {
                         cx.remove_asset::<LocalPicture>(&path);
                         cx.default_global::<PictureRetries>().pending.remove(&path);
@@ -300,6 +320,7 @@ struct LocalPicture;
 #[derive(Default)]
 struct PictureRetries {
     pending: std::collections::HashSet<std::path::PathBuf>,
+    attempts: std::collections::HashMap<std::path::PathBuf, u32>,
 }
 #[cfg(windows)]
 impl Global for PictureRetries {}
@@ -307,15 +328,19 @@ impl Global for PictureRetries {}
 #[cfg(windows)]
 fn checked_picture_bytes(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
     use std::io::Read as _;
-    let file = threadbear_core::open_policy::local_open(path)?;
+    let mut file = threadbear_core::open_policy::local_open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() || meta.len() > PICTURE_MAX_BYTES {
         return Err(std::io::Error::other("Not a picture file"));
     }
-    let mut bytes = Vec::new();
-    file.take(PICTURE_MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > PICTURE_MAX_BYTES || !raster_signature(&bytes) {
+    let mut bytes = Vec::with_capacity(12);
+    (&mut file).take(12).read_to_end(&mut bytes)?;
+    if !raster_signature(&bytes) {
         return Err(std::io::Error::other("Not a raster picture"));
+    }
+    file.take(PICTURE_MAX_BYTES + 1 - bytes.len() as u64).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > PICTURE_MAX_BYTES {
+        return Err(std::io::Error::other("Picture is too big"));
     }
     Ok(bytes)
 }

@@ -240,6 +240,11 @@ fn volume_name(name: &OsStr) -> bool {
     guid.len() == 36 && guid.bytes().enumerate().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == b'-' } else { c.is_ascii_hexdigit() })
 }
 
+fn ambiguous_name(name: &OsStr) -> bool {
+    let chars: Vec<u16> = name.encode_wide().collect();
+    chars.last().is_some_and(|c| matches!(*c, 32 | 46)) || chars.iter().any(|c| matches!(*c, 0 | 58)) || super::open_policy::is_device_name(&name.to_string_lossy())
+}
+
 /// Windows removes dot segments before following links. Normalize once,
 /// then open every prefix verbatim so Windows never trims a different last
 /// component at each step. Ambiguous trailing dots/spaces are refused.
@@ -250,8 +255,7 @@ fn normalize(path: &Path, from_link: bool) -> io::Result<PathBuf> {
     }
     for part in path.components() {
         if let Component::Normal(name) = part {
-            let chars: Vec<u16> = name.encode_wide().collect();
-            if chars.last().is_some_and(|c| matches!(*c, 32 | 46)) || chars.iter().any(|c| matches!(*c, 0 | 58)) || super::open_policy::is_device_name(&name.to_string_lossy()) {
+            if ambiguous_name(name) {
                 return Err(refused());
             }
         }
@@ -374,7 +378,13 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize, from_link: bool, access
     // Read the checked object's name from its handle. A last-component
     // reparse-point swap must never trigger another pathname resolution.
     let file = held.last().ok_or_else(refused)?;
-    final_name(file, 0).or_else(|_| final_name(file, 1))
+    let path = final_name(file, 0).or_else(|_| final_name(file, 1))?;
+    // An 8.3 alias can conceal a reserved or trimmed long name. Refuse the
+    // resolved spelling too, before anyone simplifies it for the shell.
+    if path.components().any(|c| matches!(c, Component::Normal(name) if ambiguous_name(name))) {
+        return Err(refused());
+    }
+    Ok(path)
 }
 
 fn hold(path: &Path, held: &mut Vec<File>, final_part: bool, access: Access) -> io::Result<bool> {

@@ -169,6 +169,7 @@ File references are where to look.
   folder for new threads. A folder you open from a link in the side pane
   is listed, and watched for changes only while it's showing. On Windows,
   a picture that fails to load is retried after a second while it is visible,
+  backing off to once a minute if it keeps failing,
   using the same local-file guard as its first attempt. macOS may
   ask for permission the first time that's somewhere like Documents. The runner also runs `vm_stat` and `sw_vers` on a Mac, or reads `/proc/meminfo` and `/etc/os-release` on Linux, for the memory and system figures in the website's Runners view and the Mac app's runner details (`runner/src/runner-stats.ts`), every 5 minutes and while either is open. It also runs `ps`, and `sample` (in a
   sandbox, through `sandbox-exec`) on a thread's own CLI, when a turn has been quiet for a minute,

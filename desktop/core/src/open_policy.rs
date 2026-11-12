@@ -1114,6 +1114,28 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn a_short_alias_cannot_hide_a_reserved_long_name() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        #[link(name = "kernel32")]
+        extern "system" { fn GetShortPathNameW(long: *const u16, short: *mut u16, size: u32) -> u32; }
+        let s = Scratch::new("reserved-alias");
+        let file = PathBuf::from(format!(r"\\?\{}\NUL.part.md", s.0.display()));
+        fs::write(&file, b"ordinary disk bytes").unwrap();
+        let long: Vec<u16> = file.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut out = vec![0u16; 32768];
+        let len = unsafe { GetShortPathNameW(long.as_ptr(), out.as_mut_ptr(), out.len() as u32) } as usize;
+        assert!(len > 0 && len < out.len());
+        // Volumes with 8.3 creation off return the long spelling unchanged;
+        // both it and an alias on a volume with 8.3 enabled must be refused.
+        let alias = PathBuf::from(std::ffi::OsString::from_wide(&out[..len]));
+        assert_eq!(local_metadata(&alias).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(look(&alias, &none).is_none());
+        assert!(crate::file_identity::FileIdentity::of(&alias).is_none());
+        fs::remove_file(file).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn windows_path_guards_hold_ancestors_and_read_handles_survive_a_swap() {
         use std::io::Read;
         let s = Scratch::new("locked");
