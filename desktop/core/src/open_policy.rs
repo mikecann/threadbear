@@ -232,6 +232,18 @@ pub struct OpeningApp {
     pub name: String,
 }
 
+/// Where `path` really is, every link followed: std's canonicalize, but on
+/// Windows by its drive path (`C:\...`) rather than the verbatim form
+/// (`\\?\C:\...`) std gives. `file_url` made that `file:////%3F/C%3A/...`,
+/// and a question showed it as it was (PR #57). dunce keeps the verbatim form
+/// only where the drive path would name something else (a UNC share, a name
+/// Windows reserves, a path over 260 characters). On Mac and Linux it is
+/// std's canonicalize. Everything that hands a resolved path on (to a URL, a
+/// question, a drag) goes through here, so they all name a file alike.
+pub fn real_path(path: &Path) -> std::io::Result<PathBuf> {
+    dunce::canonicalize(path)
+}
+
 /// What looking at a file found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Look {
@@ -247,11 +259,7 @@ pub struct Look {
 /// None when nothing's there. `app_for` says which app would open the real
 /// file (None where the system can't say).
 pub fn look(path: &Path, app_for: &dyn Fn(&Path) -> Option<OpeningApp>) -> Option<Look> {
-    // Not std's canonicalize, which gives a Windows path in the verbatim form
-    // (`\\?\C:\...`): `file_url` made that `file:////%3F/C%3A/...`, and a
-    // question showed it as it was. dunce gives `C:\...`, and on Mac and Linux
-    // is std's canonicalize.
-    let resolved = dunce::canonicalize(path).ok()?;
+    let resolved = real_path(path).ok()?;
     let meta = std::fs::metadata(&resolved).ok()?;
     let linked = std::fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false) || resolved.file_name() != path.file_name();
     let runs = runs(&resolved, &meta, app_for);
@@ -472,7 +480,7 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
     if !given_path.is_absolute() {
         return MediaVerdict::Refuse(format!("Threadbear couldn't tell where {name} is."));
     }
-    let Ok(resolved) = std::fs::canonicalize(given_path) else {
+    let Ok(resolved) = real_path(given_path) else {
         return MediaVerdict::Refuse(format!("{name} isn't there any more."));
     };
     let not_really = || MediaVerdict::Refuse(format!("{name} isn't really {what}, so Threadbear didn't {verb}."));

@@ -382,7 +382,7 @@ fn opens_in_its_app(path: &str) -> bool {
     if !hl::is_app_project(path) {
         return false;
     }
-    let Ok(real) = std::fs::canonicalize(path) else { return false };
+    let Ok(real) = threadbear_core::open_policy::real_path(Path::new(path)) else { return false };
     let real = real.to_string_lossy().into_owned();
     hl::is_app_project(&real) && open_gate::opening_app(&real).is_some()
 }
