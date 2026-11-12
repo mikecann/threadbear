@@ -58,6 +58,9 @@ fn testShellWordQuotesAnythingButSafeCharacters() {
 /// The line Copy debug info gives, run by a real shell against a `tb`
 /// that prints its arguments: the id arrives as one argument, and nothing
 /// in it runs (Daybreak's own reproduction of 87).
+/// This executes a POSIX shell function through /bin/sh; the quoting tests
+/// above also run on Windows, which has no /bin/sh.
+#[cfg(unix)]
 #[test]
 fn testTheDebugLinesIdRunsAsOneArgumentNotShellSource() {
     let model = from_events(vec![user(1, "Fix it"), event(2, "turn.started", json!({"turnId": "t1"})), text(9, "m1", "Fixed."), done(10)]);
