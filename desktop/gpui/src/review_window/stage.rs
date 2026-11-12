@@ -231,7 +231,7 @@ impl ReviewWindow {
             .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| this.stage_scrolled(ev, cx)))
             .on_pinch(cx.listener(|this, ev: &PinchEvent, _, cx| this.stage_pinched(ev, cx)))
             .child(
-                img(crate::rows::markdown::picture_file(&path))
+                img(crate::rows::markdown::file_picture(&path))
                     .absolute()
                     .left(pt(image.x))
                     .top(pt(image.y))
@@ -314,7 +314,7 @@ impl ReviewWindow {
                     .flex_none()
                     .w(pt(fit.0))
                     .h(pt(fit.1))
-                    .child(img(crate::rows::markdown::picture_file(&shot.image.path)).size_full().object_fit(ObjectFit::Fill).with_fallback(move || {
+                    .child(img(crate::rows::markdown::file_picture(&shot.image.path)).size_full().object_fit(ObjectFit::Fill).with_fallback(move || {
                         div().size_full().flex().items_center().justify_center().child(Icon::new(IconName::ImageOff).with_size(gpui_kit::px(40.)).text_color(unavailable)).into_any_element()
                     }))
                     // Dimmed, so it reads as a still with something to open,
@@ -348,7 +348,7 @@ impl ReviewWindow {
                     this.stage.minimap_drag = true;
                     this.minimap_moved(ev.position, cx);
                 }))
-                .child(img(crate::rows::markdown::picture_file(path)).absolute().size_full().object_fit(ObjectFit::Fill).opacity(0.8))
+                .child(img(crate::rows::markdown::file_picture(path)).absolute().size_full().object_fit(ObjectFit::Fill).opacity(0.8))
                 .child(div().absolute().left(pt(s.x)).top(pt(s.y)).w(pt(s.width)).h(pt(s.height)).border(gpui_kit::px(1.5)).border_color(gpui_kit::white()).bg(hsla(0., 0., 1., 0.2))),
             "Drag to move around the image",
         )
@@ -400,7 +400,7 @@ impl ReviewWindow {
                 this.take_keys(window, cx);
                 this.enlarge(index, 0, cx);
             }))
-            .child(img(crate::rows::markdown::picture_file(&path)).size_full().object_fit(ObjectFit::Fill).with_fallback(move || {
+            .child(img(crate::rows::markdown::file_picture(&path)).size_full().object_fit(ObjectFit::Fill).with_fallback(move || {
                 div().size_full().flex().items_center().justify_center().child(Icon::new(IconName::ImageOff).with_size(gpui_kit::px(28.)).text_color(unavailable)).into_any_element()
             }))
             // Its first shot a clip or a page: a still, marked as one, and on
@@ -642,7 +642,7 @@ pub(super) fn thumb(image: &ImageRef, width: f32, height: f32, radius: f32, cx: 
         .rounded(px(radius))
         .overflow_hidden()
         .bg(style::primary_opacity(cx, 0.08))
-        .child(img(crate::rows::markdown::picture_file(&image.path)).w(px((w * scale) as f32)).h(px((h * scale) as f32)).object_fit(ObjectFit::Fill))
+        .child(img(crate::rows::markdown::file_picture(&image.path)).w(px((w * scale) as f32)).h(px((h * scale) as f32)).object_fit(ObjectFit::Fill))
 }
 
 /// The stage's player for a clip (media_view.rs), one per window.

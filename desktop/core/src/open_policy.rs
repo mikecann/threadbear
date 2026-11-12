@@ -317,33 +317,40 @@ pub(crate) fn on_a_share(path: &Path) -> bool {
 /// A reply's file probe uses the same local-path rules as opening it. On
 /// Windows even metadata can contact a share, so never probe the raw path.
 pub fn local_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    with_local_path(path, |real| std::fs::metadata(real))
+}
+
+/// Keep the checked components held until an operation opens the resolved
+/// path. Callers must use this path, not re-open the original spelling.
+pub fn with_local_path<T>(path: &Path, read: impl FnOnce(&Path) -> std::io::Result<T>) -> std::io::Result<T> {
     #[cfg(windows)]
     {
         let local = crate::local_path::LocalPath::new(path)?;
-        std::fs::metadata(&local.path)
+        read(&local.path)
     }
     #[cfg(not(windows))]
-    std::fs::metadata(path)
+    read(path)
+}
+
+/// A handle opened under the path guard. Reading this handle later never
+/// follows a link swapped into the path in the meantime.
+pub fn local_open(path: &Path) -> std::io::Result<std::fs::File> {
+    with_local_path(path, open_without_waiting)
 }
 
 /// Read a local file with its Windows ancestors held against a link swap.
 pub fn local_read(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
     use std::io::Read;
-    #[cfg(windows)]
-    let local = crate::local_path::LocalPath::new(path)?;
-    #[cfg(windows)]
-    let path = local.path.as_path();
+    let file = local_open(path)?;
+    if !file.metadata()?.is_file() { return Err(std::io::Error::other("Not a file")); }
     let mut bytes = Vec::new();
-    std::fs::File::open(path)?.take(max as u64).read_to_end(&mut bytes)?;
+    file.take(max as u64).read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
-/// Open the directory while its checked Windows ancestors are held. Keep the
-/// caller's spelling in DirEntry paths (notably /var and Windows 8.3 aliases).
+/// Open the directory while its checked Windows ancestors are held.
 pub fn local_read_dir(path: &Path) -> std::io::Result<std::fs::ReadDir> {
-    #[cfg(windows)]
-    let _local = crate::local_path::LocalPath::new(path)?;
-    std::fs::read_dir(path)
+    with_local_path(path, |real| std::fs::read_dir(real))
 }
 
 /// What looking at a file found.
@@ -713,7 +720,7 @@ pub fn decide_media(path: &str, origin: Origin) -> MediaVerdict {
     #[cfg(windows)]
     let _local = match crate::local_path::LocalPath::new(given_path) {
         Ok(local) => local,
-        Err(_) => return MediaVerdict::Refuse(format!("{name} isn't an accessible local file.")),
+        Err(_) => return MediaVerdict::Refuse(format!("{name} isn't there any more, or isn't an accessible local file.")),
     };
     let Ok(resolved) = real_path(given_path) else {
         return MediaVerdict::Refuse(format!("{name} isn't there any more."));
@@ -1022,6 +1029,45 @@ mod tests {
         assert_eq!(link_kind("file://localhost/C:/work/notes.md"), LinkKind::File("C:/work/notes.md".into()));
         assert_eq!(link_kind("C:NUL"), LinkKind::File("C:NUL".into()));
         assert!(matches!(decide_file("C:NUL", Origin::ThisMac, &none), FileVerdict::Refuse(_)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_normalizes_dot_segments_before_following_links_and_refuses_ambiguous_names() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+        let s = Scratch::new("normalize");
+        s.file("work/notes.md", "local");
+        let dotted = format!(r"\\?\{}\work ", s.0.display());
+        symlink_dir(r"\\127.0.0.1\tb-no-share", &dotted).unwrap();
+        assert_eq!(local_metadata(&s.path(r"work \notes.md")).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+        let elsewhere = s.file("elsewhere/x.md", "different file");
+        fs::create_dir_all(s.path("elsewhere/sub")).unwrap();
+        symlink_dir(s.path("elsewhere/sub"), s.path("dirlink")).unwrap();
+        symlink_file(r"\\127.0.0.1\tb-no-share\x.md", s.path("x.md")).unwrap();
+        assert_eq!(local_metadata(&s.path(r"dirlink\..\x.md")).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(local_read(&elsewhere, 64).unwrap(), b"different file");
+        let listed = crate::local_files::list(&serde_json::json!({ "path": s.0 })).unwrap();
+        assert!(listed["entries"].as_array().unwrap().iter().any(|e| e["name"] == "x.md" && e["size"].is_null()));
+        assert!(crate::local_files::read(&serde_json::json!({ "path": s.path(r"dirlink\..\x.md") })).is_err());
+        fs::remove_dir(&dotted).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_path_guards_hold_ancestors_and_read_handles_survive_a_swap() {
+        use std::io::Read;
+        let s = Scratch::new("locked");
+        let doc = s.file("folder/notes.md", "the file opened");
+        let guard = crate::local_path::LocalPath::new(&doc).unwrap();
+        assert!(fs::rename(s.path("folder"), s.path("moved")).is_err(), "the checked ancestor must be locked");
+        drop(guard);
+        let mut file = local_open(&doc).unwrap();
+        fs::rename(s.path("folder"), s.path("moved")).unwrap();
+        std::os::windows::fs::symlink_dir(r"\\127.0.0.1\tb-no-share", s.path("folder")).unwrap();
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"the file opened");
+        assert!(local_read(&doc, 64).is_err());
     }
 
     /// A file whose path is too long for its drive form keeps the verbatim

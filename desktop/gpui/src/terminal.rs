@@ -315,8 +315,20 @@ impl Terminals {
                 end_shells_now(&shells);
             }
             #[cfg(not(unix))]
-            let _ = (this, cx);
-            async {}
+            let closing: Vec<_> = this.sessions.values().map(|s| s.update(cx, |s, _| { s.shut_down(); s.shared.clone() })).collect();
+            #[cfg(not(unix))]
+            let executor = cx.background_executor().clone();
+            async move {
+                #[cfg(not(unix))]
+                {
+                    // Close ConPTY before the process goes. Otherwise a shell
+                    // can outlive the app holding its working directory open.
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while closing.iter().any(|s| !s.reader_closed.load(Ordering::Acquire)) && Instant::now() < deadline {
+                        executor.timer(Duration::from_millis(10)).await;
+                    }
+                }
+            }
         });
         let home = crate::files::home_dir();
         Terminals { app: app.downgrade(), sessions: HashMap::new(), target: Target { key: TerminalKey::Home, cwd: home, note: None }, seen: None, putting: HashSet::new(), last_size: None, _subs: vec![watching, quitting] }
@@ -529,6 +541,8 @@ struct Shared {
     /// A redraw is on its way: the reader sends one wakeup per frame at most.
     dirty: AtomicBool,
     exited: AtomicBool,
+    #[cfg(not(unix))]
+    reader_closed: AtomicBool,
     sender: OnceLock<EventLoopSender>,
     size: Mutex<WindowSize>,
     notes: tokio::sync::mpsc::UnboundedSender<Note>,
@@ -634,7 +648,12 @@ enum Drag {
 impl Session {
     fn start(target: Target, size: GridSize, cx: &mut Context<Self>) -> Self {
         let (notes, mut incoming) = tokio::sync::mpsc::unbounded_channel();
-        let shared = Arc::new(Shared { dirty: AtomicBool::new(false), exited: AtomicBool::new(false), sender: OnceLock::new(), size: Mutex::new(size.window_size()), notes });
+        let shared = Arc::new(Shared {
+            dirty: AtomicBool::new(false), exited: AtomicBool::new(false),
+            #[cfg(not(unix))]
+            reader_closed: AtomicBool::new(false),
+            sender: OnceLock::new(), size: Mutex::new(size.window_size()), notes
+        });
         // SwiftTerm keeps 500 lines back, which loses a build's errors, so
         // this keeps alacritty's 10,000. The cursor blinks, as SwiftTerm's
         // does, unless a program asks for a steady one.
@@ -695,6 +714,8 @@ impl Session {
         if let Err(e) = session.spawn_shell() {
             session.exited = true;
             session.failed = Some(e.to_string());
+            #[cfg(not(unix))]
+            session.shared.reader_closed.store(true, Ordering::Release);
         }
         session
     }
@@ -728,7 +749,17 @@ impl Session {
         let _ = self.shared.sender.set(event_loop.channel());
         // Its thread runs until the shell ends or is told to stop; nothing
         // waits for it.
-        drop(event_loop.spawn());
+        let reader = event_loop.spawn();
+        #[cfg(unix)]
+        drop(reader);
+        #[cfg(not(unix))]
+        {
+            let shared = self.shared.clone();
+            std::thread::spawn(move || {
+                drop(reader.join()); // drops ConPTY, including its shell
+                shared.reader_closed.store(true, Ordering::Release);
+            });
+        }
         Ok(())
     }
 

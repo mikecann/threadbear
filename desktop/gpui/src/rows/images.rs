@@ -113,7 +113,7 @@ impl ThreadPane {
                         .on_click(move |_, window, cx| crate::viewer::open_from_tile(&tile_images, i, window, cx))
                         // Dragged, it goes out as the file itself (file_drag.rs).
                         .file_drag(Some(path.clone()))
-                        .child(img(super::markdown::picture_file(&path)).w(px(frame.w)).h(px(frame.h)).rounded(px(8.)).object_fit(ObjectFit::Cover))
+                        .child(img(super::markdown::file_picture(&path)).w(px(frame.w)).h(px(frame.h)).rounded(px(8.)).object_fit(ObjectFit::Cover))
                         .test_support()
                         .aria_label(label),
                 );

@@ -147,7 +147,9 @@ pub fn search(folder: &str, path: &str) -> Option<String> {
             if entry_name.starts_with('.') || SKIPPED.contains(&entry_name.as_ref()) {
                 continue;
             }
-            let full = entry.path();
+            // Keep the spelling the caller browses (a /var or 8.3 alias),
+            // even when Windows opened the directory by its resolved path.
+            let full = dir.join(&file_name);
             if entry_name == name {
                 let found = full.to_string_lossy().into_owned();
                 // Windows' paths come back with backslashes, while what a

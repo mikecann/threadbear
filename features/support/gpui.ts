@@ -209,6 +209,13 @@ export class GpuiDriver implements Driver {
   }
 
   async stop(): Promise<void> {
+    if (process.platform === 'win32' && this.socket && !this.socket.destroyed && this.appProcess?.exitCode === null && this.appProcess?.signalCode === null) {
+      const gone = new Promise<void>((resolve) => this.appProcess!.once('exit', () => resolve()));
+      // Let the app close and wait for its ConPTY readers before forcing its
+      // tree down. Also covers scenarios that quit the app before teardown.
+      await this.do({ cmd: 'quit' }, 5).catch(() => {});
+      await Promise.race([gone, sleep(7000)]);
+    }
     this.socket?.destroy();
     for (const c of this.children.splice(0).reverse()) {
       const exited = c.exitCode !== null || c.signalCode !== null ? Promise.resolve() : new Promise<void>((resolve) => c.once('exit', () => resolve()));

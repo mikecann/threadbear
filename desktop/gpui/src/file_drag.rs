@@ -79,7 +79,7 @@ impl Render for DragPicture {
                         .justify_center()
                         // Read only if it really is a picture file, as every
                         // picture a thread names is (`picture_file`).
-                        .child(img(crate::rows::markdown::picture_file(&path)).max_w(side).max_h(side).rounded(px(6.)).object_fit(ObjectFit::Contain).shadow(vec![BoxShadow::new(zero, px(2.), hsla(0., 0., 0., 0.3)).blur_radius(px(8.))])),
+                        .child(img(crate::rows::markdown::file_picture(&path)).max_w(side).max_h(side).rounded(px(6.)).object_fit(ObjectFit::Contain).shadow(vec![BoxShadow::new(zero, px(2.), hsla(0., 0., 0., 0.3)).blur_radius(px(8.))])),
                 )
                 .into_any_element();
         }

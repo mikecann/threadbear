@@ -135,7 +135,7 @@ fn picture_card(image: &ImageRef, cx: &App) -> AnyElement {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(img(crate::rows::markdown::picture_file(&image.path)).w(px((w * scale).floor())).h(px((h * scale).floor())).rounded(px(3.)).object_fit(ObjectFit::Contain)),
+                .child(img(crate::rows::markdown::file_picture(&image.path)).w(px((w * scale).floor())).h(px((h * scale).floor())).rounded(px(3.)).object_fit(ObjectFit::Contain)),
         )
         .into_any_element()
 }

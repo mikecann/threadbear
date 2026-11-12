@@ -717,7 +717,7 @@ enum Card {
 
 #[derive(Clone)]
 enum FilePicture {
-    Image(PathBuf),
+    Image(ImageSource),
     /// Its first lines, read once the card's due.
     Lines(PathBuf, Option<Vec<String>>),
     Symbol(&'static str),
@@ -761,7 +761,7 @@ impl ThreadPane {
                 let exists = meta.is_some();
                 let words = rules::file_peek(&file.path, exists, None, &crate::files::home_dir());
                 let picture = match (exists, rules::peek_picture(&file.path)) {
-                    (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::picture_file(&file.path)),
+                    (true, PeekPicture::Image) => FilePicture::Image(crate::rows::markdown::file_picture(&file.path)),
                     (true, PeekPicture::Lines) => FilePicture::Lines(PathBuf::from(&file.path), None),
                     _ => FilePicture::Symbol(if meta.is_some_and(|m| m.is_dir()) { "folder" } else { hl::file_symbol(&file.path) }),
                 };

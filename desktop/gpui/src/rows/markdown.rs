@@ -246,16 +246,66 @@ fn raster_signature(head: &[u8]) -> bool {
 /// another runner's word in a moved thread, naming /dev/zero (Codex's review
 /// of Daybreak 95). For every `img` of a path from a thread.
 pub(crate) fn picture_file(path: &str) -> std::path::PathBuf {
-    #[cfg(windows)]
-    let Ok(path) = threadbear_core::open_policy::real_path(std::path::Path::new(path)) else { return std::path::PathBuf::new() };
-    #[cfg(not(windows))]
     let path = std::path::PathBuf::from(path);
     if raster_file(&path) { path } else { std::path::PathBuf::new() }
 }
 
 pub(crate) fn picture_source(uri: &gpui_kit::SharedUri, local: bool) -> gpui_kit::ImageSource {
+    #[cfg(windows)]
+    {
+        return match picture_path(uri.as_ref()).filter(|_| local) {
+            Some(path) => file_picture(&path.to_string_lossy()),
+            None => ImageSource::Resource(Resource::Path(std::sync::Arc::from(std::path::Path::new("")))),
+        };
+    }
+    #[cfg(not(windows))]
+    {
     let path = picture_path(uri.as_ref()).filter(|path| local && is_picture_file(path)).map(|path| picture_file(&path.to_string_lossy())).unwrap_or_default();
     gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(std::sync::Arc::from(path.as_path())))
+    }
+}
+
+/// Windows decodes a snapshot read under the path guard. GPUI's default
+/// loader would open the path again later, after a link could be swapped in.
+/// Its asset cache keeps this work off the drawing thread and out of frames.
+pub(crate) fn file_picture(path: &str) -> ImageSource {
+    #[cfg(windows)]
+    {
+        let path = std::path::PathBuf::from(path);
+        ImageSource::Custom(std::sync::Arc::new(move |window, cx| window.use_asset::<LocalPicture>(&path, cx)))
+    }
+    #[cfg(not(windows))]
+    { picture_file(path).into() }
+}
+
+#[cfg(windows)]
+struct LocalPicture;
+
+#[cfg(windows)]
+fn checked_picture_bytes(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let file = threadbear_core::open_policy::local_open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.len() > PICTURE_MAX_BYTES { return Err(std::io::Error::other("Not a picture file")); }
+    let mut bytes = Vec::new();
+    file.take(PICTURE_MAX_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > PICTURE_MAX_BYTES || !raster_signature(&bytes) { return Err(std::io::Error::other("Not a raster picture")); }
+    Ok(bytes)
+}
+
+#[cfg(windows)]
+impl Asset for LocalPicture {
+    type Source = std::path::PathBuf;
+    type Output = Result<std::sync::Arc<RenderImage>, ImageCacheError>;
+
+    fn load(path: Self::Source, cx: &mut App) -> impl std::future::Future<Output = Self::Output> + Send + 'static {
+        let renderer = cx.svg_renderer();
+        async move {
+            let bytes = checked_picture_bytes(&path)?;
+            let format = crate::viewer::format_of(&path.to_string_lossy(), &bytes).ok_or_else(|| std::io::Error::other("Not a picture"))?;
+            Image::from_bytes(format, bytes).to_image_data(renderer).map_err(Into::into)
+        }
+    }
 }
 
 pub(crate) fn prepare(text: &str) -> String {
@@ -569,6 +619,8 @@ mod tests {
     fn source_path(url: &str, local: bool) -> String {
         match super::picture_source(&url.to_owned().into(), local) {
             gpui_kit::ImageSource::Resource(gpui_kit::Resource::Path(path)) => path.to_string_lossy().into_owned(),
+            #[cfg(windows)]
+            gpui_kit::ImageSource::Custom(_) => super::picture_path(url).filter(|p| super::checked_picture_bytes(p).is_ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
             _ => panic!("a path"),
         }
     }

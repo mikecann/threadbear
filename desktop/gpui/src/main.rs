@@ -137,6 +137,16 @@ impl Sink for ChannelSink {
 /// A request on the connection's runtime, awaited from GPUI's.
 pub async fn call(client: Arc<Client>, method: impl Into<String>, params: Value) -> Result<Value, RpcError> {
     let method = method.into();
+    // Local Windows files are opened under the desktop's path guard, once.
+    // A runner resolving the same raw path again can follow a different
+    // link, and a directory listing can stat a child link into an SMB share.
+    #[cfg(windows)]
+    if params["runnerId"].is_null() && matches!(method.as_str(), "files.read" | "files.list") {
+        return RT.spawn_blocking(move || {
+            let result = if method == "files.read" { threadbear_core::local_files::read(&params) } else { threadbear_core::local_files::list(&params) };
+            result.map_err(|e| RpcError { code: -32602, message: e.to_string(), data: None })
+        }).await.unwrap_or_else(|e| Err(RpcError { code: -1, message: e.to_string(), data: None }));
+    }
     RT.spawn(async move { client.call(&method, params).await })
         .await
         .unwrap_or_else(|e| Err(RpcError { code: -1, message: e.to_string(), data: None }))

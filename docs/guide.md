@@ -253,6 +253,7 @@ pictures from this Mac.
 On Windows, file links and their hover cards only read local drives. A UNC
 share, mapped network drive or device path is refused, including through a
 local symbolic link or junction. A local link to another local file works.
+WSL's `\\wsl$` and `\\wsl.localhost` paths count as shares too.
 An open Terminal shell holds off an automatic update restart on Windows:
 the app cannot yet tell whether PowerShell is waiting or running a command.
 

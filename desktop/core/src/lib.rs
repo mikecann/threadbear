@@ -65,6 +65,7 @@ pub mod updates;
 pub mod usage;
 pub mod web_runtime;
 pub mod zoom;
+pub mod local_files;
 #[cfg(windows)]
 mod local_path;
 pub use chrono;

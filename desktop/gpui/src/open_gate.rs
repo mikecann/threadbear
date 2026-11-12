@@ -315,10 +315,15 @@ pub(crate) fn reveal(path: &str, origin: Origin, cx: &mut App) {
         refuse(format!("{} is on another Mac.", threadbear_core::highlights::last_component(path)), cx);
         return;
     }
-    if scripted_opens(&format!("reveal {path}")) {
-        return;
+    let result = policy::with_local_path(Path::new(path), |real| {
+        if !scripted_opens(&format!("reveal {path}")) {
+            cx.reveal_path(real);
+        }
+        Ok(())
+    });
+    if let Err(error) = result {
+        refuse(format!("Couldn't show that file: {error}"), cx);
     }
-    cx.reveal_path(Path::new(path));
 }
 
 // ---------------------------------------------------------------- asking
