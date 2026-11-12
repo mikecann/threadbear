@@ -4,8 +4,8 @@
 // prevents a checked ancestor being replaced or retargeted during the walk.
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Component, Path, PathBuf, Prefix};
 
 #[link(name = "kernel32")]
@@ -57,11 +57,16 @@ fn walk(path: &Path, held: &mut Vec<File>, links: usize) -> io::Result<PathBuf> 
     while let Some(component) = components.next() {
         match component {
             Component::CurDir => continue,
-            Component::ParentDir => { at.pop(); continue; }
+            Component::ParentDir => {
+                at.pop();
+                continue;
+            }
             Component::Normal(name) => {
                 // Alternate streams and NT namespace spellings aren't files
                 // this gate can hand to another app without changing meaning.
-                if name.encode_wide().any(|c| c == b':' as u16) { return Err(refused()); }
+                if name.encode_wide().any(|c| c == b':' as u16) {
+                    return Err(refused());
+                }
                 at.push(name);
             }
             _ => return Err(refused()),

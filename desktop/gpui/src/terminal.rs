@@ -172,7 +172,7 @@ fn split_around<'a>(panel: &str, node: &'a DockNode) -> Option<&'a DockSplit> {
 fn target_of(app: &Threadbear) -> Target {
     let thread = app.open_thread();
     let runner = thread.and_then(|t| t.runner_id.as_deref()).map(|id| app.runner_name_of(id));
-    rules::target_for(thread, &crate::files::home_dir(), runner.as_deref(), |path| std::path::Path::new(path).is_dir())
+    rules::target_for(thread, &crate::files::home_dir(), runner.as_deref(), |path| threadbear_core::open_policy::local_metadata(std::path::Path::new(path)).is_ok_and(|m| m.is_dir()))
 }
 
 /// The runner said a thread changed (`thread.updated`): an archive it's agreed

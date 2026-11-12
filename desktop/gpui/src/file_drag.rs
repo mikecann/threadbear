@@ -94,7 +94,7 @@ impl Render for DragPicture {
             .border_color(cx.theme().border)
             .shadow(vec![BoxShadow::new(gpui_kit::px(0.), px(2.), hsla(0., 0., 0., 0.25)).blur_radius(px(8.))])
             .text_size(px(style::size::LABEL))
-            .child(crate::icons::symbol(if self.path.is_dir() { "folder" } else { "doc" }).with_size(px(14.)))
+            .child(crate::icons::symbol(if threadbear_core::open_policy::local_metadata(&self.path).is_ok_and(|m| m.is_dir()) { "folder" } else { "doc" }).with_size(px(14.)))
             .child(name);
         div().pl((self.grabbed.x - px(14.)).max(zero)).pt((self.grabbed.y - px(12.)).max(zero)).child(chip).into_any_element()
     }
@@ -114,7 +114,7 @@ pub(crate) trait FileDragExt: StatefulInteractiveElement + Sized {
         // has it.
         .external_drag_payload(|file: &DraggedFile, _, _| {
             let real = file.still_grabbed()?;
-            let is_dir = std::fs::metadata(&real).ok()?.is_dir();
+            let is_dir = threadbear_core::open_policy::local_metadata(&real).ok()?.is_dir();
             Some(ExternalDragPayload::Files(FileDragPaths::new([(real, is_dir)])))
         })
     }

@@ -383,7 +383,7 @@ impl SidePane {
         // A local preview asks the runner to read the file too. Refuse a
         // Windows share or a link into one before sending that request.
         if !thread.is_remote() && cfg!(windows) {
-            if let Err(error) = threadbear_core::open_policy::local_metadata(Path::new(&path)) {
+            if let Err(error) = threadbear_core::open_policy::local_metadata(std::path::Path::new(&path)) {
                 self.fail_file(&thread.id, &path, opened, format!("Couldn't open that file: {error}"), cx);
                 return;
             }
