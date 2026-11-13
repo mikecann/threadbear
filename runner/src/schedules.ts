@@ -182,6 +182,10 @@ export const SAVE_RETRY_MS = 5000;
 const BUSY = new Set(['starting', 'running', 'waiting']);
 
 export class Scheduler {
+  // Bears (bears.ts): why a run for this folder waits (its bear is away or
+  // archived), and a one-off time moved out of a bear's quiet hours.
+  holdFor?: (rec: { cwd?: string; threadId?: string }) => string | undefined;
+  adjustAt?: (p: CreateScheduleParams, at: number) => number;
   private runner: ScheduleRunner;
   private file: string;
   private clock: Clock;
@@ -615,8 +619,10 @@ export class Scheduler {
       runs: 0,
     };
     if (p.timezone) rec.timezone = this.checkedZone(p.timezone);
-    if (p.at !== undefined) rec.at = new Date(this.parseAt(p.at)).toISOString();
-    else rec.cron = this.parsedCron(p.cron!).source;
+    if (p.at !== undefined) {
+      const at = this.parseAt(p.at);
+      rec.at = new Date(this.adjustAt ? this.adjustAt(p, at) : at).toISOString();
+    } else rec.cron = this.parsedCron(p.cron!).source;
     if (p.threadId) {
       // Throws thread not found for a bad id.
       rec.threadId = this.elsewhere(p.threadId) ? p.threadId : this.runner.get(p.threadId).id;
@@ -1350,6 +1356,11 @@ export class Scheduler {
     if (checked && 'skip' in checked) {
       record('skipped', undefined, checked.skip);
       return { outcome: 'skipped', note: checked.skip };
+    }
+    const held = manual ? undefined : this.holdFor?.(rec);
+    if (held) {
+      record('skipped', undefined, held);
+      return { outcome: 'skipped', note: held };
     }
     try {
       if (rec.threadId) {

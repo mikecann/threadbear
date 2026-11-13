@@ -485,6 +485,9 @@ Size is `none` throughout: the planning docs don't size these, and work the app 
 | `planned.exp.acpagents` | ACP agents (`acpAgents`) | OpenCode and Cursor threads | Drive every provider choice from `ProviderInfo` rather than hardcoding two, and don't copy the web's `modelLabel`. | build | none | none |
 | `planned.exp.cardreviewer` | Card reviewer (`cardReviewer`) | Opus pre-reviews Auto cards | No new UI: a transcript note says "Allowed by the reviewer". | build | none | none |
 | `planned.exp.fastmode` | Fast mode (`fastMode`) | Standard or Fast per Claude thread, `/fast` | The Speed row in `composer.modelpicker` and a chip suffix. | build | none | none |
+| `bears.tile` | Bear tiles (`bears`) | A bear's threads show its icon on its colour where a folder would be; a crown for the head bear | Draw `ThreadSummary.bear` in the sidebar row's tile (the Swift copy in Wayne's fork is `BearTile`). | build | none | none |
+| `bears.colour` | Bear Colour (`bears`) | Pick a bear's tile colour from its thread's menu | A Bear Colour submenu on a bear thread's row calling `bears.update { color }`, behind a busy key. | build | none | none |
+| `bears.mention` | @ bear picker (`bears`) | Typing @ lists bears from `bears.list`; picking one writes `@Name` | A list over the cursor like the / list, only for messages going to this runner, leaving modified keys to the composer. | build | none | none |
 
 ## Route counts
 
@@ -493,12 +496,12 @@ Size is `none` throughout: the planning docs don't size these, and work the app 
 | Route | Inventory | Planned | All |
 |---|---|---|---|
 | kit | 65 | 1 | 66 |
-| build | 197 | 16 | 213 |
+| build | 197 | 19 | 216 |
 | web | 6 | 1 | 7 |
 | shim | 24 | 0 | 24 |
 | hard | 13 | 0 | 13 |
 | drop | 3 | 0 | 3 |
-| Total | 307 | 18 | 325 |
+| Total | 307 | 21 | 328 |
 
 **Per size**
 
@@ -508,8 +511,8 @@ Size is `none` throughout: the planning docs don't size these, and work the app 
 | M | 95 | 0 | 95 |
 | L | 33 | 0 | 33 |
 | XL | 5 | 0 | 5 |
-| none | 4 | 18 | 22 |
-| Total | 307 | 18 | 325 |
+| none | 4 | 21 | 25 |
+| Total | 307 | 21 | 328 |
 
 **The `hard` rows**
 

@@ -1,4 +1,5 @@
 // tb: a small command line client for testing and scripting the runner.
+import { BEAR_FLAGS, BEARS_HELP, bearsCommand, TABLE_FLAGS, TABLES_HELP, tablesCommand, WEBHOOK_FLAGS, WEBHOOKS_HELP, webhooksCommand } from './cli-bears.ts';
 import { parseArgs } from 'node:util';
 import { startedByFlags } from './started-by-flags.ts';
 import fs from 'node:fs';
@@ -24,6 +25,21 @@ import { pickRunner } from './moves.ts';
 
 const OPTIONS = {
   cwd: { type: 'string' },
+  // tb bears (cli-bears.ts)
+  does: { type: 'string' },
+  personality: { type: 'string' },
+  face: { type: 'string' },
+  notes: { type: 'string' },
+  color: { type: 'string' },
+  runner: { type: 'string' },
+  bear: { type: 'string' },
+  batch: { type: 'string' },
+  bears: { type: 'string' },
+  goal: { type: 'string' },
+  parent: { type: 'string' },
+  max: { type: 'string' },
+  add: { type: 'string' },
+  unseat: { type: 'string' },
   // tb move <id> --to <runner> --preview (moving a thread to another machine).
   preview: { type: 'boolean' },
   account: { type: 'string' },
@@ -134,6 +150,9 @@ const HELP = `tb: talk to the Threadbear runner
   tb projects show <project>      one project: goals, state, notes, threads
   tb projects add|remove <threadId> <project>   puts a thread in a project or takes it out, as the user would
   tb projects parent <project> <parent|none>   makes a project a part of another, or its own again
+${BEARS_HELP}
+${WEBHOOKS_HELP}
+${TABLES_HELP}
   tb librarian [--json]           what the librarian is doing, its queue and what it did
   tb librarian run [<threadId>]   a look at a thread now; with none, at every recent thread it hasn't seen
   tb librarian pause|resume
@@ -202,6 +221,9 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   schedule: ['at', 'cron', 'tz', 'title', 'thread', 'cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'full', 'json'],
   schedules: ['json', 'text', 'title', 'at', 'cron', 'tz', 'cwd', 'account', 'pool', 'model', 'effort', 'ask', 'auto', 'full'],
   projects: ['json', 'archived'],
+  bears: BEAR_FLAGS,
+  webhooks: WEBHOOK_FLAGS,
+  tables: TABLE_FLAGS,
   librarian: ['json'],
   settings: ['json'],
   models: ['json', 'remove', 'labels', 'field', 'system', 'cwd'],
@@ -764,6 +786,12 @@ async function run(client: RunnerClient, cmd: string, args: string[], f: Flags):
       }
       throw new Error(`Unknown: tb projects ${action}. It's show, add, remove or parent.`);
     }
+    case 'bears':
+      return bearsCommand(client, args, f);
+    case 'webhooks':
+      return webhooksCommand(client, args, f);
+    case 'tables':
+      return tablesCommand(client, args, f);
     case 'librarian': {
       const [action, id] = args;
       let r: { librarian: LibrarianStatus };

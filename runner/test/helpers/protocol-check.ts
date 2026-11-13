@@ -321,8 +321,12 @@ export function checkSummary(t: Obj): string[] {
     'lastActivityAt', 'snoozedUntil', 'snoozedUntilRestart', 'snoozedUntilRelease', 'archivedAt', 'archivedBy', 'archiveVerdict', 'starredAt', 'preview', 'lastSeq', 'lastSeenSeq', 'nativeSessionId', 'contextTokens', 'costUsd',
     'poolId', 'waitingForRoom', 'carryOnAtReset', 'waitingForNetwork', 'wakeWhen', 'waitingOn',
     'effort', 'modelInUse', 'effortInUse', 'contextWindow', 'panels', 'actions', 'hooks', 'patches', 'background', 'subagents', 'projects', 'worktree',
-    'needs', 'asks', 'asksSeq', 'highlightsAt', 'panelRequest', 'share', 'startedBy', 'asked', 'keywords', 'looseEnds',
+    'needs', 'asks', 'asksSeq', 'highlightsAt', 'panelRequest', 'share', 'startedBy', 'asked', 'keywords', 'looseEnds', 'bear',
   ]);
+  if (t.bear !== undefined) {
+    const b = t.bear as { id?: unknown; name?: unknown };
+    if (typeof b?.id !== 'string' || typeof b?.name !== 'string') problems.push('bear');
+  }
   for (const k of Object.keys(t)) if (!allowed.has(k)) problems.push(`unexpected field ${k}`);
   return problems;
 }

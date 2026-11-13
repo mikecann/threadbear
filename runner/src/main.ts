@@ -29,6 +29,10 @@ import { StuckJobs } from './stuck-jobs.ts';
 import { FrozenClis } from './frozen-cli.ts';
 import { KeepAwake } from './keep-awake.ts';
 import { experimentOn } from './experiments.ts';
+import { Bears, bearsMethods, bearsRoot, shiftOutOfQuiet, EXPERIMENT as BEARS } from './bears.ts';
+import { Mentions } from './mentions.ts';
+import { Tables, tablesMethods, tablesRoot, EXPERIMENT as TABLES } from './tables.ts';
+import { HookRegistry, revokeHooksFor, webhookCommands, webhooksMethods, EXPERIMENT as WEBHOOKS } from './webhooks.ts';
 import { MacScreen } from './mac-screen.ts';
 import { Projects, drainProjectMethods, projectMethods } from './projects.ts';
 import { Librarian, librarianMethods } from './librarian.ts';
@@ -72,7 +76,7 @@ import { isDirectory, removeTempFiles } from './fsutil.ts';
 import { Models } from './models/index.ts';
 import { SettingsService, modelMethods, settingsMethods } from './settings.ts';
 import { InstructionsStore, instructionsMethods } from './instructions.ts';
-import { ConvexSync, defaultRunnerName, ensureRunnerId, readSyncKey } from './sync.ts';
+import { ConvexSync, defaultRunnerName, ensureRunnerId, readSyncKey, WEBHOOKS_API_VERSION } from './sync.ts';
 import { pushFailingText } from './push-failing.ts';
 import { Scrubber } from './scrub.ts';
 import { useScrubForCuts } from './safe-cut.ts';
@@ -351,7 +355,18 @@ async function main(): Promise<void> {
   });
   // Until it is listening (below): see Runner.holdWaits.
   runner.holdWaits = true;
-  const settings = new SettingsService({ config: cfg, publish: (n) => runner.publish(n), poolIds: () => runner.listPools().pools.map((p) => p.id) });
+  // Turning webhooks off ends every hook, not just the list (webhooks.ts).
+  // `sync` is made further down.
+  let syncForHooks: { revokeWebhooks(): Promise<number>; offReason(): string | undefined } | undefined;
+  const settings = new SettingsService({
+    config: cfg,
+    publish: (n) => runner.publish(n),
+    poolIds: () => runner.listPools().pools.map((p) => p.id),
+    onExperimentOff: (id) => {
+      if (id !== WEBHOOKS || !syncForHooks || syncForHooks.offReason()) return;
+      syncForHooks.revokeWebhooks().then((n) => log.info('webhooks off: revoked every hook', { n }), (e) => log.warn("webhooks off, but the hooks couldn't be revoked", { error: (e as Error).message }));
+    },
+  });
   // Runners still finishing turns after a handover: connected before the
   // threads load, so the ones they have are left to them. Nothing after the
   // await below yields until runner.start(), so no thread can arrive first.
@@ -426,10 +441,80 @@ async function main(): Promise<void> {
   if (!copyOfReal) scheduler.start();
   // The done card's loose ends list the check-ins booked for a thread.
   runner.schedulesFor = (id) => scheduler.list(id);
+  // Bears (bears.ts): each is a folder; nothing here does anything while
+  // the experiment is off, so today's threads and schedules run as before.
+  const bearsOn = () => experimentOn(cfg.home, BEARS);
+  const bears = new Bears({
+    root: bearsRoot(cfg.defaults.cwd),
+    home: cfg.home,
+    schedules: () => scheduler,
+    threads: () => ({
+      list: () => runner.list(['inbox', 'snoozed']).map((t) => ({ id: t.id, cwd: t.cwd, ...(t.archivedAt ? { archivedAt: t.archivedAt } : {}) })),
+      archive: (threadId) => void runner.update({ threadId, archived: true, archivedBy: 'threadbear' }),
+    }),
+  });
+  runner.bearDefaults = (cwd, unattended) => (bearsOn() ? bears.newThreadDefaults(cwd, unattended) : undefined);
+  // Tables (tables.ts) and mentions (mentions.ts), both riding on bears.
+  const tablesOn = () => bearsOn() && experimentOn(cfg.home, TABLES);
+  const tables = new Tables({ root: tablesRoot(bears.root), projects, bears });
+  const bearName = (id: string) => {
+    try {
+      return bears.get(id, { faces: false }).name;
+    } catch {
+      return id;
+    }
+  };
+  projects.describeBears = (ids) => ids.map((id) => `${bearName(id)} (${id})`).join(', ');
+  const mentions = new Mentions({
+    home: cfg.home,
+    bears,
+    tableOf: (cwd) => (tablesOn() ? tables.tableOf(cwd) : undefined),
+    host: {
+      has: (id) => runner.has(id),
+      get: (id) => {
+        const t = runner.get(id);
+        return { id: t.id, title: t.title, cwd: t.cwd, permissionMode: t.permissionMode, status: t.status, projects: t.projects };
+      },
+      create: (p) => runner.create(p),
+      send: (id, text) => runner.send(id, text, [], { origin: 'runner', queue: true }),
+      lastReply: (id) => {
+        const evs = runner.events(id, { limit: 2000 }).events as { type: string; text?: string }[];
+        let start = 0;
+        evs.forEach((e, i) => {
+          if (e.type === 'turn.started') start = i;
+        });
+        return evs.slice(start).filter((e) => e.type === 'assistant.text' && typeof e.text === 'string').map((e) => e.text).join('\n\n');
+      },
+    },
+  });
+  runner.bearOf = (cwd) => (bearsOn() ? bears.tile(cwd) : undefined);
+  runner.mentionHook = (id, text) => (bearsOn() ? mentions.fromUser(id, text) : undefined);
+  runner.onThreadActivity((a) => {
+    if (a.kind !== 'turn.end' || !bearsOn()) return;
+    try {
+      mentions.turnEnded(a.threadId);
+    } catch (e) {
+      log.warn("a bear's reply couldn't be handed back", { threadId: a.threadId, error: (e as Error).message });
+    }
+  });
+  scheduler.holdFor = (rec) => (bearsOn() && rec.cwd && !rec.threadId ? bears.holdReason(rec.cwd) : undefined);
+  scheduler.adjustAt = (p, at) => {
+    if (!bearsOn()) return at;
+    const by = p.createdBy && runner.has(p.createdBy) ? runner.get(p.createdBy).cwd : undefined;
+    const to = p.threadId && runner.has(p.threadId) ? runner.get(p.threadId).cwd : p.cwd;
+    const bear = (by ? bears.forCwd(by) : undefined) ?? (to ? bears.forCwd(to) : undefined);
+    return bear ? shiftOutOfQuiet(at, bear.quietHours) : at;
+  };
   // Projects need the threads loaded (their counts, and the thread side of
   // membership); the librarian needs both.
   projects.start(runner);
   const librarian = new Librarian({ host: runner, projects, models, clock: realClock, log, home: cfg.home, pocket: pocketControl });
+  // Bear notes (experiment bearNotes): the opted-in bears, never on a bear's
+  // own thread or with bears off.
+  librarian.bearNotes = (cwd) =>
+    bearsOn() && experimentOn(cfg.home, 'bearNotes') && !bears.forCwd(cwd)
+      ? bears.list({ faces: false }).flatMap((b) => (b.notes && b.notes !== 'off' && !b.away ? [{ id: b.id, name: b.name, ...(b.does ? { does: b.does } : {}), ...(b.personality ? { personality: b.personality } : {}), notes: b.notes }] : []))
+      : [];
   if (!copyOfReal) librarian.start();
   // Background jobs that look stuck get their thread a message.
   const stuckJobs = new StuckJobs({ host: runner, clock: realClock, log, home: cfg.home });
@@ -535,6 +620,27 @@ async function main(): Promise<void> {
   // Made further down, once there's a runner to start its thread on; the
   // backend's remote-runner updates reach it through this (convex-use.ts).
   let fullSyncOfferRef: FullSyncOffer | undefined;
+  // Webhook runs (webhooks.ts): a bear that's away holds its deliveries,
+  // run once it's back (checked each minute).
+  const webhooksOn = () => experimentOn(cfg.home, WEBHOOKS);
+  const hookRegistry = new HookRegistry(cfg.home);
+  const hooks = webhookCommands({
+    on: webhooksOn,
+    home: cfg.home,
+    registry: hookRegistry,
+    create: (p) => runner.create(p),
+    send: (threadId, text) => runner.send(threadId, text, [], { origin: 'runner', queue: true }),
+    modeOf: (threadId) => (runner.has(threadId) ? runner.get(threadId).permissionMode : undefined),
+    held: (cwd) => (bearsOn() ? bears.holdReason(cwd) : undefined),
+  });
+  setInterval(() => {
+    try {
+      const n = hooks.replayHeld();
+      if (n) log.info('webhook deliveries a bear held have run', { n });
+    } catch (e) {
+      log.warn("held webhook deliveries couldn't run", { error: (e as Error).message });
+    }
+  }, 60_000).unref();
   const sync = new ConvexSync({
     config: { ...cfg.sync, runnerId: syncRunnerId, icon: runnerIcon },
     use: new ConvexUseTally({ home: cfg.home }),
@@ -567,6 +673,8 @@ async function main(): Promise<void> {
     commands: {
       ...phoneCommands(runner, peers),
       // A schedule's own runner gets its command, so the scheduler here is its.
+      // Webhook runs, checked again here (webhooks.ts).
+      webhookRun: hooks.webhookRun,
       schedule: ({ scheduleId, action }) => (action === 'run' ? scheduler.runNow(scheduleId) : scheduler.update({ scheduleId, paused: action === 'pause' })),
       // The Mac's Move sheet asking, through the relay (threads.movePreview).
       moveDescribe: async (id) => {
@@ -846,7 +954,8 @@ async function main(): Promise<void> {
   updaterReady = true;
 
   runner.attachClis(updates);
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync, (kind) => fullSyncOffer.trigger(kind)), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  syncForHooks = sync;
+  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync, (kind) => fullSyncOffer.trigger(kind)), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }), ...tablesMethods({ tables: () => tables, on: tablesOn }), ...bearsMethods({ bears, on: bearsOn, mention: (p) => mentions.ask(p), unseat: (id) => tables.unseatEverywhere(id), touch: () => runner.touchThreads(runner.list(['inbox', 'snoozed', 'archived']).filter((t) => bears.forCwd(t.cwd)).map((t) => t.id)), cwdOf: (id) => (runner.has(id) ? runner.get(id).cwd : undefined), revokeHooks: (folder) => (webhooksOn() ? revokeHooksFor(sync, folder) : Promise.resolve(0)) }), ...webhooksMethods({ backend: sync, registry: hookRegistry, on: webhooksOn, runnerId: syncRunnerId, needApi: WEBHOOKS_API_VERSION, modeOf: (id) => (runner.has(id) ? runner.get(id).permissionMode : undefined), bearFolder: (b) => { if (!bearsOn()) return undefined; try { return bears.get(b, { faces: false }).folder; } catch { return undefined; } } }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {

@@ -1164,7 +1164,7 @@ async function knownRunner(ctx: QueryCtx, runnerId: string): Promise<string> {
 // what the runner's own pendingCommands reads. One that waits too long goes
 // (sync:pruneFiles, COMMAND_KEEP_MS). Its photos are recorded in commandFiles
 // so a delete elsewhere sees they're still on their way (sync.ts storageInUse).
-async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands' | 'interrupt', threadId: string | undefined, args: Record<string, unknown>) {
+export async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands' | 'interrupt', threadId: string | undefined, args: Record<string, unknown>) {
   let n = 0;
   let bytes = docBytes(args);
   for await (const c of ctx.db.query('commands').withIndex('by_runner_state', (q) => q.eq('runnerId', runnerId).eq('state', 'pending'))) {

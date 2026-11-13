@@ -1,0 +1,17 @@
+{
+  "color": "#A86B36",
+  "avatar": {
+    "version": 1,
+    "id": "tufted",
+    "name": "Tufted",
+    "body": {
+      "path": "M19 57A31 29 0 1 0 81 57A31 29 0 1 0 19 57ZM22 40L26 14L40 32ZM60 32L74 14L78 40Z"
+    },
+    "eyes": {
+      "x": 50,
+      "y": 54,
+      "spacing": 18,
+      "scale": 1
+    }
+  }
+}

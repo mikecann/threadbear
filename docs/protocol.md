@@ -5043,6 +5043,132 @@ yet: this turn ran into`, names each service and its page, and asks for
 an ask with that page as a link if the work needs it. Called again, it's
 taken as it is. Nothing new reaches the app: the ask is an ordinary one.
 
+### Bears
+
+An experiment (`bears`, `runner/src/bears.ts`). A bear is a folder,
+`<defaults.cwd>/Bears/<id>/` (`~/ThreadbearThreads/Bears` when the default
+folder is the home folder). The id (`researcher-7f3a`) never changes. The
+folder holds `CLAUDE.md` and `AGENTS.md` (the persona, written once), a
+git repo, `memory/summary.md` with `memory/{people,facts,projects}/`, and
+`bear.json`, the fields its own agent may change:
+
+```
+{ name, icon?, does?, personality?, model?, effort?, avatar?, color?,
+  quietHours? ("19:30-08:30"), notes? ("off"|"cheers"|"ideas"|"both") }
+```
+
+`avatar` is an Open Bot Avatar definition (`open-bot-avatar`), checked
+with `validateAvatar`. `Bears/memory/` is shared by every bear. What
+widens a bear, and Mike's arrangement of the list, live in the runner's
+`<data dir>/runner/bears.json`, keyed by id: `permissionMode`, `poolId`,
+`runner`, `pinned`, `order`, `awayUntil`, `archivedAt`, `projects`, plus
+the top-level `head` (the chief of staff's id) and `seeded`.
+
+A new thread in a bear's folder takes the bear's model and effort, and its
+pool and mode from `bears.json`, where the call didn't say. One nobody is
+watching (a schedule, or one with `startedBy`) starts in Ask unless
+`bears.json` says otherwise. It joins the bear's `projects`. A schedule
+whose folder is an away or archived bear's skips its run, and a one-off
+time a bear's thread books in its quiet hours moves to their end.
+
+| Method | Params | Result |
+|---|---|---|
+| `bears.list` | `{ archived?, faces? }` | `{ on, root?, bears: Bear[] }`. Makes Head Bear the first time, once. Each bear has its fields, `id`, `folder`, `state` (its `bears.json` row), `head`, `away`, `archived`, `routines` (schedules aimed at its folder, with `nextRunAt`) and `faces` (`idle`, `thinking`, `happy` SVG stills) |
+| `bears.get` | `{ bear }` (id or name) | `{ bear }` |
+| `bears.faces` | `{}` | `{ faces: { id, color, avatar, faces }[] }`, the presets |
+| `bears.create` | `{ name, does?, personality?, icon?, model?, effort?, avatar? \| preset?, color?, quietHours?, tidy? }` | `{ bear }` |
+| `bears.update` | `{ bear, ...bear.json fields }` (null clears one) | `{ bear }`; an access field is `-32602` |
+| `bears.setAccess` | `{ bear, permissionMode?, poolId?, runner? }` | `{ bear }`; `-32060` from any bear's own thread |
+| `bears.setHead` | `{ bear \| null }` | `{ bears }`; `-32060` from a bear's thread |
+| `bears.pin`, `bears.move`, `bears.hibernate`, `bears.archive`, `bears.setProjects` | `{ bear, pinned? \| index \| until \| archived? \| add?, remove? }` | `{ bear }` (`move`: `{ bears }`). Archive pauses its routines, revokes its webhooks and takes it from its tables |
+| `bears.delete` | `{ bear }` | `{ trashed }`: the folder's place in `<data dir>/trash`. Its routines are deleted and its threads archived |
+| `bears.mention` | `{ bear, text, fromThreadId? }` | `{ threadId?, bear, note? }` (`note`: it's away) |
+
+While bears are on, a thread in a bear's folder has `bear: { id, name,
+icon?, color?, head? }` on its summary, so a client can draw the bear's SF
+Symbol (a crown for the head bear when it has none) on its colour where a
+folder would be. `bears.update` and `bears.setHead` send those threads'
+summaries again, so the tile follows. A composer's @ list can come from
+`bears.list { faces: false }`; picking a bear writes `@<name> `, and
+nothing new goes on the wire. It should offer bears only for a message
+going to that runner, as another runner resolves a mention against its
+own bears.
+
+**Codex bears** (observed 13 Nov 2026). `permissionMode: "auto"` is
+Claude Code's; a Codex thread set to it runs as Ask, so `tb bears access
+--auto` on a Codex bear says so rather than refusing. Codex's built-in
+`image_gen` writes into `~/.codex/generated_images` with no approval
+request, in any mode (SECURITY.md). Known issue: a Codex bear in Ask that
+called `pin` raised an approval (`approval.requested`) that no card showed
+in the Mac app, and it expired when the turn ended. Not yet explained.
+
+A thread's connection (A thread's own key) may call the reads and
+`create`, `update`, `pin`, `move`, `hibernate`, `setProjects` and
+`mention` below Full access; the gate adds its id as `_caller`.
+
+**Mentions** (`runner/src/mentions.ts`). A message Mike sends (no
+`origin`, or `phone`) naming `@<bear name>` or `@bear:<id>` asks up to
+three bears, and gets a `[Threadbear: Asked ...]` line added for the
+agent. Each ask makes a thread in the bear's folder in the lower of the
+bear's mode and the asking thread's, joined to the asking thread's
+projects, with `startedBy { kind: "thread", label: "Mentioned by <title>" }`.
+A bear with a mention thread still running gets the next ask in that
+thread. When its turn ends, its reply goes to each asker as a message
+starting `[Bear: <name> replied in thread:<id>. It's a bear's answer,
+not the user's words.]`, quoted. A bear's own thread may ask another bear
+only from a table they share, or when it's the head bear.
+
+### Tables
+
+An experiment (`tables`, needs `bears`; `runner/src/tables.ts`). A table
+is a project with `table: { bears: string[], maxTurns? }` (projects.json,
+`Project.table`), never sent to the Convex mirror. Its first folder,
+`<bears root>/../Tables/<slug>-<hex>/`, has the host's `CLAUDE.md`. Its
+brief has a `Bears:` line. A table with a `parentId` is a Part. The
+librarian is shown a table only for a thread already in it.
+
+| Method | Params | Result |
+|---|---|---|
+| `tables.list` | `{ archived? }` | `{ on, tables: Project[] }` |
+| `tables.create` | `{ title, goal?, bears?, parent?, maxTurns? }` | `{ table }` |
+| `tables.seat` | `{ table, add?, remove?, maxTurns? }` | `{ table }` |
+
+A mention from a table's thread must name a bear at it, and each of Mike's
+messages there allows `maxTurns` (default 6) of them; past that it's
+refused until he writes again.
+
+### Webhooks
+
+An experiment (`webhooks`; `convex/webhooks.ts`, `convex/hookHttp.ts`,
+`runner/src/webhooks.ts`, API 80). `POST <site>/hook/tbh_<64 hex>` takes a
+delivery: 405 for another method, 403 with an `Origin` header, 413 past
+64 KB, 404 for a key that's unknown, revoked or expired, 429 with
+`Retry-After` past 30 a minute or 50 a day per hook (repeats count), 120 a
+minute in all, or 20 bad keys from one address in ten minutes. 202 takes
+it; 200 `{ duplicate: true }` drops a repeat `Idempotency-Key` or
+`X-GitHub-Delivery` within a day. Deliveries within the hook's
+`batchSeconds` (default 10) go as one command, `create` (folder) or
+`send` (thread), with `args.webhook: { hookId, name }` and
+`args.payloads: { at, contentType, body }[]`, bodies scrubbed.
+
+The runner takes such a command only for a hook in its own
+`<data dir>/runner/webhooks.json`, aimed where that says, with the
+experiment on. A folder run starts in Ask, or Auto if both the record and
+the command say so, with `startedBy { kind: "tool", icon: "bolt.horizontal" }`.
+A thread run needs that thread on Ask or Auto. The text starts
+`[Webhook: "<name>"]` and says it's data, then quotes each payload,
+pretty-printed, 16 KB in all. A bear that's away holds them in
+`webhook-held.json` until it's back.
+
+| Method | Params | Result |
+|---|---|---|
+| `webhooks.list` | `{}` | `{ on, reason?, url?, hooks }` |
+| `webhooks.create` | `{ name, bear? \| cwd? \| threadId?, permissionMode? ("ask"\|"auto"), batchSeconds?, days? }` | `{ hook, url }`, the URL shown once |
+| `webhooks.revoke` | `{ id? }` (none: all) | `{ revoked }` |
+
+`webhooks.create` and `revoke` need Full access from a thread. Turning the
+experiment off revokes every hook.
+
 ## Projects
 
 A project groups threads above folders: it can have several folders, a
@@ -6804,6 +6930,9 @@ anyone's); "any runner" is any good key. Anything not sorted is owner only.
 | `issueToken` | owner only | a phone token reads everything and queues commands for every runner |
 | `listTokens` | owner only | |
 | `revokeToken` | owner only | |
+| `issueWebhook` | owner only | a webhook's URL (convex/webhooks.ts) starts threads on a runner |
+| `listWebhooks` | owner only | the webhooks and their targets |
+| `revokeWebhook` | owner only | ending them is the owner's |
 | `addRunnerKey` | owner only | never for `"any"` or the asking Mac's own id (recorded, for the audit); over a live key only with `replace`; at most three live |
 | `listRunnerKeys` | owner only | |
 | `revokeRunnerKey` | owner only | |

@@ -931,6 +931,19 @@ on the card, Open the Thread Working on It. Boards are read through
 a Connectors gateway (see [Connectors](#connectors)); without one, the
 project's page says so and nothing is read.
 
+### Tables
+
+An experiment (Tables, which needs Bears). A table is a group of bears
+around one goal, with you at the head. It's a project marked as a table:
+its goals are the table's goal and its notes are its decisions.
+`tb tables new "Launch crew" --bears "Researcher,Writer" --parent Launch`
+makes one inside the Launch project, with a folder of its own in
+`~/ThreadbearThreads/Tables`. A thread there is the table chat: its host
+passes work to the bears, and their replies come back into it, so you
+read every exchange. Each message you send allows at most 6 bear replies
+(`tb tables seat <table> --max 4` changes it). The librarian keeps a
+table's state but never files a thread into one.
+
 ## The librarian
 <!-- slug: librarian -->
 
@@ -1121,6 +1134,20 @@ Mac arrives asking before tools run, even if it had Full access or Auto
 there. Agents can do the same with `move_thread` and a `runner`, and
 `tb move <thread> --to <machine>` (`--preview` to see where it would go).
 Moves are started from your first Mac and need Threadbear's backend.
+
+### Webhooks
+
+An experiment (Webhooks). `tb webhooks new "GitHub" --bear Researcher`
+makes a secret URL on your backend, shown once. A POST to it starts a
+thread in that bear's folder (or `--cwd` a folder, or `--thread` messages
+one thread on Ask or Auto), marked with a bolt and the webhook's name.
+Its threads run in Ask, or Auto with `--auto`, never Full access, and the
+payload arrives quoted as data, not your words. Deliveries 10 seconds
+apart become one run, a repeat `Idempotency-Key` or `X-GitHub-Delivery`
+is dropped, and each hook takes 30 calls a minute and 50 a day. Keep the
+URL like a password: `tb webhooks revoke <id>` ends it, and turning the
+experiment off ends them all. It needs your backend's public
+`.convex.site` address, so a local backend can't take webhooks.
 
 ## Accounts, pools and Usage
 <!-- slug: accounts -->
@@ -2030,6 +2057,56 @@ plays wherever you are, in Threadbear or another app, and stays quiet for
 a thread you stopped yourself. Several threads finishing at once make one
 ding. Pick Chime, Bell or Droplet (each plays as you pick it), set the
 volume, and press Play to hear it again.
+
+### Bears
+
+An experiment (Settings > General > Experiments, Bears). Bears are named
+teammates, like Researcher or Writer, each with a persona, a memory, a
+face and its own routines. A bear is a folder in
+`~/ThreadbearThreads/Bears`: a thread there is that bear. Its `CLAUDE.md`
+is its persona and house rules (short replies, drafts before anything is
+sent, say what it couldn't check), `memory/` is what it remembers, and
+`Bears/memory/` holds facts about you that every bear shares.
+
+The first time bears are listed, Head Bear is made as your chief of
+staff: it can hand work to the others. `tb bears head <bear>` gives the
+job to another one.
+
+Add the bears skill once (Settings > Skills, where it waits under
+Suggested): it teaches every thread, bears included, the `tb bears`
+commands, faces and routines. Store skills you've added reach bear threads
+like any other thread.
+
+Until the desktop app draws them, bears live in `tb bears`:
+
+- `tb bears new "Researcher" --does "Finds sources" --personality "dry and calm" --face round`
+  makes one, with a daily "tidy memory" routine at 4:30. The routine runs
+  in Ask like every unattended run, so a tidy that changes a file waits
+  for your yes each morning until you raise the bear with `tb bears access`.
+- `tb bears rename`, `set`, `pin`, `move`, `archive`, `delete`. Renaming
+  keeps its memory, routines and old threads. Deleting moves its folder
+  to the runner's trash.
+- `tb bears away <bear> 3d` hibernates it: its routines skip, webhooks
+  hold their deliveries, and a mention gets "away until".
+- `tb bears access <bear> --auto` lets its unattended runs (routines,
+  webhooks, mentions) go past Ask. Only you can do that: a bear's own
+  thread can't. Auto is Claude only: a bear on Codex (`--model gpt-...`)
+  set to Auto still asks, and `tb bears access` says so.
+
+A bear on Codex can make pictures: Codex's own `image_gen` tool makes real
+PNGs (a Designer bear on `gpt-6-astra` made 1024 by 1024 ones on 13 Nov).
+That tool writes its picture into `~/.codex/generated_images` without
+asking, even in Ask; copying it into the bear's folder asks as usual.
+
+Write `@Researcher` in a message (or `@bear:<id>`), or run
+`tb bears ask Researcher "..."` from a thread, and the bear gets the
+message in a fresh thread in its folder, in the lower of its mode and
+that thread's. Its reply comes back to the thread that asked, as a new
+message there, while you watch. At most three bears a message.
+
+With Bear notes on too, a bear you opt in (`tb bears set <bear> --notes both`)
+can leave one short cheer or idea under the librarian's line in
+Highlights, only when it's earned.
 
 ### The activity log
 

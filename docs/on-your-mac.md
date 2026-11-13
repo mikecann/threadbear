@@ -206,6 +206,24 @@ File references are where to look.
   `mac-screen.json` in the data folder
   remembers what it's said about dialogs on the screen (below).
 
+With Bears on (`bears`), the runner keeps `runner/bears.json` (0600): each
+bear's access (mode, pool, machine), pin, order, away time, archive time
+and projects, and which bear is the chief of staff. Mentions keep
+`runner/mentions.json` (0600), which bear threads owe a reply to which
+threads. With Webhooks on (`webhooks`), `runner/webhooks.json` (0600)
+lists the hooks this runner made and their targets (never their keys), and
+`runner/webhook-held.json` holds deliveries for a bear that's away; a
+one-minute timer runs them once it's back.
+
+With Bears on, `tb bears new` (and the first `bears.list`, which makes
+Head Bear) makes `~/ThreadbearThreads/Bears/<id>/` with `CLAUDE.md`,
+`AGENTS.md`, `bear.json` and `memory/`, runs `git init` there, adds a
+shared `Bears/memory/summary.md`, and books a daily "tidy memory" schedule
+for 4:30. Deleting a bear moves its folder to the runner's `trash/`. With
+Tables on, `tb tables new` makes `~/ThreadbearThreads/Tables/<id>/` with
+the host's `CLAUDE.md`. Faces are drawn by the `open-bot-avatar` package
+(0.2.1, MIT, no dependencies), installed with the runner's packages.
+
 ## What runs in the background
 
 - **Landing work** (`runner/src/worktrees.ts`): `tb land` keeps an empty
@@ -530,6 +548,7 @@ File references are where to look.
 | Cursor (api2.cursor.sh) | theirs | Only with a thread on Cursor: the same, on your own login |
 | Mike's push relay | Mike's | Only when a paired iPhone or Android phone gets a notification (an Android phone's goes on to Google's Firebase Cloud Messaging, from the relay). It's sent from your Convex deployment, not the Mac. The text is encrypted for the phone; the relay sees the device token and thread id (`convex/push.ts`, `docs/push-relay.md`). The first time, your deployment registers with it, giving its own address; the relay keeps that address and checks it by posting a one-time code back to your deployment's `/relay/verify` (`convex/http.ts`). |
 | A Connectors gateway | whoever runs it | Only if one is set in `runner.json` or `~/.claude.json`. Its `/health` every few minutes (and once more at the end of a turn where a call to one of its services failed, to see if it needs signing in), and for a project with a Notion page, a Notion read or two every 5 minutes for its task board (`runner/src/notion-tasks.ts`), signed with the header the `headersHelper` command in that `connectors` entry prints, which it runs for each read |
+| Your backend's `/hook/<key>`, from webhooks | Convex, and whatever you give a webhook URL to | Only with the Webhooks experiment on and a hook made with `tb webhooks new`. A POST there starts an Ask (or Auto) thread in the folder or bear it's aimed at, or messages its one thread. Keys are stored as hashes and revoked with `tb webhooks revoke`, and all of them when the experiment is turned off |
 | Sentry | Mike's | Nothing from your copy. Only a copy whose `origin` is Mike's own repo reports errors or uploads the app's debug symbols (`runner/src/sentry.ts`, `app/Sources/Threadbear/CrashReporting.swift`, `app/build-app.sh`). The installed GPUI app of Mike's repo, on the real data folder, sends its panics, crashes and freezes of 15 seconds or more, each as one POST to Sentry's endpoint with the function names and nothing typed or opened (`desktop/core/src/crash_report.rs`, `desktop/gpui/src/crash_reporting.rs`); it uploads no symbols. The App Store iPhone app sends anonymous crash reports. |
 
 An HTML file opened in the side pane (a mockup or report an agent made,

@@ -714,6 +714,15 @@ export class Runner {
   secrets: SecretStore;
   models?: Pick<Models, 'generate'>;
   projects?: Projects;
+  // Bears (bears.ts): what a new thread in a bear's folder starts with.
+  // Unset while the experiment is off.
+  // The bear whose folder this is (bears.ts), for the sidebar's tile.
+  // Unset while bears are off.
+  bearOf?: (cwd: string) => { id: string; name: string; icon?: string; color?: string; head?: boolean } | undefined;
+  // Mentions (mentions.ts): a message the user sent that names a bear. Answers
+  // a line added for the agent, or undefined. Unset while bears are off.
+  mentionHook?: (threadId: string, text: string) => string | undefined;
+  bearDefaults?: (cwd: string, unattended: boolean) => { model?: string; effort?: EffortLevel; poolId?: string; permissionMode?: PermissionMode; projectIds?: string[] } | undefined;
   standingInstructions?: () => string;
   activity = new Set<(a: ThreadActivity) => void>();
   patchCache: PatchCache = new Map();
@@ -1599,6 +1608,16 @@ export class Runner {
     // Its turn was made up; a real agent picking it up would only be lost.
     if (st.rec.sample) throw new RpcError(ErrorCode.badParams, "This is one of the tour's sample threads, so nothing can be sent to it. Start a new thread to try it for real.");
     checkImages(images);
+    // The user's own message (the app, tb, the phone): any bear it names is
+    // asked, and the agent is told so under it.
+    if (this.mentionHook && (opts.origin === undefined || opts.origin === 'phone') && text) {
+      try {
+        const said = this.mentionHook(threadId, text);
+        if (said) text = `${text}\n\n${said}`;
+      } catch (e) {
+        this.log.warn('a mention could not be handed on', { threadId, error: String(e) });
+      }
+    }
     return { turnId: this.sendTo(st, text, images, opts) };
   }
 
@@ -3889,6 +3908,8 @@ export class Runner {
     // Only for the card it was checked for: a new turn's card waits for its own.
     if (rec.looseEnds && this.looseEndsCard(st) === rec.looseEnds.seq) s.looseEnds = { seq: rec.looseEnds.seq, ends: rec.looseEnds.ends.map((e) => ({ ...e })), at: rec.looseEnds.at };
     if (rt.moving) s.moving = { ...rt.moving };
+    const bear = this.bearOf?.(rec.cwd);
+    if (bear) s.bear = bear;
     return s;
   }
 
