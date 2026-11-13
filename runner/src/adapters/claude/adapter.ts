@@ -396,6 +396,9 @@ class ClaudeSession implements AgentSession {
   private waitingCards = new Set<WaitingCard>();
   // Mike's answers to queued calls, by tool use id, until each comes up.
   private queuedAnswers = new Map<string, { decision: 'allow' | 'deny' } & QueuedGrant>();
+  // Prints this session was allowed to update: the next version of one
+  // goes through without another card (Wayne, 11 Nov). Only a yes counts.
+  private printGrants = new Set<string>();
   // Calls that have reached the CLI's checks (the PreToolUse hook): they
   // may already be running, so a tick on a card could no longer stop them.
   private checkedCalls = new Set<string>();
@@ -651,6 +654,7 @@ class ClaudeSession implements AgentSession {
     if (name === 'AskUserQuestion' || name === 'ExitPlanMode') return false;
     if (this.deps.alwaysAsk?.has(name)) return true;
     if (this.deps.neverAsk?.has(name)) return false;
+    if (this.printGranted(name, input)) return false;
     if (this.mode === 'full' || this.mode === 'plan') return false;
     if (this.askEvery) return true;
     const target = EDIT_TOOLS.has(name) ? this.editTarget(input) : undefined;
@@ -917,6 +921,7 @@ class ClaudeSession implements AgentSession {
     }
     if (this.deps.neverAsk?.has(name) && !this.deps.alwaysAsk?.has(name)) return { behavior: 'allow', updatedInput: input, toolUseID: o.toolUseID };
     if (this.mode === 'full' && !this.deps.alwaysAsk?.has(name)) return { behavior: 'allow', updatedInput: input, toolUseID: o.toolUseID };
+    if (this.printGranted(name, input)) return { behavior: 'allow', updatedInput: input, toolUseID: o.toolUseID, decisionClassification: 'user_temporary' };
     // "Plan first": the plan goes to Mike as a plan card, and this call
     // waits on it like any approval. Approving it answers with the mode to
     // leave plan mode for (setMode below), as the CLI's own prompt does.
@@ -977,6 +982,7 @@ class ClaudeSession implements AgentSession {
             decisionClassification: 'user_temporary',
           };
         }
+        this.grantPrint(name, input);
         return { behavior: 'allow', updatedInput: input, toolUseID: o.toolUseID, decisionClassification: 'user_temporary' };
       case 'allowAlways': {
         const { updates, rules } = alwaysAllow(name, o.suggestions, input);
@@ -1004,6 +1010,22 @@ class ClaudeSession implements AgentSession {
           decisionClassification: 'user_reject',
         };
     }
+  }
+
+  // update_print (or its old name, update_page) on one Print: its id.
+  private printUpdated(name: string, input: Record<string, unknown>): string | undefined {
+    if (name !== 'mcp__threadbear__update_print' && name !== 'mcp__threadbear__update_page') return undefined;
+    return typeof input.id === 'string' && input.id ? input.id : undefined;
+  }
+
+  private printGranted(name: string, input: Record<string, unknown>): boolean {
+    const id = this.printUpdated(name, input);
+    return id !== undefined && this.printGrants.has(id) && !this.deps.alwaysAsk?.has(name);
+  }
+
+  private grantPrint(name: string, input: Record<string, unknown>): void {
+    const id = this.printUpdated(name, input);
+    if (id !== undefined) this.printGrants.add(id);
   }
 
   // Only for calls that were on the card: an id it never listed is ignored.

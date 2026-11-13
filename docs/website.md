@@ -67,6 +67,8 @@ page New link. Those queue a `share` command (`phone:share`) the runner
 applies, as the Mac's button does. Built 28-29 Oct 2026 (thread ec75fe8b,
 backend APIs 7 and 8).
 
+A published Print has a page of its own too, `<site>/p/<slug>` (`web/src/print.tsx`, no sign-in): its HTML from `prints:view`, drawn in a frame with an empty `sandbox` behind the reply pages' Content-Security-Policy (`web/src/print-doc.ts`), under a one-line header with its title, kind and version. docs/protocol.md, "Prints", has the rest.
+
 The link is `<site>/s/<slug>`, a page with no sign-in (`web/src/share.tsx`),
 read-only and live, served by `share:view` (`convex/share.ts`), the only
 function that takes no phone token. It gives the title, when the thread

@@ -30,6 +30,8 @@ export type Settings = {
   oneReply: boolean;
   // Review by another lab (runner/lab-review.ts).
   labReview: boolean;
+  // Only make Prints when I ask (threadbear-mcp.ts, create_print).
+  printsWhenAsked: boolean;
   // Keep the Mac awake while threads work (keep-awake.ts). Only on a Mac:
   // left out elsewhere, so Settings shows no switch for it.
   keepAwake?: boolean;
@@ -55,6 +57,7 @@ export type SettingsUpdate = {
   bulletReplies?: boolean;
   oneReply?: boolean;
   labReview?: boolean;
+  printsWhenAsked?: boolean;
   keepAwake?: boolean;
   bringIn?: BringInSetting;
   fullSync?: boolean;
@@ -87,6 +90,7 @@ export class SettingsService {
       bulletReplies: this.cfg.bulletReplies,
       oneReply: this.cfg.oneReply,
       labReview: this.cfg.labReview,
+      printsWhenAsked: this.cfg.printsWhenAsked,
       ...(process.platform === 'darwin' ? { keepAwake: this.cfg.keepAwake } : {}),
       bringIn: bringInSetting(this.cfg.home),
       fullSync: peekRunnerJson(this.cfg.home).sync?.full === true,
@@ -138,6 +142,7 @@ export class SettingsService {
     if (u.bulletReplies !== undefined) json.bulletReplies = this.cfg.bulletReplies = u.bulletReplies;
     if (u.oneReply !== undefined) json.oneReply = this.cfg.oneReply = u.oneReply;
     if (u.labReview !== undefined) json.labReview = this.cfg.labReview = u.labReview;
+    if (u.printsWhenAsked !== undefined) json.printsWhenAsked = this.cfg.printsWhenAsked = u.printsWhenAsked;
     if (u.keepAwake !== undefined) json.keepAwake = this.cfg.keepAwake = u.keepAwake;
     // Read each time it's needed (bring-in.ts), so this takes effect at once.
     if (u.bringIn !== undefined) json.releases = { ...json.releases, bringIn: u.bringIn };
@@ -185,6 +190,10 @@ export function settingsMethods(s: SettingsService): Record<string, (p: Record<s
       if (p.labReview !== undefined) {
         if (typeof p.labReview !== 'boolean') throw bad('labReview must be a boolean');
         u.labReview = p.labReview;
+      }
+      if (p.printsWhenAsked !== undefined) {
+        if (typeof p.printsWhenAsked !== 'boolean') throw bad('printsWhenAsked must be a boolean');
+        u.printsWhenAsked = p.printsWhenAsked;
       }
       if (p.keepAwake !== undefined) {
         if (typeof p.keepAwake !== 'boolean') throw bad('keepAwake must be a boolean');

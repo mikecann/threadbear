@@ -1,16 +1,18 @@
 // A few pages, so no router: "/" is the list, "/t/<threadId>" a thread,
-// "/s/<slug>" a thread someone shared (no sign-in; share.tsx), "/new" a new
-// thread, and the rail's views with what's open in them. Static
-// hosting sends every unknown path to index.html, so a link works when
+// "/s/<slug>" a thread someone shared (no sign-in; share.tsx), "/p/<slug>"
+// a published print (no sign-in; print.tsx), "/new" a new thread, and
+// the rail's views with what's open in them. Static hosting sends every unknown path to index.html, so a link works when
 // opened cold.
 import { useSyncExternalStore } from 'react';
 
 export type RailView = 'scheduled' | 'projects' | 'runners' | 'usage';
-export type Route = { page: 'list' } | { page: 'new' } | { page: 'thread'; threadId: string } | { page: 'share'; slug: string } | { page: RailView; id?: string };
+export type Route = { page: 'list' } | { page: 'new' } | { page: 'thread'; threadId: string } | { page: 'share'; slug: string } | { page: 'print'; slug: string } | { page: RailView; id?: string };
 
 function parse(): Route {
   const s = location.pathname.match(/^\/s\/([^/]+)\/?$/);
   if (s) return { page: 'share', slug: decodeURIComponent(s[1]) };
+  const p = location.pathname.match(/^\/p\/([A-Za-z0-9_-]{16,64})\/?$/);
+  if (p) return { page: 'print', slug: p[1] };
   const m = location.pathname.match(/^\/t\/([^/]+)\/?$/);
   if (m) return { page: 'thread', threadId: decodeURIComponent(m[1]) };
   if (/^\/new\/?$/.test(location.pathname)) return { page: 'new' };

@@ -1,0 +1,20 @@
+---
+id: pages
+name: Prints
+title: Prints: charts, dashboards, reports and docs a thread keeps for you
+added: 2026-11-10
+on: false
+reminder: ee0c4ba6
+---
+
+## What it does
+
+Lets a thread's agent make a Print you keep: a chart, a dashboard, a report, a doc, a Mermaid diagram, a todo list or a kanban board, from a data file you give it, a project's files, or a command's output. Asking again updates the same Print to a new version instead of posting another, and the last 10 versions are kept. A Print belongs to the thread that made it and can be in any of your projects, or none: a thread pinned to one project puts its Prints there by itself. Docs, diagrams, todo lists and boards keep their source (Markdown or Mermaid), so the next agent starts from your words. Diagrams are drawn to static SVG on your Mac with the bundled Pele library, with no download. Prints are HTML, CSS and pictures with no scripts, unless an agent makes a live one. They're kept on your Mac, in the `pages` folder in Threadbear's data folder. Nothing about a Print goes to Convex unless you ask for it to be published: then its page goes to your own Convex backend and opens on the website's `/p/` page for anyone with its link, follows new versions, and comes down when you unpublish or delete it. On the website a reply's Print shows as a card. The desktop app doesn't draw Prints yet: a reply's Print block shows as code there, and the runner's `pages.*` methods are ready for it. Set `printsWhenAsked: true` in runner.json to have a thread ask before making a Print you didn't ask for.
+
+## Lives in
+
+`runner/src/pages.ts` (the store, `<home>/pages/`, and the `pages.*` methods), `runner/src/page-doc.ts` (docs), `runner/src/page-list.ts` (todo lists and boards: parse, draw, `pages.toggleItem`, `pages.moveCard`) and `runner/src/page-diagram.ts` (diagrams, using the pinned Pele bundle and its MIT license in `runner/skills/pele/`, shipped in releases because `skills` is in `RELEASE_PATHS`). The Print tools (`create_print`, `update_print`, `list_prints`, `read_print`, `delete_print`, `restore_print`, `export_print`, `publish_print`, `unpublish_print`, `add_print_to_project`, `remove_print_from_project`, and their old `page` names) are in `buildThreadbearTools` (`runner/src/threadbear-mcp.ts`), with `list_prints` and `read_print` (and the old names) in `NEVER_ASK_TOOLS`. `pagesFor`, `pageMethods`, `askAboutPage` (Refresh and Edit with agent) and the publisher are in `runner/src/main.ts`, and the `pages.updated` notification in `runner.ts`. Ask once per Print is `printGrants` in `adapters/claude/adapter.ts`. Only make Prints when I ask is `printsWhenAsked` (`config.ts`, `settings.ts`, `cli.ts`), checked in `create_print` (`asksForPrint`). Publishing is `printsProblem`, `publishPrint` and `unpublishPrint` in `runner/src/sync.ts`, `convex/prints.ts`, the `prints` table in `convex/schema.ts`, `publishPrint` and `unpublishPrint` in `convex/sync.ts` and `convex/runnerAccess.ts`, and on the website `web/src/print.tsx`, `print-doc.ts`, `print-card.tsx`, `print-fence.ts` and the `/p/` route in `web/src/route.ts`.
+
+## Taking it out
+
+Unpublish every Print first, or their rows stay in the backend. Then delete `runner/src/pages.ts`, `page-doc.ts`, `page-list.ts`, `page-diagram.ts` and their tests, `runner/skills/pele/` (and `skills` from `RELEASE_PATHS` in `update.ts` and `deploy.mjs`), the Print tools, their options and their names in `NEVER_ASK_TOOLS` in `threadbear-mcp.ts`, `asksForPrint`, `pagesFor`, `pageMethods`, `askAboutPage` and the publisher in `main.ts`, the `pages.updated` notification in `runner.ts`, `printGrants` in the Claude adapter, `printsWhenAsked` from `config.ts`, `settings.ts` and `cli.ts`, the Print parts of `runner/src/sync.ts`, `convex/prints.ts`, the `prints` table and the two sync mutations, the website's Print files and its `/p/` route, the "Prints" section of `docs/protocol.md` and of `docs/guide.md`, and `features/prints.feature`. Saved Prints are the `pages` folder in Threadbear's data folder.

@@ -139,7 +139,9 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 79;
+export const BACKEND_API_VERSION = 80;
+// sync:publishPrint and sync:unpublishPrint (Prints can be published).
+export const PRINTS_API_VERSION = 80;
 // From this one a message row can be a login's note (role "note"): a thread
 // that moved to another login or is waiting for room says so on another Mac.
 export const LOGIN_NOTES_API_VERSION = 78;
@@ -1814,6 +1816,25 @@ export class ConvexSync {
     this.mustBeOn();
     if ((this.backendApiVersion ?? 0) < RUNNER_ORDER_API_VERSION) throw new Error('The backend is too old for a runner order: it needs deploying.');
     await this.backend('mutation', 'sync:setRunnerOrder', { key: this.deps.key, runnerIds });
+  }
+
+  /** Prints can be published: sync is on and the backend is API 80 or later. */
+  printsProblem(): string | undefined {
+    if (this.off) return 'Publishing needs your Convex backend, which is off on this runner.';
+    if ((this.backendApiVersion ?? 0) < PRINTS_API_VERSION) return 'The backend is too old to publish a print: it deploys with the runner\'s next update, so try again in a few minutes.';
+    return undefined;
+  }
+
+  /** pages.publish: one print's page, under its link (sync:publishPrint). */
+  async publishPrint(print: { id: string; slug: string; title: string; kind: string; version: number; summary: string; html: string; updatedAt: string }): Promise<void> {
+    const problem = this.printsProblem();
+    if (problem) throw new Error(problem);
+    await this.backend('mutation', 'sync:publishPrint', { key: this.deps.key, runnerId: this.runnerId, print });
+  }
+
+  async unpublishPrint(id: string): Promise<void> {
+    if (this.off || (this.backendApiVersion ?? 0) < PRINTS_API_VERSION) return;
+    await this.backend('mutation', 'sync:unpublishPrint', { key: this.deps.key, runnerId: this.runnerId, id });
   }
 
   async listTokens(): Promise<Device[]> {

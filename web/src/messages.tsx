@@ -1,6 +1,8 @@
 // How a thread's messages and tool lines are drawn, on Mike's own thread
 // page (App.tsx) and on a shared one (share.tsx).
 
+import { PrintCard } from './print-card';
+import { printFenceId } from './print-fence';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { go } from './route';
@@ -225,6 +227,8 @@ export function MessageText({
             const fence = fenceOf(node);
             const at = node?.position;
             const closed = at?.start.offset !== undefined && at.end.offset !== undefined && fenceClosed(markdown, at.start.offset, at.end.offset);
+            const printId = fence && closed && at?.start.offset !== undefined && at.end.offset !== undefined ? printFenceId(markdown.slice(at.start.offset, at.end.offset)) : undefined;
+            if (printId) return <PrintCard id={printId} />;
             const draft = fence && closed && draftFrom(fence.language, fence.code);
             return draft ? <DraftBox draft={draft} /> : <pre {...p}>{children}</pre>;
           },

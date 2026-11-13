@@ -370,4 +370,10 @@
 //    changed login, as the Mac does. Without it the page is as before, for
 //    apps built earlier. phone:thread, phone:search and share's page still
 //    leave them out.
-export const API_VERSION = 79;
+// 80: Prints can be published. sync:publishPrint stores one print's
+//    index.html (static, at most 700,000 characters) under a link its
+//    runner made, sync:unpublishPrint removes it, prints:view answers the
+//    website's /p/<slug> page for anyone with the link, and prints:list
+//    gives the phone and the website the published ones. A runner publishes
+//    only from 80; nothing about a print is stored before it's published.
+export const API_VERSION = 80;

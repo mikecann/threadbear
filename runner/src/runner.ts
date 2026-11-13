@@ -178,6 +178,7 @@ export type Notification =
   | { method: 'instructions.updated'; params: { instructions: import('./instructions.ts').StandingInstructions } }
   | { method: 'runner.updates'; params: { updates: RunnerUpdates } }
   | { method: 'projects.updated'; params: { projects: Project[] } }
+  | { method: 'pages.updated'; params: { pages: import('./pages.ts').PageRecord[] } }
   | { method: 'librarian.updated'; params: { librarian: LibrarianStatus } }
   | { method: 'connectors.updated'; params: { connectors: ConnectorsStatus } }
   // Only from a draining runner, to the primary (handover.ts).

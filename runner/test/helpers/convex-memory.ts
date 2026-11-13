@@ -181,7 +181,10 @@ export function memoryBackend() {
         // Convex's are: rows deleted along the way don't shift the next page.
         async paginate({ numItems, cursor }: { numItems: number; cursor: string | null }) {
           const keyOf = (r: Row) => [...order.map((f) => get(r, f)), r._creationTime];
-          const after = (k: unknown[], c: unknown[]) => k.reduce<number>((acc, x, i) => acc || cmp(x, c[i]), 0) > 0;
+          const after = (k: unknown[], c: unknown[]) => {
+            const comparison = k.reduce<number>((acc, x, i) => acc || cmp(x, c[i]), 0);
+            return desc ? comparison < 0 : comparison > 0;
+          };
           const last = cursor ? (JSON.parse(cursor) as unknown[]) : undefined;
           const all = rows().filter((r) => !last || after(keyOf(r), last));
           const page = all.slice(0, numItems);

@@ -39,7 +39,7 @@ export const BACKGROUND_WAIT_MS = 30 * 60_000;
 // What a release holds from runner/, as deploy.mjs's RELEASE_PATHS: only a
 // change to these changes what runs, so a commit that only touches tests
 // or docs doesn't restart the runner.
-export const RELEASE_PATHS = ['src', 'bin', 'package.json', 'package-lock.json', '.npmrc'];
+export const RELEASE_PATHS = ['src', 'bin', 'skills', 'package.json', 'package-lock.json', '.npmrc'];
 // Failures that say nothing about the commit, so it's tried again later
 // rather than marked failed: another deploy holding the lock, and a step
 // that failed while the Mac slept through it, which deploy.mjs exits with

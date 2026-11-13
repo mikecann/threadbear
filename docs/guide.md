@@ -880,6 +880,40 @@ on a card, or its right-click menu, opens it in Notion. Boards are read through
 a Connectors gateway (see [Connectors](#connectors)); without one, the
 project's page says so and nothing is read.
 
+## Prints
+
+A Print is something a thread makes for you to keep: a chart, a dashboard, a report, a doc, a diagram, a todo list or a kanban board. It stays after the reply that made it scrolls away, and asking again updates it rather than making another one. It's an experiment: turn it on in Settings > General > Experiments > Prints, or with `"experiments": { "pages": true }` in runner.json. (Prints were called Pages until 10 Nov 2026.)
+
+The desktop app doesn't draw Prints yet. For now a thread's reply shows a Print block as code, and the thread can open the Print's `index.html` in the side pane for you. The website draws a published Print as a card.
+
+Ask in plain words, in any thread:
+
+| Say | You get |
+|---|---|
+| "Make a pie chart of this spreadsheet by region" | A **chart** print. Attach the file or name it |
+| "Make a dashboard from this data" | A **dashboard**: big numbers, a few charts and a table |
+| "Give me a report on where this project stands" | A **report**: sections of text with charts |
+| "Write up the launch plan as a print" | A **doc**, drawn from Markdown |
+| "Draw this flow as a diagram print" | A **diagram** from Mermaid source, drawn as SVG |
+| "Make a todo list for the launch" | A **todo list**, with how many are done |
+| "Put these tasks on a kanban board" | A **board**: a column for each stage, with its cards |
+
+**Where a print goes.** A thread pinned to exactly one project puts its new prints in that project. Say "keep it out of projects" for none, or "put it in Poddle" for another. A print can be in several projects without duplicating its files. All Prints are stored in `~/Library/Application Support/Threadbear/pages/<print-id>/v<version>/`, separate from your code folders. Nothing about a print goes to your Convex backend unless you publish it (below).
+
+**Changing one.** Ask the thread: "refresh the sales dashboard", "tick the first two items", "move the docs card to Done", "go back to version 3", "put it in the Launch project", "delete the old chart", "bring it back", "export it to my Desktop", "what prints do I have". Every change is a new version, and the last 10 are kept. A deleted print waits 7 days before it's gone. A doc, diagram, todo list or board keeps its source (Markdown or Mermaid), so the next change starts from what's there, including your own edits.
+
+**Keeping one up to date.** Say "refresh it every weekday morning" (or any time you like) and the thread schedules itself to make the print again from its recipe and save a new version. It shows on the Scheduled page, where you can change or stop it.
+
+**Only when you ask.** Threads can also make Prints on their own, like a progress Print on a long task. To have them made only when you ask, put `"printsWhenAsked": true` in runner.json. A thread that goes to make one your message didn't ask for then asks you first, on a card, and No means none is made. A message that says print, chart, graph, dashboard or diagram counts as asking.
+
+**Asking once.** In Ask before edits, the first change to a print asks you. Once you allow it, later versions of that same print from that thread go ahead without asking again, until the thread is next restarted. A different print, or deleting one, still asks.
+
+**Publishing.** Say "publish it" and the thread asks you first, then puts the print's one page on your own Convex backend. It opens at `<your site>/p/<link>` for anyone you give the link to, and each new version goes up by itself. "Unpublish it", or deleting it, takes it down and the link stops working. A diagram's published page includes its source.
+
+**Diagrams** are drawn on your Mac with the bundled Pele library and kept as static SVG with their Mermaid source. No package download or network access is needed to draw one. A wide diagram scrolls sideways rather than shrinking its labels too small to read. An export includes `source.mmd` and `diagram.svg`.
+
+Prints are static: pictures, charts and text, with no scripts, so they open straight away and can't reach the internet. A thread can make a "live" print with scripts when you ask for one.
+
 ## The librarian
 <!-- slug: librarian -->
 
