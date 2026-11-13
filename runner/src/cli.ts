@@ -833,6 +833,7 @@ function printSettings(s: Settings): void {
   console.log(`Bullet replies   ${s.bulletReplies === false ? 'off' : 'on'}`);
   console.log(`One reply        ${s.oneReply ? 'on' : 'off'}`);
   console.log(`Lab review       ${s.labReview === false ? 'off' : 'on'}`);
+  if (s.printsWhenAsked !== undefined) console.log(`Prints if asked  ${s.printsWhenAsked ? 'on' : 'off'}`);
   if (s.keepAwake !== undefined) console.log(`Keep Mac awake   ${s.keepAwake ? 'on' : 'off'}`);
   if (s.fullSync !== undefined) console.log(`Full sync        ${s.fullSync ? 'on' : 'off'}`);
   printModels(s);

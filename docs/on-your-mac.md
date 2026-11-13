@@ -134,7 +134,11 @@ File references are where to look.
   sent anywhere; the Mac app's `ActivityRecorder.swift` and the GPUI
   app's `desktop/gpui/src/activity.rs` write the same files), and
   with the standing instructions experiment on, `instructions.md`, which every
-  agent is given, and `instructions.sig`, which says Settings saved it). In `secrets/`, `asked/` holds the answers you
+  agent is given, and `instructions.sig`, which says Settings saved it, and
+  with the Prints experiment on, `pages/`, the prints agents make for you:
+  `index.json` and the last 10 versions of each page's files, kept on this
+  Mac (diagrams include `source.mmd` and `diagram.svg`, rendered offline with the bundled Pele library); one you choose to Publish has its page sent to your Convex backend,
+  where anyone with its link can open it, until you unpublish or delete it). In `secrets/`, `asked/` holds the answers you
   type into an agent's secret card, one owner-only file each with a small
   script beside it that prints it for `sudo -A`, removed after 24 hours,
   and `secret-box.key` is the key your phone seals those answers to;

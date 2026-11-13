@@ -4467,3 +4467,13 @@ Fixes from Codex's review of the slice before:
 - Remaining: the rest of the daily driver.
 - Verification: `TB_APP=swift cucumber-js` on Tinker Desk, 24 of 24 scenarios;
   `TB_APP=gpui cucumber-js` on `cloud` under Xvfb, 17 of 24 at this point.
+
+## Prints, awaiting a shared spec run
+
+The runner, backend and website have Prints (the `pages` experiment); neither desktop app draws them yet. Every scenario in `features/prints.feature` is `@manual @gpui-pending`: it says what the GPUI app should do once it shows Prints, and the runner side each needs is covered by `runner/test/unit/pages.test.ts`, `page-list.test.ts` and `page-diagram.test.ts`.
+
+- `prints.whenasked`: the switch, and the approval card the runner puts up before an unasked Print.
+- `prints.todo`: ticking a todo list and moving a board's card, through `pages.toggleItem` and `pages.moveCard`.
+- `prints.list`: Prints in Highlights and a rail list, with their projects.
+- `prints.pane`: a Print card's Open goes to the side pane, which follows new versions.
+- `prints.diagram`: editing a diagram's source, an invalid edit keeping the old version, and moving it between projects.

@@ -811,3 +811,26 @@ test('Stop hook: a notice handed over with "Now write your reply" does not undo 
   assert.equal((await stop({ hook_event_name: 'Stop', stop_hook_active: false })).reason, ONE_REPLY_END_TURN_NUDGE);
   state.close!();
 });
+
+// Wayne, 11 Nov: in Ask mode every new version of a Print asked again.
+test('update_print asks once per Print: once allowed, later updates to that Print go through', async () => {
+  let answer: ToolApprovalAnswer = { decision: 'allow' };
+  const { state, approvals } = start([], { permissionMode: 'ask' }, { neverAsk: NEVER_ASK_TOOLS, alwaysAsk: ALWAYS_ASK_TOOLS }, async () => answer);
+  let n = 0;
+  const call = (name: string, input: Record<string, unknown>) => state.options.canUseTool(`mcp__threadbear__${name}`, input, { signal: new AbortController().signal, toolUseID: `toolu_${++n}`, agentID: 'a' });
+  answer = { decision: 'deny' };
+  assert.equal((await call('update_print', { id: 'pg_a', html: 'x' })).behavior, 'deny');
+  assert.equal(approvals.length, 1);
+  assert.equal((await call('update_print', { id: 'pg_a', html: 'x' })).behavior, 'deny', 'a no is not remembered as a yes');
+  assert.equal(approvals.length, 2);
+  answer = { decision: 'allow' };
+  assert.equal((await call('update_print', { id: 'pg_a', html: 'v2' })).behavior, 'allow');
+  assert.equal(approvals.length, 3);
+  assert.equal((await call('update_print', { id: 'pg_a', html: 'v3' })).behavior, 'allow');
+  assert.equal((await call('update_page', { id: 'pg_a', markdown: 'v4' })).behavior, 'allow', 'the old name too');
+  assert.equal(approvals.length, 3, 'no more cards for pg_a');
+  await call('update_print', { id: 'pg_b', html: 'x' });
+  await call('delete_print', { id: 'pg_a' });
+  assert.equal(approvals.length, 5, 'another Print, and other tools on this one, still ask');
+  state.close!();
+});
