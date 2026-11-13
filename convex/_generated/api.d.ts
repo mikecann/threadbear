@@ -10,6 +10,7 @@
 
 import type * as crons from "../crons.js";
 import type * as devices from "../devices.js";
+import type * as hookHttp from "../hookHttp.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
 import type * as moves from "../moves.js";
@@ -29,6 +30,7 @@ import type * as sync from "../sync.js";
 import type * as tokens from "../tokens.js";
 import type * as version from "../version.js";
 import type * as wakes from "../wakes.js";
+import type * as webhooks from "../webhooks.js";
 
 import type {
   ApiFromModules,
@@ -39,6 +41,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   devices: typeof devices;
+  hookHttp: typeof hookHttp;
   http: typeof http;
   lib: typeof lib;
   moves: typeof moves;
@@ -58,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   tokens: typeof tokens;
   version: typeof version;
   wakes: typeof wakes;
+  webhooks: typeof webhooks;
 }>;
 
 /**

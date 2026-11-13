@@ -1058,4 +1058,40 @@ export default defineSchema({
     nonce: v.string(),
     createdAt: v.number(),
   }).index('by_nonce', ['nonce']),
+
+  // Webhooks (webhooks.ts, experiment webhooks): a secret /hook/<key> URL
+  // that starts a thread in a folder or messages one. Only the key's hash
+  // is kept; the key is shown once.
+  webhooks: defineTable({
+    hash: v.string(),
+    name: v.string(),
+    runnerId: v.string(),
+    target: v.union(
+      v.object({ kind: v.literal('thread'), threadId: v.string() }),
+      v.object({ kind: v.literal('folder'), cwd: v.string(), permissionMode: v.union(v.literal('ask'), v.literal('auto')) }),
+    ),
+    batchSeconds: v.number(), // deliveries this close together become one run
+    createdAt: v.number(),
+    expiresAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+    flushAt: v.optional(v.number()), // when the waiting batch goes
+  }).index('by_hash', ['hash']),
+  // One row a delivery, for the limits, dedupe and the batch. The payload
+  // is kept only while it waits for its batch.
+  webhookCalls: defineTable({
+    hookId: v.id('webhooks'),
+    at: v.number(),
+    state: v.union(v.literal('waiting'), v.literal('sent'), v.literal('dropped')),
+    payload: v.optional(v.string()),
+    contentType: v.optional(v.string()),
+    dedupe: v.optional(v.string()), // Idempotency-Key or X-GitHub-Delivery
+  })
+    .index('by_hook_at', ['hookId', 'at'])
+    .index('by_hook_state', ['hookId', 'state'])
+    .index('by_hook_dedupe', ['hookId', 'dedupe'])
+    .index('by_at', ['at']),
+  webhookFails: defineTable({ ip: v.string(), at: v.number() })
+    .index('by_ip_at', ['ip', 'at'])
+    .index('by_at', ['at']),
 });

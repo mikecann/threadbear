@@ -53,14 +53,38 @@ export const newThreadsPart = {
   }): { thread: ThreadSummary; turnId: string } {
     if (!params.text && !params.images?.length) throw new RpcError(ErrorCode.badParams, 'text or images required');
     checkImages(params.images ?? []);
-    const projectIds = params.projectIds ?? [];
+    const projectIds = [...(params.projectIds ?? [])];
     if (projectIds.length) {
       const projects = this.projects;
       if (!projects) throw new RpcError(ErrorCode.badParams, 'projects are not available on this runner');
       // Every one checked before the thread exists: a bad id makes nothing.
       for (const p of projectIds) projects.get(p);
     }
-    const { st, notes } = this.makeThread(params);
+    // A bear's folder (bears.ts): its model, effort, pool and mode where
+    // the caller didn't say, and the projects its threads join. Unattended
+    // starts (a schedule, a webhook, a mention) get Ask unless the user raised it.
+    const folder = path.resolve(expandHome(params.cwd?.trim() ? params.cwd.trim() : this.cfg.defaults.cwd));
+    const bear = this.bearDefaults?.(folder, params.origin === 'schedule' || Boolean(params.startedBy));
+    const made = bear
+      ? {
+          ...params,
+          model: params.model || bear.model,
+          effort: params.effort ?? bear.effort,
+          poolId: params.poolId ?? (params.accountId ? undefined : bear.poolId),
+          permissionMode: params.permissionMode ?? bear.permissionMode,
+          keepPick: true as const,
+        }
+      : params;
+    for (const p of bear?.projectIds ?? []) {
+      if (projectIds.includes(p)) continue;
+      try {
+        this.projects?.get(p);
+        projectIds.push(p);
+      } catch {
+        /* a project that's gone since is skipped */
+      }
+    }
+    const { st, notes } = this.makeThread(made);
     if (projectIds.length) this.projects!.changeMembership(st.rec.id, { add: projectIds, by: 'mike' });
     const sameWork = params.text?.trim() && experimentOn(this.cfg.home, 'sameWork') ? this.findSameWork(st, params.text) : undefined;
     if (sameWork) notes.push(sameWork);
@@ -226,6 +250,8 @@ export const newThreadsPart = {
     startedBy?: ThreadStartedBy;
     confined?: boolean;
     unconfine?: boolean;
+    // A bear's defaults filled it in: not what the user picked last.
+    keepPick?: true;
   }): { st: ThreadState; notes: string[] } {
     this.checkAccepting();
     // New threads belong on the new release.
@@ -306,7 +332,7 @@ export const newThreadsPart = {
     this.threads.set(id, st);
     // What Mike picked last is what the next thread starts on, so a
     // schedule's own login or pool (a 9:00 standup's) doesn't move it.
-    if (params.origin === 'schedule') {
+    if (params.origin === 'schedule' || params.keepPick) {
       /* keep the last pick */
     } else if (!poolId) this.rememberAccount(accountId);
     else if (params.poolId !== undefined) this.rememberPool(poolId);

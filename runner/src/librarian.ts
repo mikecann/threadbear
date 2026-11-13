@@ -167,6 +167,8 @@ type Answer = {
   wake?: unknown;
   met?: unknown;
   pocket?: unknown;
+  // Bear notes (experiment bearNotes): at most one, from a bear it was shown.
+  bearNote?: unknown;
   why?: unknown;
   // From the second opinion on a pick (CHECK_SYSTEM).
   belongs?: unknown;
@@ -181,6 +183,10 @@ export class Librarian {
   private projects: Projects;
   // The conditions each look was shown (prompt), for its met (apply).
   private shownWaiters = new Map<string, { threadId: string; title: string; until: string }[]>();
+  // Bear notes (experiment bearNotes, bears.ts): the bears that may leave a
+  // note on a thread, set in main.ts while it's on. [] for none.
+  bearNotes?: (cwd: string) => NoteBear[];
+  private shownBears = new Map<string, NoteBear[]>();
   // The topics each look was shown, for its wake (apply): an answer counts
   // only for the wait it judged, not one set since while the model ran
   // (Codex's review, 13 Nov 2026).
@@ -696,7 +702,9 @@ export class Librarian {
   }
 
   private prompt(rec: ThreadRecord, job: LibrarianJob, cards?: PocketCardSummary[]): string {
-    const list = this.projects.list();
+    // A table (tables.ts) only for a thread already at it: the librarian
+    // keeps its state, never files a stray thread into it.
+    const list = this.projects.list().filter((p) => !p.table || rec.projects?.some((m) => m.id === p.id));
     const lines: string[] = [];
     lines.push('Projects:');
     if (!list.length) lines.push('(none yet)');
@@ -739,6 +747,11 @@ export class Librarian {
       lines.push('', 'Hibernating threads waiting until this thread has done something:');
       for (const w of waiters) lines.push(`- ${w.threadId.slice(0, 8)} "${w.title}": until ${w.until}`);
     }
+    // Bear notes: never on a thread waiting on the user, where it would
+    // only get in the way, nor in a bear's own folder (bearNotes says).
+    const noteBears = rec.needs?.needs === 'you' ? [] : (this.bearNotes?.(rec.cwd) ?? []);
+    this.shownBears.set(rec.id, noteBears);
+    if (noteBears.length) lines.push('', ...bearNoteLines(noteBears));
     if (cards) {
       lines.push('', ...pocketPromptLines(rec.id, cards));
     } else {
@@ -757,7 +770,7 @@ export class Librarian {
   // `seen` is the prompt the look was given: a link must be in it, so the
   // model can't make one up. `title` is the thread's title it was given.
   private apply(job: LibrarianJob, rec: ThreadRecord, a: Answer, seen = '', title = rec.title): void {
-    const live = new Map(this.projects.list().map((p) => [p.id, p]));
+    const live = new Map(this.projects.list().filter((p) => !p.table || rec.projects?.some((m) => m.id === p.id)).map((p) => [p.id, p]));
     // A thread its agent or Mike filed is theirs to file: the look only
     // keeps its line and the state of the projects it's in.
     const self = selfFiled(rec);
@@ -926,7 +939,11 @@ export class Librarian {
       }
     }
     // Not a change to any project, so not in what the look says it did.
-    if (typeof a.thread === 'string' && a.thread.trim()) this.host.setBrief?.(rec.id, a.thread);
+    if (typeof a.thread === 'string' && a.thread.trim()) {
+      const note = pickBearNote(a.bearNote, this.shownBears.get(rec.id) ?? []);
+      if (note) this.log.info('a bear left a note', { threadId: rec.id, bear: note.bear.id, kind: note.kind });
+      this.host.setBrief?.(rec.id, note ? `${a.thread.trimEnd()}\n- ${note.bear.name}${note.kind === 'idea' ? ' has an idea' : ''}: ${note.text}` : a.thread);
+    }
     // Nor are its search words. Only a look that gave some replaces them.
     if (typeof a.keywords === 'string' && a.keywords.trim()) this.host.setKeywords?.(rec.id, a.keywords);
     // A thread that has moved on from its title gets a new one. Not from
@@ -1579,6 +1596,33 @@ const KEYWORDS_ASK = '8 to 15 lowercase words, space-separated, the user might t
 export const KEYWORDS_SYSTEM = `You help the user find old threads in Threadbear, an app where they run AI coding agents in threads. Their search matches a thread's title, its last reply and its search words. For each thread below, give its search words: ${KEYWORDS_ASK}.
 
 Reply with JSON only, no prose and no code fence: {"<the id in brackets>": "words"} for every thread.`;
+
+// A bear that may leave a note (bears.ts): its name, what it does, its
+// personality, and which kinds it leaves.
+export type NoteBear = { id: string; name: string; does?: string; personality?: string; notes: 'cheers' | 'ideas' | 'both' };
+export const BEAR_NOTE_MAX = 120;
+
+export function bearNoteLines(bears: NoteBear[]): string[] {
+  const kinds = (b: NoteBear) => (b.notes === 'both' ? 'a cheer or an idea' : b.notes === 'cheers' ? 'a cheer' : 'an idea');
+  return [
+    'Bears who may leave one short note on this thread:',
+    ...bears.map((b) => `- ${b.id} "${b.name}"${b.does ? `, ${b.does.slice(0, 100)}` : ''}${b.personality ? `; personality: ${b.personality.slice(0, 80)}` : ''}; may leave ${kinds(b)}`),
+    `Add "bearNote": null, or {"bear": "<id>", "kind": "cheer" or "idea", "text": "at most ${BEAR_NOTE_MAX} characters, in that bear's voice"}. Only when it's earned: a cheer when something real shipped or passed (tests, a deploy, a merge), an idea when there's one clear next step the thread didn't name. Usually null. Never instructions, never about the filing.`,
+  ];
+}
+
+// The note a look gave, if it's from a bear it was shown and of a kind
+// that bear leaves; one line, cut to BEAR_NOTE_MAX.
+export function pickBearNote(raw: unknown, shown: NoteBear[]): { bear: NoteBear; kind: 'cheer' | 'idea'; text: string } | undefined {
+  const n = raw as { bear?: unknown; kind?: unknown; text?: unknown } | null | undefined;
+  if (!n || typeof n !== 'object' || typeof n.bear !== 'string' || typeof n.text !== 'string') return undefined;
+  const bear = shown.find((b) => b.id === n.bear);
+  const kind = n.kind === 'cheer' || n.kind === 'idea' ? n.kind : undefined;
+  if (!bear || !kind) return undefined;
+  if ((kind === 'cheer' && bear.notes === 'ideas') || (kind === 'idea' && bear.notes === 'cheers')) return undefined;
+  const text = n.text.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, BEAR_NOTE_MAX);
+  return text ? { bear, kind, text } : undefined;
+}
 
 export const SYSTEM = `You are the librarian in Threadbear, an app where the user runs AI coding agents in threads. ${userLine()}You keep their projects: groupings above folders that carry goals, state and notes from thread to thread. A project is a body of work they'll come back to (an app, a library, a video, a house job, an ongoing chore), never a single task. One project can span several repos, and a thread can be in several projects.
 

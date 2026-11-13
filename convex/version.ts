@@ -370,4 +370,8 @@
 //    changed login, as the Mac does. Without it the page is as before, for
 //    apps built earlier. phone:thread, phone:search and share's page still
 //    leave them out.
-export const API_VERSION = 79;
+// 80: webhooks (experiment webhooks). POST /hook/<key> takes a delivery
+//    (webhooks:deliver, capped, limited, deduped, batched);
+//    webhooks:issueWebhook, listWebhooks and revokeWebhook take the owner
+//    key. A runner offers webhooks only from 80.
+export const API_VERSION = 80;

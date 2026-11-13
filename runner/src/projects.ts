@@ -68,6 +68,8 @@ export type CreateProjectParams = {
   parent?: string;
   by: ProjectMaker;
   byThread?: string;
+  // Makes it a table of bears (tables.ts).
+  table?: { bears: string[]; maxTurns?: number };
 };
 
 export type UpdateProjectParams = {
@@ -86,6 +88,8 @@ export type UpdateProjectParams = {
   // Who's changing the title, kept as titleBy. Absent counts as Mike, so a
   // name from somewhere unknown is never renamed by the librarian.
   by?: ProjectMaker;
+  // A table's bears and turn cap (tables.ts); null makes it a project again.
+  table?: { bears: string[]; maxTurns?: number } | null;
 };
 
 export type MembershipChange = {
@@ -305,6 +309,10 @@ export class Projects {
   // A part's block names its parent and gives the parent's goals (not its
   // state or notes, which are about the other parts too); a parent's names
   // its parts, so a thread knows they're there (Projects, "Parts").
+  // A table's bears by name, for its brief's Bears: line (set in main.ts
+  // while tables are on).
+  describeBears?: (ids: string[]) => string;
+
   private briefBlock(p: ProjectRecord, max: number): string {
     const parent = p.parentId ? this.items.get(p.parentId) : undefined;
     const parts = this.partsOf(p.id).filter((x) => !x.archived);
@@ -313,11 +321,12 @@ export class Projects {
       (parent ? `, a part of ${parent.title} (${parent.id})` : '') +
       (p.folders.length ? `\nFolders: ${p.folders.map((f) => this.tilde(f)).join(', ')}` : '');
     const partsLine = parts.length ? clip(`Parts: ${parts.map((x) => `${x.title} (${x.id})`).join(', ')}`, 300) : '';
+    const bearsLine = p.table && this.describeBears ? clip(`Bears: ${this.describeBears(p.table.bears) || 'none yet'}`, 300) : '';
     const room = Math.max(120, max - head.length - partsLine.length - 20);
     const parentGoals = parent?.goals ? clip(parent.goals, Math.floor(room / 4)) : '';
     const goals = clip(p.goals, Math.floor((room - parentGoals.length) / 2));
     const state = clip(p.state, room - parentGoals.length - goals.length);
-    return [head, parentGoals && `${parent!.title}'s goals: ${parentGoals}`, goals && `Goals: ${goals}`, state && `State: ${state}`, partsLine, this.tasksLine(p)]
+    return [head, parentGoals && `${parent!.title}'s goals: ${parentGoals}`, goals && `Goals: ${goals}`, state && `State: ${state}`, bearsLine, partsLine, this.tasksLine(p)]
       .filter(Boolean)
       .join('\n');
   }
@@ -377,6 +386,7 @@ export class Projects {
       updatedAt: now,
     };
     if (params.byThread) rec.createdByThread = params.byThread;
+    if (params.table) rec.table = params.table;
     if (rec.state) rec.stateUpdatedAt = now;
     const parentId = params.parent ? this.parentFor(undefined, params.parent) : undefined;
     if (parentId) rec.parentId = parentId;
@@ -413,6 +423,10 @@ export class Projects {
       const parentId = this.parentFor(rec, params.parent);
       if (parentId) next.parentId = parentId;
       else delete next.parentId;
+    }
+    if (params.table !== undefined) {
+      if (params.table) next.table = params.table;
+      else delete next.table;
     }
     const now = this.iso();
     if (params.state !== undefined && next.state !== rec.state) next.stateUpdatedAt = now;

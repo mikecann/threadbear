@@ -302,6 +302,9 @@ export type ThreadSummary = {
   // Moving to another runner (docs/protocol.md, "Moving a thread to another
   // runner"): while it goes, and for a minute after it fails, with why.
   moving?: { moveId: string; to: string; toName: string; state: string; note?: string };
+  // The bear whose folder it's in (docs/protocol.md, "Bears"), for the
+  // sidebar's tile. Only while the bears experiment is on.
+  bear?: { id: string; name: string; icon?: string; color?: string; head?: boolean };
   sample?: true; // one of the tour's sample threads (threads.samples): made up, never sent to
   // What's still open on the done card of its last turn (experiment
   // looseEnds; docs/protocol.md, "Loose ends"): seq is that card's
@@ -401,6 +404,10 @@ export type Project = {
   // The project it's a part of (docs/protocol.md, Projects, "Parts"). One
   // level: a part has no parts.
   parentId?: string;
+  // A table of bears (tables.ts, experiment tables): the bears at it and
+  // how many bear replies each of the user's messages allows. Never sent to
+  // the Convex mirror (sync.ts toProjectDoc), so phones see a project.
+  table?: { bears: string[]; maxTurns?: number };
   threadCount: number;
   lastActivityAt?: string;
 };
