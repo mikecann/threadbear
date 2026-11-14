@@ -15,7 +15,7 @@ use crate::open_gate::Origin;
 use crate::style::{self, px};
 use crate::{call, now_ms};
 use gpui_kit::component::input::{InputEvent, TextareaState};
-use gpui_kit::component::spinner::Spinner;
+use crate::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;

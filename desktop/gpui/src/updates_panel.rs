@@ -428,7 +428,7 @@ impl Threadbear {
         let line = h_flex()
             .gap(px(7.))
             .items_center()
-            .when(side.building && side.staged.is_none(), |s| s.child(div().size(px(11.)).child(gpui_kit::component::spinner::Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(secondary).with_size(px(11.)))))
+            .when(side.building && side.staged.is_none(), |s| s.child(div().size(px(11.)).child(crate::spinner::Spinner::new().icon(gpui_kit::assets::IconName::LoaderCircle).color(secondary).with_size(px(11.)))))
             .child(div().whitespace_nowrap().text_size(px(12.)).text_color(style::label_text(cx)).child(rules::popover_line(&side)));
         let button = match &staged {
             // Return takes it, as the popover is there for this.

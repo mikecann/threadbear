@@ -16,7 +16,7 @@ use crate::sidebar::{icon, palette, tipped, Palette, CORNER, LEADING, OUTER_INSE
 use crate::{now_ms, style};
 // `tipped!` (sidebar.rs) needs TestSupportExt where it's used.
 use gpui_kit::base::TestSupportExt as _;
-use gpui_kit::component::spinner::Spinner;
+use crate::spinner::Spinner;
 use gpui_kit::component::{h_flex, v_flex, Sizable as _, StyledExt as _};
 use gpui_kit::prelude::*;
 use gpui_kit::*;

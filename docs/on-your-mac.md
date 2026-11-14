@@ -379,6 +379,16 @@ File references are where to look.
   `$TMPDIR/threadbear-handover-<pid>`, deleted once it's over. It writes what it did and the build's output to
   `~/Library/Logs/threadbear-desktop-update.log` (the one before it in
   `.log.1` once that passes 2 MB). `followMain: false` stops it too.
+- **Idle benchmarks** (`features/tools/idle-perf.ts`), only when run explicitly:
+  compile CPU counters, a window watcher and (for Swift references) an
+  owned-PID activation helper into a temporary folder, removed at the end.
+  A Swift reference checks its private executable path and build UUID before
+  measurement and can activate that existing private app; it never launches
+  the installed app. Every 250 ms during a sample, the watcher reads the foreground
+  process, window bounds and stacking order, display sleep and console-session
+  state. It rejects covered or inactive samples without sending Accessibility
+  or automation requests to the app. Closing the benchmark's owner pipe stops
+  the watcher. These helpers never run as part of the installed app.
 - **Following GitHub on a second machine** (`runner/src/follow-origin.ts`):
   only with `followOrigin: true` in that machine's `runner.json`, which
   nothing sets for you. Every 5 minutes the runner runs `git fetch origin

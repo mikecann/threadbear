@@ -299,7 +299,7 @@ impl Composer {
                 row = row.child(div().ml(px(-7.)).child(self.render_runs_on_chip(cx)));
                 row = match problem {
                     Some(problem) => row.child(div().id("runner-problem").text_size(px(size::CHIP)).text_color(style::secondary_text(cx)).child(format!("Can't reach {}", away.name)).tip(problem.clone())),
-                    None => row.child(div().id("runner-waiting").child(gpui_kit::component::spinner::Spinner::new().color(style::quiet_text(cx)).with_size(px(14.))).tip(format!("Connecting to {}", away.name))),
+                    None => row.child(div().id("runner-waiting").child(crate::spinner::Spinner::new().color(style::quiet_text(cx)).with_size(px(14.))).tip(format!("Connecting to {}", away.name))),
                 };
                 return row.child(div().flex_1()).child(send_button).into_any_element();
             }
@@ -624,7 +624,7 @@ impl RenderOnce for ChipTrigger {
         // its own tip, as the Swift PlusButton does.
         let tip: SharedString = if busy && matches!(self.kind, TriggerKind::Chip) { "Moving this thread".into() } else { tip };
         let base = div().id(self.id).flex().items_center().when(!busy, |d| d.cursor_pointer()).test_support().role(Role::Button).aria_label(label).tip(tip.clone());
-        let spinner = |side: f32| gpui_kit::component::spinner::Spinner::new().color(style::secondary_text(cx)).with_size(px(side));
+        let spinner = |side: f32| crate::spinner::Spinner::new().color(style::secondary_text(cx)).with_size(px(side));
         match self.kind {
             TriggerKind::Plus => base
                 .justify_center()

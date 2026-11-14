@@ -91,6 +91,13 @@ jobs:
         run: bash desktop/scripts/test-native-text.sh
       - name: File-drop regression tests
         run: cargo test --locked --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation --test file_drop
+      - name: Loader repaint and lifetime regressions
+        run: |
+          cargo test --locked --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation --bin threadbear-gpui spinner:: -- --list > loader-tests.txt
+          cat loader-tests.txt
+          count=$(awk '/^spinner::.*: test$/ { n++ } END { print n+0 }' loader-tests.txt)
+          test "$count" -ge 9
+          cargo test --locked --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation --bin threadbear-gpui spinner::
       - name: Behaviour specs
         run: |
           cargo build --manifest-path desktop/Cargo.toml -p threadbear-gpui --features automation

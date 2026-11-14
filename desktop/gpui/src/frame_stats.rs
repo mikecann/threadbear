@@ -126,6 +126,7 @@ pub(crate) fn report(window: &Window, reset: bool) -> Value {
     });
     let cpu = thread_cpu_nanos();
     let mut out = out;
+    out["windowActive"] = json!(window.is_window_active());
     out["mainCpuMs"] = json!(ms(cpu.saturating_sub(CPU_BASELINE.with(|c| c.get()))));
     if reset {
         BASELINE.with(|b| *b.borrow_mut() = Some(now));

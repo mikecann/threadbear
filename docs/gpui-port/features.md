@@ -45,7 +45,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `foundation.dialogs` | Confirm dialogs | Delete, going back with jobs running, odd link schemes | gpui-kit dialog. | kit | S | 7 files |
 | `foundation.filepicker` | Native file pickers | Attach, folder choose, project icon | GPUI path prompts. | kit | S | 6 files, `ProjectFilePicker` |
 | `foundation.opengate` | Open gate | The one route to open links and files, with trust rules | Port the trust rules, then per-OS open and default-app lookup on macOS, Windows and Linux, and re-prove the security checks on each. | shim | M | `OpenGate`, `LinkPolicy` |
-| `foundation.spinner` | Spinner | Turning arc run by the render server | GPUI `Animation` on an arc, which stops if the foreground thread stalls because GPUI has no render-server equivalent. | build | S | `Spinner` |
+| `foundation.spinner` | Spinner | Turning arc run by the render server | Kit-style loaders share the display link and stay static under Reduce Motion. Working arcs keep their window layer and timer. GPUI still draws them on the main thread. | build | S | `Spinner` |
 | `foundation.busy` | Busy and optimistic pattern | Every click shows at once, double click blocked | Shared busy-key helper on entities, with a rule check like `EveryClickShowsTests`. | build | S | `AppModel+Busy`, `BusyControl` |
 | `foundation.firstclick` | First click counts | Clicks work with the app in the background | macOS: GPUI's window accepts the first mouse, and so do the web panels' pages (real clicks on Tinker Desk, `features/tools/first-click.ts`, 13 Nov); confirm the same on Windows and Linux. | shim | S | `FirstClick` |
 | `foundation.scrollers` | Overlay scrollers | Always overlay, so the reading column stays centred | Draw our own overlay scrollbar over the list (unverified whether stock scrollbars can stay overlay; Ghostex's fork added scrollbar control). | build | S | `Spinner` (`OverlayScrollView`) |
@@ -140,7 +140,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `toast.milestone` | Milestone toast | Thread count passes 100 and each thousand | `Toast`, using time since the last in-app input in place of the system idle time. | kit | S | `DetailView`, `AppModel+Milestones` |
 | `thread.newpage` | New-thread page | Centred composer, heading, project chip, note, room card | Drawn page reusing the composer. | build | M | `DetailView` (`ComposerPlacement`, `NewThreadHeading`, `AccountRoomCard`) |
 | `thread.loadfailure` | Load failure states | Couldn't load, Try again, no record, Nothing yet | Drawn. | build | S | `DetailView` |
-| `thread.loading` | Reading a thread | A small spinner in the middle of the transcript, no words, until its rows are read | Kit spinner over the list while the pane isn't loaded. | build | S | `DetailView` |
+| `thread.loading` | Reading a thread | A small spinner in the middle of the transcript, no words, until its rows are read | Loader over the list while the pane isn't loaded, on the shared loading-spinner clock. | build | S | `DetailView` |
 | `thread.kept` | Threads kept loaded | The last 24 threads opened stay loaded, so switching back shows one at once and catches up from its last seq | `PaneCache` of panes, still subscribed; least recently shown goes first. | build | M | `AppModel+Selection` (`sessions`, `maxSessions`) |
 
 ## 5. Transcript row kinds

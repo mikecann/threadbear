@@ -553,7 +553,7 @@ impl ThreadPane {
 
     pub(crate) fn spinner(&self, side: f32, cx: &App) -> impl IntoElement {
         let color = style::quiet_text(cx);
-        gpui_kit::component::spinner::Spinner::new().with_size(gpui_kit::component::Size::Size(px(side))).color(color)
+        crate::spinner::Spinner::new().with_size(px(side)).color(color)
     }
 
     /// The reading column's text style, one per appearance (see `reading_style`).
