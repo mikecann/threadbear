@@ -5098,9 +5098,7 @@ own bears.
 Claude Code's; a Codex thread set to it runs as Ask, so `tb bears access
 --auto` on a Codex bear says so rather than refusing. Codex's built-in
 `image_gen` writes into `~/.codex/generated_images` with no approval
-request, in any mode (SECURITY.md). Known issue: a Codex bear in Ask that
-called `pin` raised an approval (`approval.requested`) that no card showed
-in the Mac app, and it expired when the turn ended. Not yet explained.
+request, in any mode (SECURITY.md).
 
 A thread's connection (A thread's own key) may call the reads and
 `create`, `update`, `pin`, `move`, `hibernate`, `setProjects` and
