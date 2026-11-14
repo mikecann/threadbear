@@ -991,7 +991,31 @@ enum Automation {
                 try? await Task.sleep(for: .milliseconds(300))
                 return "ok editor ends \(String(controller.textView.string.suffix(40)).debugDescription), file ends \(((try? String(contentsOf: controller.url, encoding: .utf8)) ?? "").suffix(40).debugDescription)"
             } else if let path = c["path"] as? String {
+                // "search": a folder opened with that already typed in its
+                // search (FolderSearchView), as a text field can't be clicked here.
+                if let query = c["search"] as? String { FolderSearchMemory.queries["\(thread.id) \(path)"] = query }
                 app.preview(path: path, in: thread)
+                if let line = c["hit"] as? Int, let query = c["search"] as? String, let current = app.panePreview[thread.id] {
+                    // "hit": then a click on that line's result in that file ("file").
+                    let file = (c["file"] as? String).map { ($0 as NSString).isAbsolutePath ? $0 : (path as NSString).appendingPathComponent($0) } ?? path
+                    app.openSearchHit(FolderSearch.Hit(path: file, line: line, text: ""), query: query, showing: current, in: thread)
+                }
+            } else if let find = c["find"] as? Bool, find {
+                // The bar's magnifying glass over the open file.
+                guard let file = app.panePreview[thread.id]?.fileURL,
+                      let controller = TextFileController.showing(path: file.path, threadId: thread.id) else { return "error no text file is open in the pane" }
+                controller.showFind()
+                try? await Task.sleep(for: .milliseconds(300))
+                return "ok find bar \(controller.scroll.isFindBarVisible ? "showing" : "hidden"), replace \(controller.textView.isEditable ? "on" : "off")"
+            } else if c["place"] as? Bool == true {
+                guard let file = app.panePreview[thread.id]?.fileURL,
+                      let controller = TextFileController.showing(path: file.path, threadId: thread.id) else { return "error no text file is open in the pane" }
+                if let y = c["scrollTo"] as? Double {
+                    controller.scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+                    controller.scroll.reflectScrolledClipView(controller.scroll.contentView)
+                }
+                let sel = controller.textView.selectedRange()
+                return "ok scrolled to \(Int(controller.scroll.contentView.bounds.origin.y)), selected \((controller.textView.string as NSString).substring(with: sel).debugDescription)"
             } else if let text = c["url"] as? String, let url = URL(string: text) {
                 app.preview(page: url, title: HighlightText.address(url.absoluteString), in: thread)
             } else {

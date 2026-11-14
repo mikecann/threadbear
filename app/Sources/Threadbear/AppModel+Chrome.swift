@@ -161,10 +161,10 @@ extension AppModel {
         PanelChoice.section(panels: thread.panels, hasPatches: !thread.patches.isEmpty, remembered: panelChoice[thread.id])
     }
 
-    /// Shows a section's panel (the automation's `panel`), closing any
-    /// preview over another one.
+    /// Shows a section's panel (the automation's `panel`), putting aside a
+    /// preview over another one and bringing back this one's.
     func choosePanel(_ panelId: String, in threadId: String) {
-        if panePreview[threadId]?.from.id != panelId { panePreview[threadId] = nil }
+        bringPreview(for: PaneSection(id: panelId), in: threadId)
         panelChoice[threadId] = panelId
         showPane(PaneSection(id: panelId))
     }
@@ -172,7 +172,7 @@ extension AppModel {
     /// A rail button, VS Code's way: closes the section's panel if it's
     /// showing, else brings it up (WindowDock).
     func clickRail(_ section: PaneSection, in thread: ThreadSummary) {
-        if panePreview[thread.id].map({ $0.from != section }) ?? false { panePreview[thread.id] = nil }
+        bringPreview(for: section, in: thread.id)
         panelChoice[thread.id] = section.id
         if dock.isShowing(section.id) { dock.close(section.id) } else { showPane(section) }
     }
