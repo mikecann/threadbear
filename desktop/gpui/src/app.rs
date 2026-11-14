@@ -976,6 +976,13 @@ impl Threadbear {
                     if let Some(pane) = self.kept.get(id, cx) {
                         pane.update(cx, |p, cx| p.event(&params, cx));
                     }
+                    // Each pane draws its own events again, a few at a time
+                    // (its 33 ms flush), so the app isn't told: telling it
+                    // drew the sidebar, the main panel and the side pane
+                    // again for every word of a reply coming in, for any
+                    // thread kept loaded too. What else an event changes
+                    // (a title, its status) comes as `thread.updated`.
+                    return;
                 }
                 _ => {}
             },
