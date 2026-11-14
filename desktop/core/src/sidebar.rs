@@ -531,6 +531,7 @@ pub enum TrailingKind {
 
 /// What a row says at its right end (`ThreadRowView.trailing`). `kind` picks
 /// the style; `tip` is the tooltip when it has one.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Trailing {
     pub text: String,
     pub kind: TrailingKind,

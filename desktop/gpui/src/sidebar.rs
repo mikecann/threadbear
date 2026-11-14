@@ -25,6 +25,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use threadbear_core::inbox::{iso_time, InboxOrder, ThreadSummary};
+use threadbear_core::juice;
 use threadbear_core::sidebar::{self as rows, RowAction, RowLook, RowMode, Tile, TrailingKind};
 use crate::tips::Tip as _;
 
@@ -1604,7 +1605,7 @@ impl Threadbear {
             // project line ran on under them (Mike, 12 Nov). It's cut short
             // before them instead.
             .child(div().flex_1().min_w(px(if show_buttons { actions_room } else { 6. })))
-            .when(!show_buttons, |s| s.child(render_trailing(&trailing, id.clone(), p)));
+            .when(!show_buttons, |s| s.child(render_trailing(&trailing, id.clone(), p, cx.reduce_motion())));
 
         let actions = mode.actions();
         let is_sample = t.sample == Some(true);
@@ -1908,8 +1909,54 @@ fn render_tile(t: &ThreadSummary, look: &RowLook, behind: Hsla, project_icon: Op
         .when_some(mark, |s, m| s.child(m))
 }
 
-/// What the right of the second line says: a word or the time, with its look.
-fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyElement {
+thread_local! {
+    /// What each row's status said when last drawn, and the one before while
+    /// it's still fading out, by thread.
+    static STATUSES: std::cell::RefCell<HashMap<String, (rows::Trailing, Option<(rows::Trailing, std::time::Instant)>)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// A row's status words, changing with a short fade when the status does
+/// ("Working 41s" to "now"): the old words fade out as the new ones fade up
+/// from 3 pt above (juice::status_swap). The Swift app blurs them, which GPUI
+/// can't; Mike left the lighter take to us (14 Nov). The words changing
+/// within a status (the clock going on) don't fade, nor under Reduce Motion.
+fn render_trailing(trailing: &rows::Trailing, id: String, p: &Palette, reduce: bool) -> AnyElement {
+    let swapping = STATUSES.with(|m| {
+        let mut m = m.borrow_mut();
+        let entry = m.entry(id.clone()).or_insert_with(|| (trailing.clone(), None));
+        if entry.0.kind != trailing.kind && !reduce {
+            entry.1 = Some((entry.0.clone(), std::time::Instant::now()));
+        }
+        entry.0 = trailing.clone();
+        entry.1.clone().filter(|(_, at)| at.elapsed() < juice::STATUS_IN)
+    });
+    let words = trailing_words(trailing, id.clone(), p);
+    let Some((before, at)) = swapping else { return words };
+    let old = trailing_words(&before, format!("{id}-before"), p);
+    // Laid out as the words alone are: a working clock keeps its width, other
+    // words give way to the folder beside them.
+    let mut frame = div().relative();
+    if matches!(trailing.kind, TrailingKind::Working | TrailingKind::Background) {
+        frame = frame.flex_none();
+    } else {
+        frame = frame.min_w_0();
+        frame.style().flex_shrink = Some(20.);
+    }
+    let key = format!("{id}-{at:?}");
+    frame
+        .child(div().relative().child(words).with_animation(SharedString::from(format!("status-in-{key}")), Animation::new(juice::STATUS_IN), |el, t| {
+            let (shown, above, _) = juice::status_swap(juice::STATUS_IN.mul_f32(t));
+            el.opacity(shown).top(px(-above))
+        }))
+        .child(div().absolute().top_0().right_0().child(old).with_animation(SharedString::from(format!("status-out-{key}")), Animation::new(juice::STATUS_IN), |el, t| {
+            el.opacity(juice::status_swap(juice::STATUS_IN.mul_f32(t)).2)
+        }))
+        .into_any_element()
+}
+
+/// What the right of the second line says: a word or the time, with its look
+/// (`ThreadRowView.trailing`).
+fn trailing_words(trailing: &rows::Trailing, id: String, p: &Palette) -> AnyElement {
     let text = trailing.text.clone();
     let meta = px(style::size::SIDEBAR_META);
     let tip = trailing.tip.clone();
