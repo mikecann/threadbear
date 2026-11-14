@@ -15,9 +15,10 @@ use gpui_kit::*;
 // The zoom-aware px (style.rs), in place of GPUI's.
 use crate::style::px;
 use serde_json::json;
+use gpui_kit::component::WindowExt as _;
 use threadbear_core::composer::{effort_porridge, effort_title, ContextMeter};
 use threadbear_core::inbox::ThreadSummary;
-use threadbear_core::logins::{permission_help, permission_title, provider_title, ChipSettings, PickerRow, RunnerLogins};
+use threadbear_core::logins::{permission_help, permission_title, ChipSettings, PickerRow, RunnerLogins};
 use crate::tips::Tip as _;
 
 /// What a chip row needs to know, read when it's drawn.
@@ -251,10 +252,12 @@ impl Composer {
 
     /// Picks files for "+" > Attach images… (ComposerView.chooseImages).
     fn attach_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let paths = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Add".into()) });
+        let paths = crate::composer_media::choose_images(window, cx);
         cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = paths.await {
-                this.update_in(cx, |this, window, cx| this.take_paths(paths, window, cx)).ok();
+            match paths.await {
+                Ok(Some(paths)) => { this.update_in(cx, |this, window, cx| this.take_paths(paths, window, cx)).ok(); }
+                Ok(None) => {}
+                Err(error) => { this.update_in(cx, |_, window, cx| window.push_notification(error, cx)).ok(); }
             }
         })
         .detach();
@@ -406,7 +409,9 @@ impl Composer {
         let help = permission_help(&mode);
         let icon = permission_icon(&mode);
         let composer = composer.downgrade();
-        let provider = self.chip_data(cx).summary.map(|t| t.provider).unwrap_or_default();
+        let data = self.chip_data(cx);
+        let provider = data.summary.as_ref().map(|t| t.provider.as_str()).unwrap_or_default();
+        let has_auto = data.logins.has_auto_mode(provider);
         style::menu::popover(Popover::new("composer-permission"), cx)
             // Its chip's title may shrink to fit a narrow box.
             .trigger_style(StyleRefinement::default().min_w_0())
@@ -414,7 +419,7 @@ impl Composer {
             .trigger(ChipTrigger { busy: false, badge: None, id: "composer-permission-chip".into(), kind: TriggerKind::Chip, title: title.into(), icon: Some(if mode == "full" { crate::icons::symbol("lock.open") } else { Icon::from(icon) }), tip: help.into(), selected: false })
             .content(move |_, window, cx| {
                 let popover = cx.entity();
-                let modes: &[&str] = if threadbear_core::logins::has_auto_mode(&provider) || mode == "auto" { &["full", "auto", "ask", "plan"] } else { &["full", "ask", "plan"] };
+                let modes: &[&str] = if has_auto || mode == "auto" { &["full", "auto", "ask", "plan"] } else { &["full", "ask", "plan"] };
                 v_flex().w(gpui_kit::px(320.)).children(modes.iter().map(|m| {
                     let m = *m;
                     let (popover, composer) = (popover.clone(), composer.clone());
@@ -492,6 +497,7 @@ impl Composer {
         let provider = data.summary.as_ref().map(|t| t.provider.clone()).unwrap_or_default();
         let facts = std::rc::Rc::new(crate::composer_context::ContextFacts {
             thread: data.summary.as_ref().map(|t| t.id.clone()).unwrap_or_default(),
+            provider_name: data.logins.provider_title(&provider),
             provider,
             asks: data.away.is_none(),
             meter,
@@ -826,7 +832,7 @@ impl Render for ModelPickerView {
                     seen.push(a.provider_id().to_owned());
                 }
             }
-            seen.into_iter().map(|p| (p.clone(), provider_title(&p), None, vec![p])).collect()
+            seen.into_iter().map(|p| (p.clone(), data.logins.provider_title(&p), None, vec![p])).collect()
         };
         let query = self.search.read(cx).value().to_string();
         let Some((column, provider, rows)) = self.listed(&data, cx) else { return div().into_any_element() };
@@ -1285,7 +1291,7 @@ fn picker_lines_with(data: &ChipData, login: Option<(String, (String, Option<Str
             }
         }
         for provider in seen {
-            lines.push(format!("# {}", provider_title(&provider)));
+            lines.push(format!("# {}", data.logins.provider_title(&provider)));
             add_rows(settings.rows(&provider, ""), &mut lines);
         }
     }
@@ -1337,8 +1343,8 @@ pub(crate) fn model_chip_badge_text(data: &ChipData) -> Option<String> {
 
 /// The modes the permission menu offers, in its order.
 #[cfg(feature = "automation")]
-pub(crate) fn permission_modes(summary: &ThreadSummary) -> Vec<&'static str> {
-    if threadbear_core::logins::has_auto_mode(&summary.provider) || summary.permission_mode == "auto" {
+pub(crate) fn permission_modes(summary: &ThreadSummary, logins: &RunnerLogins) -> Vec<&'static str> {
+    if logins.has_auto_mode(&summary.provider) || summary.permission_mode == "auto" {
         vec!["full", "auto", "ask", "plan"]
     } else {
         vec!["full", "ask", "plan"]
@@ -1347,9 +1353,9 @@ pub(crate) fn permission_modes(summary: &ThreadSummary) -> Vec<&'static str> {
 
 /// The permission menu as text (Automation's describe(menu)).
 #[cfg(feature = "automation")]
-pub(crate) fn permission_lines(summary: &ThreadSummary) -> Vec<String> {
+pub(crate) fn permission_lines(summary: &ThreadSummary, logins: &RunnerLogins) -> Vec<String> {
     let current = if summary.permission_mode.is_empty() { "full" } else { summary.permission_mode.as_str() };
-    permission_modes(summary).into_iter().map(|m| format!("{}{} - {}", if m == current { "[x] " } else { "[ ] " }, permission_title(m), permission_help(m))).collect()
+    permission_modes(summary, logins).into_iter().map(|m| format!("{}{} - {}", if m == current { "[x] " } else { "[ ] " }, permission_title(m), permission_help(m))).collect()
 }
 
 /// Picks a model row or effort level by its title, as a click would

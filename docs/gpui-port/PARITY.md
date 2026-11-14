@@ -5027,3 +5027,30 @@ Fixes from Codex's review of the slice before:
   in window captures, without accepting system privacy prompts.
 - A physical trackpad force click has not been tried; its public pressure-stage
   hook is wired. Other systems omit the Mac services.
+
+### 2026-11-14 Final parity leftovers
+
+- The composer's + menu deliberately keeps folders in the same popover,
+  under Folder, rather than opening Swift's submenu. This follows menu
+  style C: the current folder and the other choices stay visible together.
+- Wait-line tips include the local start and end times and all finished
+  jobs. Sending and queued messages have Swift's tips, and review answers
+  begin with the review icon.
+- Attach images filters supported image types in the Mac's native sheet.
+  On Windows and Linux the kit cannot filter the dialog; nonimage selections
+  are rejected before they can become attachments.
+- Pick a time has a month calendar and a separate time field. A past time
+  leaves the dialog open with its warning inside it.
+- A selected sidebar row dims from 8% to 6% when its window is behind.
+  Increase Contrast reads the Mac's setting at launch and on return to the
+  front, using AppKit's effective accessibility appearance for text, borders
+  and kit controls, with stronger semantic colours for the other look. The scripted app can use `THREADBEAR_INCREASE_CONTRAST=on|off`
+  to compare them without changing the system setting.
+- Provider names, Auto behaviour, effort and rewind follow ProviderInfo
+  where supplied, with the existing rules for fields older runners omit.
+  The relay currently supplies accounts without ProviderInfo, so remote
+  threads use those fallbacks until the runner sends its capabilities.
+  Activity dates fall back through updatedAt and createdAt; seq and count
+  readers accept numeric strings. Unreadable event payloads log their shape
+  without including the payload's private text.
+- Status-word blur and the Activity badge's entrance remain undecided.

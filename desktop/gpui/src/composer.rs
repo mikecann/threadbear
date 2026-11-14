@@ -85,7 +85,7 @@ pub struct Composer {
     /// Which card was last seen arriving, for it to settle in (composer_card.rs).
     pub(crate) card_arrival: crate::composer_card::CardArrival,
     /// The card's text style, one per appearance (`card_reading_style`).
-    pub(crate) card_style: Option<((bool, u32), gpui_kit::base::TextViewStyle)>,
+    pub(crate) card_style: Option<(crate::style::ReadingStyleKey, gpui_kit::base::TextViewStyle)>,
     shown_placeholder: SharedString,
     /// The slash palette's own state (`PaletteState`), and the list this
     /// opening of it has asked for (the thread's, or a new thread's login

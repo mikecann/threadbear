@@ -373,12 +373,23 @@ impl ThreadPane {
         (self.loaded, self.subagent_missing, self.load_failed.clone(), self.feed.model().rows().len())
     }
 
+    pub(crate) fn can_rewind(&self, cx: &App) -> bool {
+        let fallback = || threadbear_core::composer::can_rewind(&self.summary.provider);
+        let Some(app) = self.app.upgrade() else { return fallback() };
+        let app = app.read(cx);
+        let logins = match self.summary.runner_id.as_deref() {
+            Some(runner) => app.remote.logins.get(runner),
+            None => Some(&app.logins),
+        };
+        logins.map_or_else(fallback, |l| l.can_rewind(&self.summary.provider))
+    }
+
     /// The pencil by one of Mike's messages (`editMessage`): its words and
     /// pictures go into the composer, and sending replaces it.
     pub(crate) fn edit_message(&mut self, row_id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(row) = self.feed.model().item(row_id).cloned() else { return };
         let RowContent::User(message) = &row.content else { return };
-        if !message.editable || !threadbear_core::composer::can_rewind(&self.summary.provider) {
+        if !message.editable || !self.can_rewind(cx) {
             return;
         }
         let (seq, text, images) = (row.seq, message.text.clone(), message.images.clone());

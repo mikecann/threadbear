@@ -125,10 +125,30 @@ impl RunnerDefaults {
     }
 }
 
+/// Fields the runner reports about a provider. Options preserve the older
+/// runner fallback independently for each missing or unreadable field.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProviderInfo {
+    #[serde(deserialize_with = "crate::wire::id")]
+    pub id: String,
+    #[serde(deserialize_with = "crate::wire::field")]
+    pub name: Option<String>,
+    #[serde(deserialize_with = "crate::wire::field")]
+    pub cli_name: Option<String>,
+    #[serde(deserialize_with = "crate::wire::field")]
+    pub effort: Option<String>,
+    #[serde(deserialize_with = "crate::wire::field")]
+    pub auto_mode: Option<String>,
+    #[serde(deserialize_with = "crate::wire::field")]
+    pub rewind: Option<bool>,
+}
+
 /// A runner's logins (RunnerLogins), filled from its `hello`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RunnerLogins {
     pub accounts: Vec<Account>,
+    pub providers: Vec<ProviderInfo>,
     pub pools: Vec<Pool>,
     pub defaults: RunnerDefaults,
     /// Sign-in commands declared by this runner, replaced on every hello.
@@ -145,7 +165,49 @@ impl RunnerLogins {
             let command = p["loginCommand"].as_str()?;
             Some((id.to_owned(), command.trim().to_owned()))
         }).collect();
-        RunnerLogins { accounts: accounts_from(&hello["accounts"]), pools: pools_from(&hello["pools"]), defaults: hello.get("defaults").cloned().and_then(crate::wire::read).unwrap_or_default(), login_commands }
+        RunnerLogins { accounts: accounts_from(&hello["accounts"]), providers: lossy(&hello["providers"]), pools: pools_from(&hello["pools"]), defaults: hello.get("defaults").cloned().and_then(crate::wire::read).unwrap_or_default(), login_commands }
+    }
+
+    pub fn provider(&self, id: &str) -> Option<&ProviderInfo> {
+        let id = if id.is_empty() { "claude" } else { id };
+        self.providers.iter().find(|p| p.id == id)
+    }
+
+    pub fn provider_title(&self, id: &str) -> String {
+        self.provider(id).and_then(|p| p.name.as_deref()).filter(|n| !n.trim().is_empty()).map_or_else(|| provider_title(id), str::to_owned)
+    }
+
+    pub fn cli_name(&self, id: &str) -> String {
+        self.provider(id).and_then(|p| p.cli_name.as_deref()).filter(|n| !n.trim().is_empty()).map_or_else(|| crate::slash::cli_name(id), str::to_owned)
+    }
+
+    pub fn has_auto_mode(&self, id: &str) -> bool {
+        match self.provider(id).and_then(|p| p.auto_mode.as_deref()) {
+            Some("classifier") => true,
+            Some("asks") => false,
+            _ => has_auto_mode(id),
+        }
+    }
+
+    pub fn can_rewind(&self, id: &str) -> bool {
+        self.provider(id).and_then(|p| p.rewind).unwrap_or_else(|| crate::composer::can_rewind(id))
+    }
+
+    pub fn effort_levels(&self, model: Option<&str>, choices: &[ModelChoice], provider: &str) -> Vec<String> {
+        // No effort support is authoritative, even if a cached model still
+        // lists levels. Otherwise the model can narrow the provider's list.
+        if self.provider(provider).and_then(|p| p.effort.as_deref()) == Some("none") {
+            return Vec::new();
+        }
+        if let Some(choice) = model.and_then(|m| choice_for(m, choices)).filter(|c| !c.effort_levels.is_empty()) {
+            return choice.effort_levels.clone();
+        }
+        match self.provider(provider).and_then(|p| p.effort.as_deref()) {
+            Some("none") => Vec::new(),
+            Some("claude") => EFFORT_LEVELS.iter().map(|s| s.to_string()).collect(),
+            Some("codex") => CODEX_EFFORT_LEVELS.iter().map(|s| s.to_string()).collect(),
+            _ => effort_levels(model, choices, provider),
+        }
     }
 
     /// `accounts.updated`: the logins, which replace the ones from `hello`.
@@ -468,7 +530,7 @@ impl<'a> ChipSettings<'a> {
     /// The modes the permission menu offers: Auto needs a provider with its
     /// own judge of each action, or a thread already on it.
     pub fn permission_modes(&self) -> Vec<&'static str> {
-        if has_auto_mode(&self.provider) || self.permission_mode == "auto" {
+        if self.logins.has_auto_mode(&self.provider) || self.permission_mode == "auto" {
             vec!["full", "auto", "ask", "plan"]
         } else {
             vec!["full", "ask", "plan"]
@@ -487,7 +549,7 @@ impl<'a> ChipSettings<'a> {
     }
 
     pub fn effort_levels(&self) -> Vec<String> {
-        effort_levels(self.effective_model().as_deref(), self.choices(), &self.provider)
+        self.logins.effort_levels(self.effective_model().as_deref(), self.choices(), &self.provider)
     }
 }
 

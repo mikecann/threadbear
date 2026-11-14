@@ -79,12 +79,14 @@ pub struct ThreadSummary {
     pub needs: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::optional_list")]
     pub asks: Option<Vec<OpenAsk>>,
-    #[serde(default, deserialize_with = "crate::wire::field")]
+    #[serde(default, deserialize_with = "crate::wire::optional_uint")]
     pub asks_seq: Option<u64>,
-    #[serde(default, deserialize_with = "crate::wire::field")]
+    #[serde(default, deserialize_with = "crate::wire::optional_uint")]
     pub pending_reviews: Option<u64>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub last_activity_at: String,
+    #[serde(default, deserialize_with = "crate::wire::field")]
+    pub updated_at: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub snoozed_until: Option<String>,
     #[serde(default, deserialize_with = "crate::wire::field")]
@@ -137,9 +139,9 @@ pub struct ThreadSummary {
     /// when its title and preview don't say it (`matches`).
     #[serde(default, deserialize_with = "crate::wire::field")]
     pub keywords: Option<String>,
-    #[serde(default, deserialize_with = "crate::wire::field")]
+    #[serde(default, deserialize_with = "crate::wire::uint")]
     pub last_seq: u64,
-    #[serde(default, deserialize_with = "crate::wire::field")]
+    #[serde(default, deserialize_with = "crate::wire::uint")]
     pub last_seen_seq: u64,
     /// The rail's panel buttons (`ThreadSummary.panels`) and Patches, as they
     /// came: the window shell draws a button for each. Kept as they came and
@@ -363,7 +365,7 @@ impl ThreadSummary {
         }
     }
     pub fn activity_ms(&self) -> i64 {
-        parse_ms(&self.last_activity_at).unwrap_or(0)
+        parse_ms(&self.last_activity_at).or_else(|| self.updated_at.as_deref().and_then(parse_ms)).or_else(|| self.created_at.as_deref().and_then(parse_ms)).unwrap_or(0)
     }
     pub fn archived_ms(&self) -> Option<i64> {
         self.archived_at.as_deref().and_then(parse_ms)

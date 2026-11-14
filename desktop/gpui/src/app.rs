@@ -314,6 +314,7 @@ impl Threadbear {
         crate::style::set_appearance(crate::style::Appearance::from_name(settings.saved.appearance.as_deref().unwrap_or("system")), window, cx);
         let appearance = window.observe_window_appearance(|window, cx| {
             crate::style::refresh_system_accent(cx);
+            crate::style::refresh_system_contrast(cx);
             if crate::style::appearance() == crate::style::Appearance::System {
                 Theme::sync_system_appearance(Some(window), cx);
             }
@@ -430,6 +431,7 @@ impl Threadbear {
         crate::thread::set_looking(crate::thread::window_key(window), window.is_window_active());
         let looking = cx.observe_window_activation(window, |this, window, cx| {
             this.milestone.active = window.is_window_active();
+            cx.notify();
             this.looking_changed(crate::thread::window_key(window), window.is_window_active(), cx);
         });
         // A pin an agent asked to show may only be in Highlights once they've
@@ -678,6 +680,8 @@ impl Threadbear {
         crate::thread::set_looking(window, active);
         if active {
             crate::style::refresh_system_accent(cx);
+            crate::style::refresh_system_contrast(cx);
+            crate::style::refresh_system_clock();
             // A script's explicit motion choice is independent of the test
             // host's setting, including when both happened to start equal.
             if !cfg!(feature = "automation") || !matches!(std::env::var("THREADBEAR_REDUCE_MOTION").as_deref(), Ok("on" | "off")) {
@@ -1572,6 +1576,8 @@ impl Threadbear {
         dump["flight"] = self.flight.dump();
         // Whether motion is reduced (automation.rs): no flights or glides then.
         dump["reduceMotion"] = json!(cx.reduce_motion());
+        dump["increaseContrast"] = json!(crate::style::increase_contrast(cx));
+        dump["sidebarSelectionAlpha"] = json!(crate::style::sidebar_selection(cx, self.milestone.active).a);
         // How the last thread opened, and from the new-thread page, how far
         // its box dropped (open_motion.rs).
         dump["opening"] = self.opening.last.as_ref().map_or(Value::Null, |(id, how)| {

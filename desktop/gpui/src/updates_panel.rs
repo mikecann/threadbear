@@ -62,7 +62,7 @@ impl Threadbear {
     /// has none, and `clis.list` tells which.
     pub(crate) fn updates_from_hello(&mut self, hello: &Value) {
         let panel = &mut self.updates_panel;
-        panel.clis = rules::decode_clis(&hello["clis"]);
+        panel.clis = rules::decode_clis_with(&hello["clis"], &self.logins);
         panel.clis_supported = if panel.clis.is_empty() { None } else { Some(true) };
         panel.runner = RunnerUpdates::decode(&hello["updates"]);
         panel.busy.clear();
@@ -79,7 +79,7 @@ impl Threadbear {
             this.update(cx, |t, cx| {
                 match res {
                     Ok(v) => {
-                        t.updates_panel.clis = rules::decode_clis(&v["clis"]);
+                        t.updates_panel.clis = rules::decode_clis_with(&v["clis"], &t.logins);
                         t.updates_panel.clis_supported = Some(true);
                     }
                     Err(e) if e.code == -32601 => {
@@ -97,7 +97,7 @@ impl Threadbear {
 
     /// `clis.updated`: the latest list wins.
     pub(crate) fn clis_updated(&mut self, params: &Value) {
-        self.updates_panel.clis = rules::decode_clis(&params["clis"]);
+        self.updates_panel.clis = rules::decode_clis_with(&params["clis"], &self.logins);
         self.updates_panel.clis_supported = Some(true);
     }
 
@@ -142,7 +142,7 @@ impl Threadbear {
                 t.updates_panel.busy.remove(&key);
                 match res {
                     Ok(v) => {
-                        t.updates_panel.clis = rules::decode_clis(&v["clis"]);
+                        t.updates_panel.clis = rules::decode_clis_with(&v["clis"], &t.logins);
                         t.updates_panel.clis_supported = Some(true);
                     }
                     Err(e) => {

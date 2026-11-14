@@ -73,7 +73,7 @@ fn summary(row: &Value) -> Option<ThreadSummary> {
     let text = |key: &str| row[key].as_str().unwrap_or("").to_owned();
     let unread = row["unread"].as_bool().unwrap_or(false);
     let created = row["createdAt"].as_str().and_then(parse_ms).unwrap_or(0);
-    let last_activity_at = row["lastActivityAt"].as_str().filter(|s| parse_ms(s).is_some()).map_or_else(|| iso_time(created), str::to_owned);
+    let last_activity_at = row["lastActivityAt"].as_str().filter(|s| parse_ms(s).is_some()).or_else(|| row["updatedAt"].as_str().filter(|s| parse_ms(s).is_some())).map_or_else(|| iso_time(created), str::to_owned);
     let snoozed_until = row["snoozedUntil"].as_str().filter(|s| parse_ms(s).is_some()).map(str::to_owned);
     // Hibernating until that runner restarts is kept as a date in the year 9999.
     let until_restart = snoozed_until.as_deref().and_then(parse_ms).is_some_and(|t| t > 200_000_000_000_000);

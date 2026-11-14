@@ -2076,6 +2076,10 @@ unless you pick one for it alone: Settings (⌘,) > General > Appearance has
 Same as the Mac, Light and Dark. It changes straight away and stays picked
 the next time the app opens.
 
+On Mac, Increase Contrast in System Settings > Accessibility > Display
+also strengthens text and borders. It is read at launch and when you return
+to Threadbear.
+
 ### A ding when a thread is done
 
 To hear when a thread finishes, turn on Play a sound when a thread

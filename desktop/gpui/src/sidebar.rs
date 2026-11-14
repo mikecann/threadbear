@@ -1047,33 +1047,46 @@ impl Threadbear {
     /// "Pick a time…": a calendar and a time, and a word if it's already
     /// gone (`SnoozePicker`).
     pub(crate) fn open_pick_time(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
-        use gpui_kit::component::date_picker::{DatePicker, DatePickerState};
-        use gpui_kit::component::time_field::TimePrecision;
+        style::refresh_system_clock();
+        use gpui_kit::component::calendar::{Calendar, CalendarState, Matcher};
+        use gpui_kit::component::time_field::{HourCycle, TimeField, TimeFieldState, TimePrecision};
         use threadbear_core::chrono::{Duration as ChronoDuration, Local, NaiveDateTime, TimeZone as _};
         let entity = cx.entity().downgrade();
         let start: NaiveDateTime = (Local::now() + ChronoDuration::hours(3)).naive_local();
-        let picker = cx.new(|cx| {
-            let mut state = DatePickerState::new(window, cx).time_precision(TimePrecision::Minute);
-            state.set_date_time(start, window, cx);
+        let calendar = cx.new(|cx| {
+            let mut state = CalendarState::new(window, cx).disabled_matcher(Matcher::interval(Some(Local::now().date_naive()), None));
+            state.set_date(start.date(), window, cx);
             state
         });
-        window.open_alert_dialog(cx, move |dialog, _, _| {
-            let (entity, picker_read, id) = (entity.clone(), picker.clone(), id.clone());
+        let time = cx.new(|cx| {
+            let cycle = if style::uses_24_hour_clock() { HourCycle::H23 } else { HourCycle::H12 };
+            let mut state = TimeFieldState::new(window, cx).precision(TimePrecision::Minute).hour_cycle(cycle);
+            state.set_time(start.time(), window, cx);
+            state
+        });
+        let already_gone = Rc::new(std::cell::Cell::new(false));
+        window.open_alert_dialog(cx, move |dialog, _, cx| {
+            let (entity, calendar_read, time_read, id, already_gone_read) = (entity.clone(), calendar.clone(), time.clone(), id.clone(), already_gone.clone());
             dialog
                 .title("Hibernate until")
                 .width(px(360.))
-                .child(DatePicker::new(&picker))
+                .child(v_flex().items_center().gap(px(10.))
+                    .child(div().id("snooze-day").tip("Day to wake it").child(Calendar::new(&calendar)))
+                    .child(div().id("snooze-time").w(px(125.)).tip("Time to wake it").child(TimeField::new(&time))))
+                .when(already_gone.get(), |dialog| dialog.description(div().text_color(style::failed_text(cx)).child("That time has already gone. Pick a later one.")))
                 .button_props(DialogButtonProps::default().ok_text("Hibernate").show_cancel(true))
                 .on_ok(move |_, window, cx| {
-                    let when = picker_read.read(cx).date_time().start();
-                    let Some(ms) = when.and_then(|w| Local.from_local_datetime(&w).earliest()).map(|d| d.timestamp_millis()) else { return true };
-                    if ms <= now_ms() {
-                        // An earlier time today would wake it straight back up.
-                        window.push_notification("That time has already gone. Pick a later one.", cx);
+                    let when = calendar_read.read(cx).date().start().map(|day| day.and_time(time_read.read(cx).time()));
+                    let ms = when.and_then(|w| Local.from_local_datetime(&w).earliest()).map(|d| d.timestamp_millis());
+                    if ms.is_none_or(|ms| ms <= now_ms()) {
+                        // Keep the chosen day and time in place so they can be
+                        // corrected, including a time skipped by the local clock.
+                        already_gone_read.set(true);
+                        window.refresh();
                         return false;
                     }
                     let id = id.clone();
-                    entity.update(cx, |this, cx| this.snooze_row(id, ms, window, cx)).ok();
+                    entity.update(cx, |this, cx| this.snooze_row(id, ms.unwrap(), window, cx)).ok();
                     true
                 })
         });
@@ -1104,7 +1117,8 @@ impl Threadbear {
 
     /// The whole list: search and new-thread line, then the sections.
     pub(crate) fn render_sidebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = palette(cx);
+        let mut p = palette(cx);
+        p.selected = style::sidebar_selection(cx, self.milestone.active);
         let now = now_ms();
         let clock: Clock = rows::local_now();
         let query = self.search.read(cx).value().trim().to_lowercase();

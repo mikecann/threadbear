@@ -392,8 +392,8 @@ fn opens_in_its_app(path: &str) -> bool {
 }
 
 /// Whether the pane draws the file itself: text, code, Markdown, pages and
-/// pictures. PDFs and films open in their app until the pane has viewers
-/// for them (`file.quicklook`, `file.video`).
+/// pictures. On macOS the picture viewer also hosts native PDF and video
+/// previews (`file.quicklook`, `file.video`); elsewhere they open in their app.
 fn pane_draws(path: &str) -> bool {
     match hl::viewer_for_path(path) {
         hl::Viewer::Text | hl::Viewer::Web => true,

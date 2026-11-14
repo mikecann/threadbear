@@ -77,6 +77,9 @@ const ALLOWED_LINES: &[(&str, &str, usize)] = &[
     ("gpui/build.rs", "let status = Command::new(&compiler).args([\"-parse-as-library\", \"-emit-object\", \"-O\", \"-import-objc-header\", \"native/text_selection.h\", \"-module-name\", \"ThreadbearTranslation\", \"-target\", &format!(\"{arch}-apple-macosx13.0\"), \"-sdk\", sdk, \"-module-cache-path\"]).arg(out.join(\"swift-modules\"))", 1),
     // Encodes the gate's checked descriptor (an application's icon is its icns file).
     ("gpui/native/file_icons.m", "int tb_file_icon_png(int fd, long long length, void **output) {", 1),
+    // Reads only the system display preference. This NSWorkspace property
+    // opens no URL or file and takes no runner-controlled argument.
+    ("gpui/src/style.rs", "objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldIncreaseContrast()", 1),
     // A test that reads Launch Services' list for Chrome's id, to see an
     // impostor's icon being drawn didn't register it (Daybreak 112). Opens nothing.
     ("gpui/src/open_gate/icon_tests.rs", "use objc2_app_kit::NSWorkspace;", 1),

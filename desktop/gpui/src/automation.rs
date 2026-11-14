@@ -724,11 +724,11 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
                 "permission" => {
                     let summary = data.summary.clone().unwrap_or_default();
                     if let Some(title) = cmd["click"].as_str() {
-                        let Some(mode) = crate::composer_chips::permission_modes(&summary).into_iter().find(|m| threadbear_core::logins::permission_title(m) == title) else { return Err(format!("no item {title}")) };
+                        let Some(mode) = crate::composer_chips::permission_modes(&summary, &data.logins).into_iter().find(|m| threadbear_core::logins::permission_title(m) == title) else { return Err(format!("no item {title}")) };
                         composer.update(cx, |c, cx| c.set_permission(mode, cx));
                         return Ok(json!("ok"));
                     }
-                    Ok(json!(crate::composer_chips::permission_lines(&summary)))
+                    Ok(json!(crate::composer_chips::permission_lines(&summary, &data.logins)))
                 }
                 "context" => match data.summary.as_ref().and_then(|t| threadbear_core::composer::ContextMeter::new(t.context_tokens, t.context_window).map(|m| (t.id.clone(), m))) {
                     // `show`: the ring clicked, as a person does, which opens

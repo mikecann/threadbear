@@ -660,6 +660,8 @@ pub fn runner_lines(u: Option<&RunnerUpdates>) -> Vec<String> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CliStatus {
     pub provider: String,
+    /// Display name from hello.providers, filled by the client.
+    pub name: Option<String>,
     pub path: String,
     /// "threadbear" (Codex's own copies), "cli" (Claude's installer) or
     /// "none" (a path set by hand, never updated).
@@ -702,6 +704,7 @@ impl CliStatus {
         let provider = v["provider"].as_str()?.to_owned();
         Some(CliStatus {
             provider,
+            name: None,
             path: v["path"].as_str().unwrap_or("").to_owned(),
             managed_by: v["managedBy"].as_str().unwrap_or("cli").to_owned(),
             installed_version: text(v, "installedVersion"),
@@ -732,11 +735,17 @@ pub fn decode_clis(list: &Value) -> Vec<CliStatus> {
     list.as_array().into_iter().flatten().filter_map(CliStatus::decode).collect()
 }
 
+pub fn decode_clis_with(list: &Value, logins: &crate::logins::RunnerLogins) -> Vec<CliStatus> {
+    let mut clis = decode_clis(list);
+    for cli in &mut clis { cli.name = Some(logins.cli_name(&cli.provider)); }
+    clis
+}
+
 /// "Claude Code 2.1.311, up to date", "Claude Code 2.1.311, 2.1.312
 /// available", "Codex 0.165.0 is held back because the app-server protocol
 /// changed".
 pub fn status_line(cli: &CliStatus) -> String {
-    let name = cli_name(&cli.provider);
+    let name = cli.name.clone().unwrap_or_else(|| cli_name(&cli.provider));
     let installed = cli.installed_version.as_ref().map_or_else(|| name.clone(), |v| format!("{name} {v}"));
     match cli.status.as_str() {
         "current" => format!("{installed}, up to date"),
@@ -791,11 +800,11 @@ pub fn is_updating(cli: &CliStatus) -> bool {
 /// 2.1.312", "Installing Codex 0.165.0".
 pub fn banner_text(cli: &CliStatus) -> Option<String> {
     let update = cli.update.as_ref()?;
-    let name = cli_name(&cli.provider);
+    let name = cli.name.clone().unwrap_or_else(|| cli_name(&cli.provider));
     let target = update.target_version.clone().or_else(|| cli.latest_version.clone());
     let to = target.as_ref().map_or_else(String::new, |t| format!(" to {t}"));
     match update.state.as_str() {
-        "running" if cli.provider == "codex" => Some(format!("Installing Codex{}", target.as_ref().map_or_else(String::new, |t| format!(" {t}")))),
+        "running" if cli.provider == "codex" => Some(format!("Installing {name}{}", target.as_ref().map_or_else(String::new, |t| format!(" {t}")))),
         "running" => Some(format!("Updating {name}{to}")),
         "waiting" => Some(format!("Waiting to update {name}{to}")),
         "failed" => {

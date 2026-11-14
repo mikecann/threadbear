@@ -133,6 +133,9 @@ File references are where to look.
   Service hands those words to that system feature or the service you picked.
   Passwords, revealed secret fields and one-time-code fields are excluded. A
   returned edit is checked against the same field, selection and original words.
+- **Display preferences:** the GPUI Mac app reads the system appearance,
+  accent colour, Reduce Motion, Increase Contrast and 12/24-hour clock
+  preference to draw its interface. These readings stay on this Mac.
 - **Files:** the data folder `~/Library/Application Support/Threadbear`
   (threads, settings, `secrets/`, runner releases, the pinned release key
   `upstream-signers`, the Mac app's `app-drafts.json` and the GPUI app's

@@ -153,6 +153,10 @@ pub fn mid_message(commands: &[SlashCommand]) -> Vec<SlashCommand> {
 
 /// Where a command came from, for the detail pane.
 pub fn origin(command: &SlashCommand, provider: &str) -> String {
+    origin_named(command, &cli_name(provider))
+}
+
+pub fn origin_named(command: &SlashCommand, name: &str) -> String {
     if command.is_threadbear() {
         return "Threadbear's own: it changes this thread's settings".to_owned();
     }
@@ -181,12 +185,12 @@ pub fn origin(command: &SlashCommand, provider: &str) -> String {
         },
         Some("claude.ai") => "Synced from claude.ai".to_owned(),
         Some("admin") => "Set up by your organisation".to_owned(),
-        Some("system") => format!("{}'s own", cli_name(provider)),
+        Some("system") => format!("{}'s own", name),
         _ => {
             if command.is_skill() {
                 "A skill".to_owned()
             } else {
-                format!("{}'s own", cli_name(provider))
+                format!("{}'s own", name)
             }
         }
     }

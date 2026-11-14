@@ -12,6 +12,19 @@ import { recording } from '../tools/real-screen.ts';
 
 const sample = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../support/sample.png');
 
+When('I open Attach images from the composer', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'click', tip: 'Attach images, change the folder or schedule the message' });
+  await this.app.do({ cmd: 'click', tip: 'Attach images…' });
+});
+
+Then('choosing a document cannot add a file chip', function () {
+  return 'pending';
+});
+
+Then('choosing a picture can add a picture chip', function () {
+  return 'pending';
+});
+
 async function drop(world: ThreadbearWorld, kind: string, picture: string, vanish = false) {
   await world.app.do({ cmd: 'picture-input', kind, path: picture, drop: true });
   await sleep(60);

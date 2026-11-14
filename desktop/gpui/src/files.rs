@@ -109,7 +109,7 @@ pub(crate) struct FilesState {
     known_folders: HashSet<String>,
     /// The pane's own text style, built once per appearance.
     /// Keyed by appearance and zoom, as `rows`' is.
-    reading_style: Option<((bool, u32), TextViewStyle)>,
+    reading_style: Option<(crate::style::ReadingStyleKey, TextViewStyle)>,
     /// How files and folders show, remembered across launches.
     pub(crate) prefs: FilePrefs,
     /// What was last looked for, which the next ⌘F starts with, as AppKit's
@@ -944,7 +944,7 @@ impl SidePane {
                     .into_any_element()
             }
             FileBody::Markdown { doc, .. } => {
-                let key = (cx.theme().is_dark(), crate::style::zoom_percent());
+                let key = crate::style::reading_style_key(cx);
                 let style = match &self.files.reading_style {
                     Some((was, style)) if *was == key => style.clone(),
                     _ => {

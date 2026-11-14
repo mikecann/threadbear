@@ -83,9 +83,8 @@ you go.
   (`composer.schedulefromsend`). In since 11 Nov
 - [x] The slash palette can't be resized (`composer.slash.resize`). In since
   11 Nov
-- [ ] In a narrow panel (a thread in a panel of its own, a narrow window) the
-  chips under the box run past its edge, where the Swift app's shrink their
-  labels to fit (`composer.modelpicker`, `composer.permission`)
+- [x] In a narrow panel the chips under the box shrink their labels to fit
+  (`composer.modelpicker`, `composer.permission`, `ChipTrigger`).
 - [x] The card: no lab-review findings on it (since 12 Nov they're a row in
   the transcript instead, in both apps), no slide between pages, picks
   don't show as chips while it's collapsed, no pictures in a Something else
@@ -128,8 +127,8 @@ you go.
   pictures, with its note on hover and click (`transcript.user`). Row menus
   have their copy icons, and copying a transcript disables its menu item
   until the older pages arrive (`transcript.rowmenu`).
-- [ ] The offer to continue a refused turn sits at the top, not just above the
-  composer (`banner.refusal`)
+- [x] The offer to continue a refused turn is above the composer
+  (`banner.refusal`, `composer.rs`), as in Swift.
 - [x] The milestone capsule shows at 100 threads and each thousand, once,
   when you are there to see it (`toast.milestone`). Mike chose a static paw
   with no entrance motion or wave.
@@ -174,18 +173,15 @@ you go.
 - [x] The Mac's accent colour is followed, and Reduce Motion is read by the
   kit at launch and again when the app comes back to the front
   (`foundation.theme`, `foundation.reducemotion`).
-- [ ] The switches are smaller than macOS 27's (the Usage helper's note: one
-  fix for Settings, the Librarian page and Usage). Settings' are macOS's now
-  (`mac_switch.rs`: 36 by 16 with a pill knob, as measured in the Swift
-  Settings window); the Librarian page and Usage still have the kit's, and
-  want measuring there first (the Usage helper saw 44 by 20)
+- [x] Settings, the Librarian and Usage use the Mac-sized switches
+  (`mac_switch.rs`); the larger switches outside forms use `outside_form`.
 
 ## Before other people move over
 
 - [x] The app updating itself (`system.selfupdate`)
-- [ ] A seamless restart onto a new build (`system.handover`): the window
-  goes and comes back for now, so the app only restarts by itself while
-  it isn't in front
+- [x] A seamless restart onto a new build (`system.handover`): the incoming
+  app restores the windows and threads before the outgoing app leaves
+  (`handover.rs`).
 - [x] Crash reports to Sentry, and the hang watch (`system.crash`,
   `system.hangwatch`)
 - [x] The activity log (`system.activitylog`, `foundation.tooltips`)
