@@ -10,7 +10,9 @@ const { sha256 } = load('lib') as { sha256: (s: string) => Promise<string> };
 const hooks = load('webhooks');
 const http = load('hookHttp');
 
-const NOW = Date.parse('2026-11-13T12:00:00Z');
+// The real clock: issueWebhook stamps a hook's expiry with Date.now(), so a
+// fixed date here turns the expiry test into one that fails a day later.
+const NOW = Date.now();
 
 async function setup(batchSeconds = 0) {
   process.env.RUNNER_KEY = OWNER;
