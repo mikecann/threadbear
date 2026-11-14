@@ -93,7 +93,7 @@ mod loader_probe_tests {
 /// (macOS may put the thread on an efficiency core), so builds are compared
 /// in turns under the same load (features/tools/render-ab.mjs).
 #[cfg(all(feature = "automation", unix))]
-fn thread_cpu_nanos() -> u64 {
+pub(crate) fn thread_cpu_nanos() -> u64 {
     let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: a valid timespec to write into, and a clock every Unix has.
     if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) } != 0 {
@@ -103,7 +103,7 @@ fn thread_cpu_nanos() -> u64 {
 }
 
 #[cfg(all(feature = "automation", not(unix)))]
-fn thread_cpu_nanos() -> u64 {
+pub(crate) fn thread_cpu_nanos() -> u64 {
     0
 }
 
