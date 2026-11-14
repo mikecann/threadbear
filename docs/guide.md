@@ -895,7 +895,10 @@ gotchas), links (its live site, an admin page) and folders, the repos its
 work lives in. The Projects view lists them, with New project at the top;
 click one for its page, with its threads, state and notes. The search at
 the top of the Projects page looks through their names, state, goals, notes
-and folders: Return opens the top result and Escape clears it.
+and folders: Return opens the top result and Escape clears it. Add folder…
+under Folders on a project's page picks one, and its New Folder button
+makes one first if the repo you want isn't there yet. Every folder picker
+in the app has that button.
 
 To start a thread in a project, press New Thread at the top of its page
 (or New thread… by its Threads). The message box opens with the project's

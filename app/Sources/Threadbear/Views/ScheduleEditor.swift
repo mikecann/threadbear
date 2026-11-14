@@ -439,6 +439,7 @@ private struct FolderMenu: View {
     private func choose() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = URL(fileURLWithPath: cwd)

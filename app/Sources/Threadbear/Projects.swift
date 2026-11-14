@@ -155,6 +155,9 @@ extension AppModel {
         guard let project = project(id) else { return }
         projectFilePicker.choose(configure: { panel in
             panel.canChooseDirectories = true
+            // Off by default in NSOpenPanel, which leaves no way to make the
+            // folder you meant to pick.
+            panel.canCreateDirectories = true
             panel.canChooseFiles = false
             panel.allowsMultipleSelection = false
             panel.prompt = "Add"

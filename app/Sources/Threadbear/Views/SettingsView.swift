@@ -383,6 +383,7 @@ private struct GeneralSettings: View {
     private func chooseFolder(from current: String) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = URL(fileURLWithPath: (current as NSString).expandingTildeInPath)
@@ -463,6 +464,7 @@ private struct ModelSettings: View {
     private func addPrivateFolder(_ current: [String]) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.prompt = "Add"
@@ -682,6 +684,7 @@ private struct PoolSettings: View {
     private func addFolders(to pool: Pool) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.prompt = "Add"
