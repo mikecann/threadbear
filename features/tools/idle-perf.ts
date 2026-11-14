@@ -19,6 +19,8 @@ import { recording } from './real-screen.ts';
 
 await ensurePerfLock();
 const onlyLoading = process.env.TB_IDLE_ONLY === 'loading';
+const requireLoaderPhase = process.env.TB_IDLE_REQUIRE_LOADER_PHASE === 'on';
+if (requireLoaderPhase && (!onlyLoading || process.env.TB_REDUCE_MOTION === 'on' || process.env.TB_APP === 'swift')) throw new Error('The loader phase gate requires a focused GPUI loading run with Reduce Motion off.');
 const mixed = process.env.TB_IDLE_WORKING === 'on';
 if (mixed && (!onlyLoading || process.argv[2])) throw new Error('TB_IDLE_WORKING requires TB_IDLE_ONLY=loading and a generated fixture.');
 const offscreen = process.env.TB_IDLE_ONLY === 'offscreen';
@@ -204,7 +206,7 @@ async function measure(label: string) {
     const dump = await app.dump();
     if (!dump.transcript.spinner) throw new Error('The read completed during the loading interval.');
     assertMixed(dump);
-    if (process.env.TB_IDLE_REQUIRE_LOADER_PHASE === 'on' && process.env.TB_REDUCE_MOTION !== 'on') {
+    if (requireLoaderPhase) {
       const loader = frames?.loader;
       if (!loader || loader.phaseChanges < seconds * 10 || loader.maxGapMs > 500) throw new Error(`Generic loader stopped changing phase: ${JSON.stringify(loader)}`);
     }
@@ -237,6 +239,7 @@ async function measure(label: string) {
     idleWakeupsPerSecond: (after.idleWakeups - before.idleWakeups) / elapsed,
     contextSwitchesPerSecond: (after.contextSwitches - before.contextSwitches) / elapsed,
     commandMs: swift ? null : { p50: times[19], p95: times[37], max: times[39] }, load: os.loadavg(), frames, windowChecks,
+    loaderGateEnforced: requireLoaderPhase && label === loadingLabel,
     windowActiveBefore, windowActiveAfter: frames?.windowActive ?? null, swiftActivation,
     priority: execFileSync('ps', ['-p', String(appPid), '-o', 'pri=,nice='], { encoding: 'utf8' }).trim() }));
   // Capture only after the counters and responsiveness probes are complete.

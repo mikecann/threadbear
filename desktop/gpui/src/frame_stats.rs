@@ -28,8 +28,8 @@ thread_local! {
     static CPU_BASELINE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-// Scripted perf builds count the generic loader itself: another animation
-// can keep window FPS high even if a cached loader stops being repainted.
+// Scripted perf builds count only the marked transcript loader: another
+// animation can keep window FPS high even if this loader stops repainting.
 #[cfg(feature = "automation")]
 thread_local! {
     static LOADERS: RefCell<std::collections::HashMap<WindowId, LoaderPaints>> = RefCell::new(std::collections::HashMap::new());
@@ -61,7 +61,7 @@ fn loader_sample(window: &Window, reset: bool) -> Value {
     LOADERS.with(|all| {
         let mut all = all.borrow_mut();
         let Some(sample) = all.get_mut(&window.window_handle().window_id()) else { return Value::Null };
-        let out = json!({ "paints": sample.paints, "phaseChanges": sample.changes,
+        let out = json!({ "source": "transcript", "paints": sample.paints, "phaseChanges": sample.changes,
             "maxGapMs": sample.max_gap.max(now.saturating_duration_since(sample.last_change)).as_secs_f64() * 1000. });
         if reset { sample.reset(now); }
         out

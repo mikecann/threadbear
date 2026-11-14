@@ -29,10 +29,15 @@ function cancel(code) {
 for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]]) process.on(signal, () => cancel(code));
 process.stdout.on('error', error => { if (error.code === 'EPIPE') cancel(143); else throw error; });
 
-function runBinary(binary) {
+function runBinary(binary, index) {
+  const env = { ...process.env, TB_APP: 'gpui', TB_GPUI_BIN: path.resolve(binary) };
+  if (process.env.TB_AB_REQUIRE_NEW_LOADER_PHASE === 'on') {
+    delete env.TB_IDLE_REQUIRE_LOADER_PHASE;
+    if (index === 1) env.TB_IDLE_REQUIRE_LOADER_PHASE = 'on';
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'idle-perf.ts')], {
-      env: { ...process.env, TB_APP: 'gpui', TB_GPUI_BIN: path.resolve(binary) }, stdio: ['ignore', 'pipe', 'pipe'],
+      env, stdio: ['ignore', 'pipe', 'pipe'],
     });
     active = child;
     let stdout = '', stderr = '';
@@ -54,7 +59,7 @@ try {
       const binary = binaries[index];
       const label = index ? 'new' : 'old';
       if (cancelled) throw new Error('Cancelled');
-      const run = await runBinary(binary);
+      const run = await runBinary(binary, index);
       if (cancelled) throw new Error('Cancelled');
       if (run.status !== 0) throw new Error(`${label} round ${round + 1} failed:\n${run.stdout}\n${run.stderr}`);
       for (const line of run.stdout.trim().split('\n')) {

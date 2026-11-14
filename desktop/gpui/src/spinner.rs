@@ -296,11 +296,25 @@ pub(crate) struct Spinner {
     size: Size,
     color: Option<Hsla>,
     icon: Icon,
+    #[cfg(all(feature = "automation", feature = "frame-stats"))]
+    transcript_loader: bool,
 }
 
 impl Spinner {
     pub(crate) fn new() -> Self {
-        Self { size: Size::Medium, color: None, icon: Icon::new(gpui_kit::assets::IconName::LoaderCircle) }
+        Self { size: Size::Medium, color: None, icon: Icon::new(gpui_kit::assets::IconName::LoaderCircle),
+            #[cfg(all(feature = "automation", feature = "frame-stats"))]
+            transcript_loader: false,
+        }
+    }
+
+    /// Only this loader can satisfy the transcript's performance liveness gate.
+    /// Other busy controls must not hide a frozen transcript behind their frames.
+    pub(crate) fn transcript_loader(self) -> Self {
+        #[cfg(all(feature = "automation", feature = "frame-stats"))]
+        { let mut spinner = self; spinner.transcript_loader = true; spinner }
+        #[cfg(not(all(feature = "automation", feature = "frame-stats")))]
+        { self }
     }
 
     pub(crate) fn color(mut self, color: Hsla) -> Self {
@@ -337,11 +351,13 @@ impl RenderOnce for Spinner {
         let body = self.icon.with_size(self.size)
             .when_some(self.color, |icon, color| icon.text_color(color))
             .transform(Transformation::rotate(percentage(phase)));
+        #[cfg(all(feature = "automation", feature = "frame-stats"))]
+        let transcript_loader = self.transcript_loader;
         div().relative().flex_none().size(side).child(body)
             .child(canvas(|_, _, _| {}, move |bounds, _, window, cx| {
                 if bounds.intersects(&window.content_mask().bounds) {
                     #[cfg(all(feature = "automation", feature = "frame-stats"))]
-                    crate::frame_stats::loader_painted(window, phase);
+                    if transcript_loader { crate::frame_stats::loader_painted(window, phase); }
                     if !cx.reduce_motion() { next_spinner_frame(window, cx); }
                 }
             }).absolute().inset_0())
@@ -463,6 +479,28 @@ mod spinner_tests {
         delivered
     }
     fn renders() -> [u32; 2] { RENDERS.with(|c| [c[0].get(), c[1].get()]) }
+
+    #[cfg(feature = "frame-stats")]
+    struct LoaderProbeHost(bool);
+    #[cfg(feature = "frame-stats")]
+    impl Render for LoaderProbeHost {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let spinner = Spinner::new().when(self.0, Spinner::transcript_loader);
+            div().size_full().child(spinner)
+        }
+    }
+    #[cfg(feature = "frame-stats")]
+    #[gpui_kit::test]
+    fn unrelated_spinners_cannot_satisfy_the_transcript_probe(cx: &mut TestAppContext) {
+        let window = cx.open_window(size(px(100.), px(100.)), |_, _| LoaderProbeHost(true));
+        cx.run_until_parked();
+        let initial = window.update(cx, |_, window, _| crate::frame_stats::report(window, true)).unwrap();
+        assert!(initial["loader"]["paints"].as_u64().unwrap() > 0);
+        window.update(cx, |host, _, cx| { host.0 = false; cx.notify(); }).unwrap();
+        cx.run_until_parked();
+        let unrelated = window.update(cx, |_, window, _| crate::frame_stats::report(window, false)).unwrap();
+        assert_eq!(unrelated["loader"]["paints"].as_u64(), Some(0));
+    }
 
     #[gpui_kit::test]
     fn reduce_motion_leaves_no_spinner_frame(cx: &mut TestAppContext) {

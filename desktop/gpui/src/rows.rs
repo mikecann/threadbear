@@ -551,7 +551,7 @@ impl ThreadPane {
         h_flex().w_full().px(px(SIDE_INSET)).justify_center().child(div().w_full().max_w(px(MAX_CONTENT_WIDTH)).child(box_)).into_any_element()
     }
 
-    pub(crate) fn spinner(&self, side: f32, cx: &App) -> impl IntoElement {
+    pub(crate) fn spinner(&self, side: f32, cx: &App) -> crate::spinner::Spinner {
         let color = style::quiet_text(cx);
         crate::spinner::Spinner::new().with_size(px(side)).color(color)
     }

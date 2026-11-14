@@ -1804,7 +1804,7 @@ impl Render for ThreadPane {
                         // will be, and no words, from the moment it's opened
                         // (DetailView's `ProgressView().controlSize(.small)`
                         // over the transcript while `.loading`).
-                        .when(loading, |s| s.child(div().absolute().inset_0().flex().items_center().justify_center().child(self.spinner(16., cx))))
+                        .when(loading, |s| s.child(div().absolute().inset_0().flex().items_center().justify_center().child(self.spinner(16., cx).transcript_loader())))
                         // Where an archive's page starts from (archive_flight.rs); a sub-agent's never flies.
                         .when(self.subagent_id.is_none(), |s| s.child(crate::archive_flight::transcript_mark(cx.entity_id()))),
                     entering,
