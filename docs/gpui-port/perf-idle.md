@@ -1,16 +1,83 @@
-# GPUI idle work, 13 November 2026
-
-Candidate status: not landed. A mixed-animation CPU outlier needs an
-independent loader-phase check: window FPS alone cannot show that both the
-working arc and the central loader are still advancing. The following
-measurements remain source-labelled observations, not proof of that condition.
+# GPUI idle work, 13–14 November 2026
 
 The generic loading spinner drew the window at the display refresh rate.
-The current candidate limits those decorative frames through one display-link
-callback per window. It leaves main's sidebar arc layer and one-second clock
-unchanged. Two kit Button controls still use their own internal loaders.
+The selected change limits those decorative frames through one display-link
+callback per window, without adding a background timer. Main's sidebar arc
+layer and one-second clock are unchanged. Two kit Button controls still use
+their own internal loaders.
 
-## Current-main controlled comparison, 14 November
+## Final comparison on source base 466f42925
+
+Tinker Desk, 60 Hz, release `automation,frame-stats`, a 1,500-turn transcript
+and 1,450 other threads, 1,400 archived, in an 1180 × 800 window. Each condition
+has three alternating AB/BA pairs after a discarded warm-up pair. Samples last
+eight seconds. Seven owned workers supply the loaded condition. CPU is a
+percentage of one core; compare arms within each load condition.
+
+A is the stock loader; P is the shared display-clock loader painted in its
+parent. The pure-loader comparison used candidate source `76cfd327e`. The
+mixed comparison used `b03c36fe2`, which adds a transcript-only phase counter
+under `automation,frame-stats` and leaves production animation behavior intact.
+
+| Scene | Metric | Stock A | Display clock P | P/A |
+|---|---|---:|---:|---:|
+| Loading, normal | App CPU | 47.283 | 29.463 | 0.623 |
+| Loading, normal | Drawn frames/s | 60.744 | 32.367 | 0.533 |
+| Loading, normal | Interrupt wakeups/s | 65.743 | 65.234 | 0.992 |
+| Loading, seven cores busy | App CPU | 20.279 | 11.755 | 0.580 |
+| Loading, seven cores busy | Drawn frames/s | 60.614 | 32.247 | 0.532 |
+| Loading, seven cores busy | Interrupt wakeups/s | 69.487 | 66.745 | 0.961 |
+| Loading beside a working arc, normal | App CPU | 48.273 | 42.221 | 0.875 |
+| Loading beside a working arc, normal | Drawn frames/s | 60.743 | 52.740 | 0.868 |
+| Loading beside a working arc, normal | Interrupt wakeups/s | 93.114 | 90.979 | 0.977 |
+| Loading beside a working arc, seven cores busy | App CPU | 21.984 | 15.604 | 0.710 |
+| Loading beside a working arc, seven cores busy | Drawn frames/s | 60.739 | 44.240 | 0.728 |
+| Loading beside a working arc, seven cores busy | Interrupt wakeups/s | 96.865 | 94.868 | 0.979 |
+
+Pure-loader CPU ranges were 46.66–47.93 versus 28.37–29.79% normally and
+20.20–20.58 versus 11.68–11.98% under load. Mixed ranges were 47.93–48.59
+versus 41.73–44.04% normally and 20.82–22.01 versus 14.80–16.12% under load.
+Pure-loader main-thread CPU per drawn frame rose from 6.78 to 8.03 ms normally
+and 3.09 to 3.43 ms under load. The saving comes from drawing fewer decorative
+frames. Input latency and a saving per frame are not established.
+
+Whole-window FPS can conceal a stalled loader when the sidebar arc is turning.
+The final mixed run therefore counts angle changes from the marked transcript
+loader alone. All new arms, including warm-ups, report `source: transcript`
+and enforce at least ten changes per second with no gap above 500 ms. The
+fixture opens one transcript pane; the probe does not distinguish multiple
+loading panes in a window. A separate one-pair pure-loader validation checks
+that liveness without a sidebar arc. It is a correctness check, not another
+repeated performance estimate. An earlier mixed set had an unexplained
+6.68% CPU outlier and no per-loader counter; that entire set is excluded from
+these final mixed estimates. Later broader-counter diagnostics are also
+superseded by the marked-loader run.
+
+Every measured interval passed unchanged external foreground, awake, unlocked
+and uncovered checks without Accessibility requests. GPUI reported its window
+active at both counter endpoints. Each leased phase held `caffeinate -d -u`,
+parked the pointer outside the window, restored it afterwards, and waited for
+three full minutes below load 5 with Spotlight quiet. Ambient load is retained
+with every sample. Thermal state was normal and Low Power Mode off.
+
+Final baseline SHA-256:
+`b9b531427a0c6ca603050f08d0aeb31b8ffc8ce9dbac09e4e3ef81706a48a291`.
+Pure-loader P: `6a2cd85f18e902a1132894cc085e59ad054e294f78daff954fe3df710f05cc5c`.
+Marked-probe P: `a0a53f23459fcad6f285d15145106b3dddf7ee6e2b5e7857973de7c6c96bd88b`.
+Raw JSON, manifests and private app-window captures are kept under
+`~/Library/Caches/Threadbear/perf/idle-20261113` on the coordinating Mac; sealed remote results remain under
+`~/.cache/threadbear-check/gpui/perf3-*` on Tinker Desk. No real transcript fixtures or user recording frames are
+part of this change.
+
+Single paired regression checks passed for a visible working thread, a folded
+Threads panel and a working row fully outside the list, both normally and
+under load. Reduce Motion left the generic loader static. TERM cancellation
+exited 143 and left none of the recorded app/mock/load-worker processes alive.
+The loading behavior spec passed all eleven steps. A six-second app-window
+movie under seven-core load and a temporary 250 ms main-thread stall shows the
+loader advancing; that movie is visual evidence, not CPU or input-latency data.
+
+## Earlier controls on source base ea287d570
 
 All three binaries use source base `ea287d570` and identical read-only
 `frame-stats` instrumentation. A is the stock loader, B is the retained loader
@@ -75,8 +142,7 @@ keeping the shared display clock. GPUI still redraws ancestor views.
 No 120 Hz result is claimed. P's binary is
 `120f72d54f8a88b65965ba748f3a0fca8c1685341e2e9cb12e3e29f47b41fd73`.
 Final code adds recovery for late or lost frame callbacks while preserving
-cached siblings' demand; that recovery remains to
-be checked in a final native build.
+cached siblings' demand; the final native comparison above includes that recovery.
 
 The whole leased phase kept the display awake and parked the pointer outside
 the app, restoring it afterwards. A bounded quiet gate required three minutes
@@ -356,13 +422,13 @@ spinner field, so the reference covers settled and working-thread phases.
 
 ## Checks
 
-Eight renderer tests and the existing arc-fade test cover timed repaints through cached parents, a loader
+Nine renderer tests and the existing arc-fade test cover timed repaints through cached parents, a loader
 beside a legacy working arc, an early callback that draws nothing, and one
 callback/notification per painted parent even with multiple loaders. They also
 cover Reduce Motion, clipping, hiding, window close and recovery from a stale
 clock record without dropping another cached parent's demand. A generation test checks that an old callback cannot create a
-second replacement chain. The CI gate enumerates at least nine tests before
-running them, so a missing feature gate cannot silently pass with zero tests.
+second replacement chain. The CI gate enumerates at least ten spinner tests plus the separate
+frame-stats counter test before running them, so a missing feature gate cannot silently pass with zero tests.
 
 Earlier observer tests established that the retained candidate did not notify
 its parent model. They did not establish that it avoided parent rendering.

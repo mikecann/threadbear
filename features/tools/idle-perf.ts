@@ -208,7 +208,7 @@ async function measure(label: string) {
     assertMixed(dump);
     if (requireLoaderPhase) {
       const loader = frames?.loader;
-      if (!loader || loader.phaseChanges < seconds * 10 || loader.maxGapMs > 500) throw new Error(`Generic loader stopped changing phase: ${JSON.stringify(loader)}`);
+      if (!loader || loader.source !== 'transcript' || !Number.isInteger(loader.phaseChanges) || loader.phaseChanges < seconds * 10 || !Number.isFinite(loader.maxGapMs) || loader.maxGapMs > 500) throw new Error(`Transcript loader phase validation failed: ${JSON.stringify(loader)}`);
     }
     const drawn = frames?.screens.reduce((n: number, s: { drawn: number }) => n + s.drawn, 0) ?? 0;
     if (!swift && process.env.TB_REDUCE_MOTION !== 'on' && drawn < seconds * 10) throw new Error('Too few spinner frames; the display may be asleep or the app covered.');

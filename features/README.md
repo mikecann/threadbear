@@ -109,7 +109,7 @@ The watcher records its sampling rate, display refresh rates, thermal states
 and Low Power Mode. Current profiler builds also report GPUI's active-window
 state at both counter endpoints; `TB_IDLE_REQUIRE_ACTIVE=on` requires that
 field and refuses inactive samples. Older saved binaries leave it unknown.
-`TB_REDUCE_MOTION=on` selects static retained loaders; working arcs retain
+`TB_REDUCE_MOTION=on` selects static generic loaders; working arcs retain
 their existing motion policy. The full run includes seven CPU workers on an eight-core machine;
 `TB_IDLE_LOAD=off` skips those. Its command times include the automation
 transport and caller scheduling, so they are not event-to-paint latency. `TB_IDLE_SHOT=/path/loader.png`
@@ -117,6 +117,13 @@ captures the app window after the interval and command probes, leaving the
 measurement unaffected.
 
 Keep an old release binary and use `tools/idle-ab.mjs <old> <new> [rounds=5]`.
+`TB_IDLE_REQUIRE_LOADER_PHASE=on` requires a focused GPUI loading run with
+Reduce Motion off. It checks angle changes of the transcript loader itself,
+not window FPS or other busy controls. `TB_AB_REQUIRE_NEW_LOADER_PHASE=on`
+enforces it only for the A/B tool's new arm, allowing older baseline binaries.
+Samples report `loaderGateEnforced`; unsupported phase combinations fail.
+This probe is for the generated fixture with one loading transcript pane;
+it does not distinguish simultaneous loading panes in the same window.
 Both tools take the shared performance and check locks automatically; the
 A/B parent holds them across every child run. It discards a warm-up pair,
 then alternates AB/BA, prints every sample with the ambient load, and reports

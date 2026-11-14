@@ -496,8 +496,10 @@ mod spinner_tests {
         cx.run_until_parked();
         let initial = window.update(cx, |_, window, _| crate::frame_stats::report(window, true)).unwrap();
         assert!(initial["loader"]["paints"].as_u64().unwrap() > 0);
+        let before = renders()[1];
         window.update(cx, |host, _, cx| { host.0 = false; cx.notify(); }).unwrap();
         cx.run_until_parked();
+        assert!(renders()[1] > before, "the unmarked spinner must actually render");
         let unrelated = window.update(cx, |_, window, _| crate::frame_stats::report(window, false)).unwrap();
         assert_eq!(unrelated["loader"]["paints"].as_u64(), Some(0));
     }
