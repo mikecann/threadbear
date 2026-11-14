@@ -1480,6 +1480,7 @@ export function buildThreadbearTools(
           .string()
           .optional()
           .describe('Only in a thread the user did not start (a tool, a schedule or another thread did): how it came out in about 6 plain words ("network blip, nothing to do"), shown when they hover its row, so they can tell how much it matters.'),
+        quiet: z.boolean().optional().describe('An unattended bear run found nothing new to report. With needs "nothing", archives only after checking for unfinished work.'),
         archive: z
           .boolean()
           .optional()
@@ -1588,6 +1589,7 @@ export function buildThreadbearTools(
           .string()
           .optional()
           .describe('Only in a thread the user did not start (a tool, a schedule or another thread did): how it came out in a few plain words, about 6 ("network blip, nothing to do"). The sidebar shows them when the user hovers the mark on its row, so they can tell how much it matters. Leave it out in a thread the user started.'),
+        quiet: z.boolean().optional().describe('An unattended bear run found nothing new to report. With needs "nothing", archives only after checking for unfinished work.'),
         archive: z
           .boolean()
           .optional()

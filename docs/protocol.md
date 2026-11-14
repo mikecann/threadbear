@@ -5045,6 +5045,44 @@ taken as it is. Nothing new reaches the app: the ask is an ordinary one.
 
 ### Bears
 
+**Late tool answers** (separate `lateAnswers` experiment, off by default).
+`approvals.respond` also accepts allow/deny for a tool card whose latest
+resolution is `expired` within the last 24 hours. `allowAlways` means one
+allow here. The runner queues the original request and the user's answer
+as a runner-origin message, then resolves the card. It does not replay the
+call, save an allow rule or widen the thread's mode. Already answered,
+rewound, unknown and older cards are refused. Questions, secrets, plan
+cards and cross-runner start requests keep their existing handling.
+Remote allow retains the card's visibility checks; a card with no item id
+can only be allowed on its owning Mac. The event log supplies the original
+request and expiry across restarts. GPUI's deliberate late-answer control
+is tracked in prds/bears-gpui.md; this also handles a click already in flight.
+
+**Always-on runs.** With `bears` on, routines, folder webhooks and mentions
+share a busy unattended thread for the bear. Running, starting, waiting,
+queued and background work count; a chat the user started does not. Work
+queues after the current turn. Modes and working folders must match when folding work; a
+routine retries, a webhook holds its delivery, and a mention asks the
+caller to retry when the running job has different access or a different folder. A mention's
+reply is handed back when that mention's own queued turn finishes. Repeating routines skip while their preceding run is still busy.
+
+`end_turn { needs: "nothing", quiet: true }` marks a bear's unattended run
+as having nothing new to report. Once the turn is finished, the runner's
+loose-end check may archive it. Questions, suggested follow-ups, unfinished
+work, user messages, answered cards, stars and manual unarchives keep it
+visible. The `quietInbox` experiment need not be on. Other threads ignore
+`quiet`, and a useful bear report without it stays visible.
+
+`bears.refreshRules { bear? }` (all unarchived bears when omitted) refreshes
+only the marked always-on block in CLAUDE.md and AGENTS.md, and recognized
+built-in memory tidy routines. It returns `{ bears: string[] }`. It needs
+Full access and is refused from any bear's folder. `tb bears refresh-rules
+[bear]` is the CLI. User text and custom routines stay intact. New and
+refreshed bears read `memory/told.md`, record dated summaries of what they
+told the user, and keep unfinished tasks in `memory/tasks/`, linked from
+`memory/summary.md`. Directly created Claude memory tidies use Auto; Codex and agent-created bears use Ask. An authorized refresh moves built-in Claude tidies to Auto. The
+tidy changes memory files only and drops completed task files.
+
 An experiment (`bears`, `runner/src/bears.ts`). A bear is a folder,
 `<defaults.cwd>/Bears/<id>/` (`~/ThreadbearThreads/Bears` when the default
 folder is the home folder). The id (`researcher-7f3a`) never changes. The
@@ -5110,8 +5148,9 @@ three bears, and gets a `[Threadbear: Asked ...]` line added for the
 agent. Each ask makes a thread in the bear's folder in the lower of the
 bear's mode and the asking thread's, joined to the asking thread's
 projects, with `startedBy { kind: "thread", label: "Mentioned by <title>" }`.
-A bear with a mention thread still running gets the next ask in that
-thread. When its turn ends, its reply goes to each asker as a message
+A bear with an unattended thread still running gets the next ask queued
+there when access matches. When that queued turn ends, its reply goes to
+that turn's askers as a message
 starting `[Bear: <name> replied in thread:<id>. It's a bear's answer,
 not the user's words.]`, quoted. A bear's own thread may ask another bear
 only from a table they share, or when it's the head bear.

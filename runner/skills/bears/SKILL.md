@@ -12,7 +12,7 @@ A bear is a folder, `<threads dir>/Bears/<id>/`. A thread there is that bear. It
 |---|---|---|
 | `CLAUDE.md`, `AGENTS.md` | Persona, personality and house rules | The user; the bear itself may refine its own |
 | `bear.json` | name, does, personality, icon, model, effort, avatar, color, quietHours, notes | Any thread, through `tb bears set` |
-| `memory/` | `summary.md` plus `people/`, `facts/`, `projects/` | The bear itself |
+| `memory/` | `summary.md`, `told.md`, `tasks/`, `people/`, `facts/`, `projects/` | The bear itself |
 | `../memory/` | Shared facts about the user, for every bear | The bear that owns the daily tidy |
 
 What widens a bear (its mode, pool and machine) lives in the runner's own `bears.json` and changes only with `tb bears access` from the user, never from a bear's thread.
@@ -30,6 +30,7 @@ tb bears ask scout "What changed in Convex 1.49?"   # its reply comes back to th
 tb bears away scout 3d                     # routines skip, mentions get the away line
 tb bears archive scout                     # off the list, routines paused, webhooks revoked
 tb bears head <bear>                      # the user only: the chief of staff
+tb bears refresh-rules [bear]             # refresh managed memory rules and built-in tidies
 ```
 
 Deleting a bear (`tb bears delete`) moves its folder to the runner's trash and deletes its routines. Ask the user first, every time.
@@ -54,7 +55,11 @@ A routine is an ordinary schedule aimed at the bear's folder:
 schedule_message({ new_thread: true, cwd: "<bear folder>", cron: "0 9 * * 1", text: "Monday: where are we?" })
 ```
 
-New bears get a daily "tidy memory" routine at 04:30. Routines run in Ask unless the user raised the bear. A one-off time a bear books inside its quiet hours (default 19:30 to 08:30) moves to the end of them.
+New bears get a daily "tidy memory" routine at 04:30. Directly created Claude bears use Auto for that tidy; Codex and agent-created bears use Ask. Other routines run in Ask unless the user raised the bear. `tb bears refresh-rules [bear]` updates only the marked rules block and recognized built-in tidies (Claude Auto, Codex Ask); it requires Full access outside any bear's folder. Never use it to raise a bear's access on its own say-so. Custom routines and persona text stay intact. A one-off time a bear books inside its quiet hours (default 19:30 to 08:30) moves to the end of them.
+
+Routines, webhooks and mentions share a busy unattended worker; personal chats stay separate. Incoming work queues for its own turn and each mention gets that turn's reply. Different access or a different working folder cannot be folded: routines retry, webhooks hold, mentions must be retried. A recurring routine already busy skips its next tick.
+
+Read `memory/told.md` before unattended work; append one dated line after a report so the next run knows what the user has heard. Track unfinished jobs in `memory/tasks/<task>.md`, linked from the summary. The tidy removes completed tasks and limits edits to memory. When an unattended run finds nothing new, call `end_turn` with `needs: "nothing", quiet: true`; the runner checks unfinished work before archiving. Useful reports and earlier reports in a shared thread stay in the inbox. Older runners without `quiet` need an explicit archive instruction in the routine; do not assume “needs nothing” means empty.
 
 ## Faces
 

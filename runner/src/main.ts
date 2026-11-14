@@ -9,7 +9,7 @@ import { readShareImage } from './share-images.ts';
 import { CallerGate } from './rpc-gate.ts';
 import { threadOfPort } from './peer.ts';
 import { threadKey as makeThreadKey } from './rpc-auth.ts';
-import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError, readRunnerJson, writeRunnerJson } from './config.ts';
+import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, expandHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError, readRunnerJson, writeRunnerJson } from './config.ts';
 import { startHousekeeping } from './housekeeping.ts';
 import { RELEASE, markConfigStop, markGoodLater, onSupervisorGone, ownCheckout, readRelease, readState, requestHandover, supervised, takeRollbackNotice, tellLaunchListening } from './release.ts';
 import { PatchTrust } from './patch-trust.ts';
@@ -448,7 +448,7 @@ async function main(): Promise<void> {
     home: cfg.home,
     schedules: () => scheduler,
     threads: () => ({
-      list: () => runner.list(['inbox', 'snoozed']).map((t) => ({ id: t.id, cwd: t.cwd, ...(t.archivedAt ? { archivedAt: t.archivedAt } : {}) })),
+      list: () => runner.list(['inbox', 'snoozed']).map((t) => ({ ...t, queued: Boolean(runner.threads.get(t.id)?.rec.queue.length) })),
       archive: (threadId) => void runner.update({ threadId, archived: true, archivedBy: 'threadbear' }),
     }),
   });
@@ -476,6 +476,10 @@ async function main(): Promise<void> {
       },
       create: (p) => runner.create(p),
       send: (id, text) => runner.send(id, text, [], { origin: 'runner', queue: true }),
+      pendingWork: (id) => {
+        const st = runner.threads.get(id);
+        return Boolean(st && (st.rec.queue.length || st.rt.tasks.length || st.rt.approvals.size || st.rt.finished.length));
+      },
       lastReply: (id) => {
         const evs = runner.events(id, { limit: 2000 }).events as { type: string; text?: string }[];
         let start = 0;
@@ -491,12 +495,20 @@ async function main(): Promise<void> {
   runner.onThreadActivity((a) => {
     if (a.kind !== 'turn.end' || !bearsOn()) return;
     try {
-      mentions.turnEnded(a.threadId);
+      mentions.turnEnded(a.threadId, runner.threads.get(a.threadId)?.rec.turnId);
     } catch (e) {
       log.warn("a bear's reply couldn't be handed back", { threadId: a.threadId, error: (e as Error).message });
     }
   });
   scheduler.holdFor = (rec) => (bearsOn() && rec.cwd && !rec.threadId ? bears.holdReason(rec.cwd) : undefined);
+  scheduler.foldInto = (rec) => {
+    const bear = bearsOn() && rec.cwd ? bears.forCwd(rec.cwd) : undefined;
+    const worker = bear ? bears.busyUnattended(bear.id) : undefined;
+    if (worker && (worker.permissionMode !== (rec.permissionMode ?? bear?.state.permissionMode ?? 'ask') || path.resolve(worker.cwd) !== path.resolve(expandHome(rec.cwd!)))) {
+      throw new RpcError(ErrorCode.busy, 'The running bear job has different access or a different folder; waiting for it to finish.');
+    }
+    return worker?.id;
+  };
   scheduler.adjustAt = (p, at) => {
     if (!bearsOn()) return at;
     const by = p.createdBy && runner.has(p.createdBy) ? runner.get(p.createdBy).cwd : undefined;
@@ -630,7 +642,12 @@ async function main(): Promise<void> {
     create: (p) => runner.create(p),
     send: (threadId, text) => runner.send(threadId, text, [], { origin: 'runner', queue: true }),
     modeOf: (threadId) => (runner.has(threadId) ? runner.get(threadId).permissionMode : undefined),
+    cwdOf: (threadId) => (runner.has(threadId) ? runner.get(threadId).cwd : undefined),
     held: (cwd) => (bearsOn() ? bears.holdReason(cwd) : undefined),
+    foldInto: (cwd) => {
+      const bear = bearsOn() ? bears.forCwd(cwd) : undefined;
+      return bear ? bears.busyUnattended(bear.id)?.id : undefined;
+    },
   });
   setInterval(() => {
     try {

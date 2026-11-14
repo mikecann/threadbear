@@ -53,6 +53,38 @@ const helper = (h: H, parent: string, text = 'Fix the panel reload') =>
   h.runner.create({ text, accountId: 'claude-main', startedBy: { kind: 'thread', label: 'Agent', threadId: parent } }).thread.id;
 const notes = (h: H, id: string) => h.events(id).filter((e) => e.type === 'system.note').map((e) => String(e.text));
 
+test('bears: only an explicitly quiet unattended run archives, even without quietInbox', async () => {
+  const h = setup({ bears: true });
+  h.runner.bearOf = () => ({ id: 'b', name: 'Bear' });
+  const empty = h.runner.create({ text: 'Check for news', startedBy: { kind: 'tool', label: 'Webhook' } }).thread.id;
+  const report = h.runner.create({ text: 'Research', origin: 'schedule', scheduleId: 'routine' }).thread.id;
+  const own = mine(h);
+  const touched = h.runner.create({ text: 'Check', startedBy: { kind: 'tool', label: 'Hook' } }).thread.id;
+  h.runner.update({ threadId: touched, starred: true });
+  finish(h, report);
+  finish(h, own, { needs: 'nothing', quiet: true });
+  finish(h, touched, { needs: 'nothing', quiet: true });
+  finish(h, empty, { needs: 'nothing', quiet: true });
+  await until(() => Boolean(h.runner.get(empty).archivedAt), 'quiet bear archived');
+  assert.equal(h.runner.get(report).archivedAt, undefined, 'useful report stays');
+  assert.equal(h.runner.get(own).archivedAt, undefined, 'personal chat stays');
+  assert.equal(h.runner.get(touched).archivedAt, undefined, 'starred thread stays');
+  assert.match(notes(h, empty).at(-1) ?? '', /bear.*nothing new/i);
+});
+
+test('bears: an empty queued turn never hides the useful report before it', async () => {
+  const h = setup({ bears: true });
+  h.runner.bearOf = () => ({ id: 'b', name: 'Bear' });
+  const id = h.runner.create({ text: 'Find news', startedBy: { kind: 'tool', label: 'Hook' } }).thread.id;
+  h.runner.send(id, 'Check again', [], { origin: 'runner', queue: true });
+  finish(h, id);
+  finish(h, id, { needs: 'nothing', quiet: true });
+  const control = h.runner.create({ text: 'Empty check', startedBy: { kind: 'tool', label: 'Hook' } }).thread.id;
+  finish(h, control, { needs: 'nothing', quiet: true });
+  await until(() => Boolean(h.runner.get(control).archivedAt), 'empty control');
+  assert.equal(h.runner.get(id).archivedAt, undefined);
+});
+
 test('quietInbox: a thread another thread started archives itself when it finishes with nothing left', async () => {
   const h = setup();
   const parent = mine(h);

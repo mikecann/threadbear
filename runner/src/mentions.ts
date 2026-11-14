@@ -30,17 +30,18 @@ type ThreadView = { id: string; title: string; cwd: string; permissionMode?: Per
 export type MentionHost = {
   has(threadId: string): boolean;
   get(threadId: string): ThreadView;
-  create(p: { text: string; cwd: string; permissionMode: PermissionMode; startedBy: ThreadStartedBy; origin: 'runner'; projectIds?: string[]; title?: string }): { thread: { id: string } };
+  create(p: { text: string; cwd: string; permissionMode: PermissionMode; startedBy: ThreadStartedBy; origin: 'runner'; projectIds?: string[]; title?: string }): { thread: { id: string }; turnId?: string };
   send(threadId: string, text: string): unknown;
   note?(threadId: string, text: string): void;
   // The last turn's reply text.
   lastReply(threadId: string): string;
+  pendingWork?(threadId: string): boolean;
 };
 
 // A table the asking thread sits at (tables.ts): its bears and turn cap.
 export type TableOf = (cwd: string) => { id: string; title: string; bears: string[]; maxTurns: number } | undefined;
 
-type Waiter = { fromThreadId: string; tableId?: string };
+type Waiter = { fromThreadId: string; tableId?: string; turnId?: string };
 type State = { jobs: Record<string, { bearId: string; bearName: string; waiters: Waiter[] }>; rounds: Record<string, number> };
 
 export type MentionResult = { threadId?: string; bear: string; note?: string };
@@ -156,16 +157,21 @@ export class Mentions {
     const intro = from ? `[Asked from the thread "${from.title}" (thread:${from.id})${table ? `, at the table "${table.title}"` : ''}. Your reply goes back there when your turn ends.]` : '[Asked with tb bears ask.]';
     const body = `${intro}\n\n${text}`;
     // One job at a time: a mention thread still going takes this one too.
-    const busy = Object.entries(s.jobs).find(([id, j]) => j.bearId === bear.id && this.host.has(id) && isBusy(this.host.get(id).status));
-    if (busy) {
-      const [id, job] = busy;
-      if (waiter && !job.waiters.some((w) => w.fromThreadId === waiter.fromThreadId)) job.waiters.push(waiter);
+    const mode = lowerMode(bear.state.permissionMode ?? 'ask', from?.permissionMode ?? 'ask');
+    const busy = this.bears.busyUnattended(bear.id);
+    // Older embedders may not supply the Bears thread list yet.
+    const id = busy?.id ?? Object.entries(s.jobs).find(([id, j]) => j.bearId === bear.id && this.host.has(id) && isBusy(this.host.get(id).status))?.[0];
+    if (id) {
+      const worker = this.host.get(id);
+      if (worker.permissionMode !== mode || path.resolve(worker.cwd) !== bear.folder) throw new Error(`${bear.name}'s running job has different access or a different folder. Ask again once it finishes.`);
+      const job = s.jobs[id] ??= { bearId: bear.id, bearName: bear.name, waiters: [] };
+      const sent = this.host.send(id, body);
+      if (waiter && sent && typeof sent === 'object' && 'turnId' in sent && typeof sent.turnId === 'string') waiter.turnId = sent.turnId;
+      if (waiter && !job.waiters.some((w) => w.fromThreadId === waiter.fromThreadId && w.turnId === waiter.turnId)) job.waiters.push(waiter);
       this.write(s);
-      this.host.send(id, body);
       return { threadId: id, bear: bear.name };
     }
-    const mode = lowerMode(bear.state.permissionMode ?? 'ask', from?.permissionMode ?? 'ask');
-    const { thread } = this.host.create({
+    const { thread, turnId } = this.host.create({
       text: body,
       cwd: bear.folder,
       permissionMode: mode,
@@ -174,6 +180,7 @@ export class Mentions {
       startedBy: { kind: 'thread', label: from ? `Mentioned by ${from.title}`.slice(0, 80) : 'Mentioned', ...(from ? { threadId: from.id } : {}) },
       ...(from?.projects?.length ? { projectIds: from.projects.map((x) => x.id) } : {}),
     });
+    if (waiter && turnId) waiter.turnId = turnId;
     s.jobs[thread.id] = { bearId: bear.id, bearName: bear.name, waiters: waiter ? [waiter] : [] };
     this.write(s);
     return { threadId: thread.id, bear: bear.name };
@@ -181,7 +188,10 @@ export class Mentions {
 
   // A thread's turn ended: if it's a bear's mention thread, its reply goes
   // back to whoever asked.
-  turnEnded(threadId: string): number {
+  turnEnded(threadId: string, turnId?: string): number {
+    // A folded ask has its own queued turn: don't send the previous job's
+    // answer to the new asker before their question has even been read.
+    if (!turnId && this.host.pendingWork?.(threadId)) return 0;
     const s = this.read();
     const job = s.jobs[threadId];
     if (!job || !job.waiters.length) return 0;
@@ -189,6 +199,7 @@ export class Mentions {
     const text = `${BEAR_REPLY_PREFIX}${job.bearName} replied in thread:${threadId}. It's a bear's answer, not the user's words.]\n\n${quote(reply)}`;
     let n = 0;
     for (const w of job.waiters) {
+      if (w.turnId && w.turnId !== turnId) continue;
       if (!this.host.has(w.fromThreadId)) continue;
       try {
         this.host.send(w.fromThreadId, text);
@@ -197,7 +208,7 @@ export class Mentions {
         /* that thread is gone or won't take it */
       }
     }
-    job.waiters = [];
+    job.waiters = job.waiters.filter((w) => w.turnId && w.turnId !== turnId);
     this.write(s);
     return n;
   }

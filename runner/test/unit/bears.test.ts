@@ -8,6 +8,7 @@ import { avatarPresets, Bears, bearsMethods, checkAvatar, DEFAULT_BEAR, lowerMod
 import { CallerGate } from '../../src/rpc-gate.ts';
 import { autoNote } from '../../src/cli-bears.ts';
 import type { Schedule } from '../../src/protocol.ts';
+import type { BearThread } from '../../src/bears.ts';
 import { makeHarness, tmpDir } from '../helpers/fakes.ts';
 
 function fakeSchedules(): BearSchedules & { rows: Schedule[] } {
@@ -23,6 +24,8 @@ function fakeSchedules(): BearSchedules & { rows: Schedule[] } {
     update: async (p) => {
       const s = rows.find((r) => r.id === p.scheduleId)!;
       if (p.paused !== undefined) s.paused = p.paused;
+      if (p.text !== undefined) s.text = p.text;
+      if (p.permissionMode !== undefined) s.permissionMode = p.permissionMode;
       return s;
     },
     delete: async (id) => {
@@ -37,7 +40,7 @@ function setup(now = () => Date.parse('2026-11-13T12:00:00Z')) {
   const root = path.join(tmpDir(), 'Bears');
   const schedules = fakeSchedules();
   const archived: string[] = [];
-  const threads = [{ id: 't1', cwd: '' }];
+  const threads: BearThread[] = [{ id: 't1', cwd: '' }];
   const bears = new Bears({ root, home, now, git: false, schedules: () => schedules, threads: () => ({ list: () => threads, archive: (id) => void archived.push(id) }) });
   return { home, root, bears, schedules, archived, threads };
 }
@@ -61,10 +64,28 @@ test('a new bear is a folder with its persona, memory, bear.json and a tidy rout
   assert.equal(file.permissionMode, undefined, 'no access fields in the folder');
   assert.equal(schedules.rows.length, 1);
   assert.equal(schedules.rows[0].cwd, b.folder);
-  assert.equal(schedules.rows[0].permissionMode, 'ask');
+  assert.equal(schedules.rows[0].permissionMode, 'auto');
   assert.equal(b.routines.length, 1);
   assert.ok(b.faces?.idle.startsWith('<svg'));
   await assert.rejects(bears.create({ name: 'researcher' }), /already a bear called/);
+});
+
+test('one worker: only unattended busy work in this bear counts, including background and queues', async () => {
+  const { bears, threads } = setup();
+  const b = await bears.create({ name: 'Worker', tidy: false });
+  threads[0] = { id: 'chat', cwd: b.folder, status: 'running' };
+  assert.equal(bears.busyUnattended(b.id), undefined, 'personal chats stay independent');
+  for (const state of [{ status: 'starting' }, { status: 'waiting' }, { status: 'queued' }, { status: 'idle', queued: true }, { status: 'idle', background: [{}] }]) {
+    threads[0] = { id: 'job', cwd: b.folder, startedBy: { kind: 'tool', label: 'Hook' }, permissionMode: 'ask', ...state };
+    assert.equal(bears.busyUnattended(b.id)?.id, 'job');
+  }
+  threads[0].cwd = path.join(b.folder, 'notes');
+  assert.equal(bears.busyUnattended(b.id)?.id, 'job', 'work in a subfolder is the same bear');
+  threads[0] = { id: 'done', cwd: b.folder, status: 'idle', schedule: { id: 's' } };
+  assert.equal(bears.busyUnattended(b.id), undefined);
+  threads[0].status = 'running';
+  threads[0].archivedAt = '2026-11-14T00:00:00Z';
+  assert.equal(bears.busyUnattended(b.id), undefined);
 });
 
 test("CLAUDE.md is the user's after it's made: never overwritten", async () => {
@@ -73,6 +94,36 @@ test("CLAUDE.md is the user's after it's made: never overwritten", async () => {
   fs.writeFileSync(path.join(b.folder, 'CLAUDE.md'), 'mine');
   bears.update(b.id, { does: 'Drafts posts' });
   assert.equal(fs.readFileSync(path.join(b.folder, 'CLAUDE.md'), 'utf8'), 'mine');
+});
+
+test('refresh rules preserves personal text and custom routines, is repeatable, and respects Codex', async () => {
+  const { bears, schedules } = setup();
+  const b = await bears.create({ name: 'Writer', model: 'gpt-6-astra' });
+  assert.equal(schedules.rows[0].permissionMode, 'ask');
+  const persona = path.join(b.folder, 'CLAUDE.md');
+  fs.writeFileSync(persona, '# My persona\n\nKeep my words.\n');
+  schedules.rows[0].paused = true;
+  await schedules.create({ text: 'My custom tidy', title: 'Writer: tidy memory', cwd: b.folder, cron: '30 4 * * *', permissionMode: 'ask' });
+  await bears.refreshRules(b.id);
+  const once = fs.readFileSync(persona, 'utf8');
+  await bears.refreshRules(b.id);
+  assert.equal(fs.readFileSync(persona, 'utf8'), once);
+  assert.ok(once.startsWith('# My persona\n\nKeep my words.\n'));
+  assert.match(once, /memory\/told.md/);
+  assert.match(once, /memory\/tasks\//);
+  assert.equal(schedules.rows[0].paused, true);
+  assert.equal(schedules.rows[1].text, 'My custom tidy');
+  const methods = bearsMethods({ bears, on: () => true, cwdOf: () => b.folder });
+  await assert.rejects(async () => methods['bears.refreshRules']({ _caller: 'bear-thread' }), /can't refresh/);
+  const gate = new CallerGate({ runner: { has: () => true, get: () => ({ permissionMode: 'ask', title: 'T' }), accessOf: () => 'ask', confinedOf: () => false } });
+  assert.throws(() => gate.check('t', 'bears.refreshRules', {}), /needs the user's OK/);
+});
+
+test('an agent creating a bear cannot book an Auto tidy through the harmless create RPC', async () => {
+  const { bears, schedules } = setup();
+  const m = bearsMethods({ bears, on: () => true, cwdOf: () => '/work' });
+  await m['bears.create']({ name: 'Helper', model: 'sonnet', _caller: 'ask-thread' });
+  assert.equal(schedules.rows[0].permissionMode, 'ask');
 });
 
 test('rename keeps the id and folder; access fields are refused from bears.update', async () => {

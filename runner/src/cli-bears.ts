@@ -34,6 +34,7 @@ export const BEARS_HELP = `  tb bears [--archived] [--json]   the bears (experim
                                   (until: an ISO time, or 2h, 3d)
   tb bears project <bear> add|remove <project>   projects its new threads join
   tb bears faces                  the face presets
+  tb bears refresh-rules [bear]   refresh memory rules and built-in tidies, preserving your persona
   tb bears ask <bear> "text"      hands this thread's question to a bear; its reply comes back here`;
 
 export const BEAR_FLAGS = ['json', 'archived', 'does', 'personality', 'face', 'model', 'effort', 'icon', 'notes', 'color', 'ask', 'auto', 'plan', 'full', 'pool', 'runner'];
@@ -87,6 +88,11 @@ export async function bearsCommand(client: RunnerClient, args: string[], f: Flag
     return { avatar: hit.avatar, color: hit.color };
   };
   switch (action) {
+    case 'refresh-rules': {
+      const r = await client.call<{ bears: string[] }>('bears.refreshRules', a ? { bear: a } : {});
+      console.log(`Refreshed ${r.bears.length} bear${r.bears.length === 1 ? '' : 's'}.`);
+      return 0;
+    }
     case undefined:
     case 'list': {
       const r = await client.call<{ on: boolean; bears: Bear[] }>('bears.list', { archived: Boolean(f.archived), faces: false });

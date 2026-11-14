@@ -2727,7 +2727,7 @@ export class Runner {
     // hibernates until they're done (experiment quietInbox,
     // runner/quiet-inbox.ts). Not one a schedule had out of the archive: the
     // lines above have dealt with it.
-    if (finished && !review && !rec.labReviewOwed && !rt.turn && !rec.archivedAt && !this.stopping) void this.settleQuietly(st, Boolean(said?.next?.length));
+    if (finished && !review && !rec.labReviewOwed && !rt.turn && !rec.archivedAt && !this.stopping) void this.settleQuietly(st, Boolean(said?.next?.length), Boolean(turn.endTurn && typeof turn.endTurn === 'object' && 'quiet' in turn.endTurn && turn.endTurn.quiet === true));
     if (archive && !rt.turn && !rec.archivedAt && !this.stopping) {
       this.emit(st, { type: 'system.note', text: 'Archived, as the agent was asked to once it had finished.' });
       this.update({ threadId: rec.id, archived: true, archivedBy: 'agent' });

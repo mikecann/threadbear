@@ -2079,8 +2079,8 @@ Until the desktop app draws them, bears live in `tb bears`:
 
 - `tb bears new "Researcher" --does "Finds sources" --personality "dry and calm" --face round`
   makes one, with a daily "tidy memory" routine at 4:30. The routine runs
-  in Ask like every unattended run, so a tidy that changes a file waits
-  for your yes each morning until you raise the bear with `tb bears access`.
+  in Auto for Claude, where the reviewer checks tool calls, or Ask for
+  Codex. A bear created by another agent starts its tidy in Ask too.
 - `tb bears rename`, `set`, `pin`, `move`, `archive`, `delete`. Renaming
   keeps its memory, routines and old threads. Deleting moves its folder
   to the runner's trash.
@@ -2090,6 +2090,31 @@ Until the desktop app draws them, bears live in `tb bears`:
   webhooks, mentions) go past Ask. Only you can do that: a bear's own
   thread can't. Auto is Claude only: a bear on Codex (`--model gpt-...`)
   set to Auto still asks, and `tb bears access` says so.
+
+Routines, webhooks and mentions share one unattended job per bear. New
+work queues after the current turn, and each mention gets its own answer.
+A repeating routine skips while its previous run is busy. Work with
+different access or a different working folder waits (routines and webhooks), or asks you to retry
+(mentions). Chats you start yourself stay separate.
+
+New bears keep `memory/told.md`, a dated record of what they told you, and
+`memory/tasks/` for unfinished jobs. They read these before starting again
+so they can pick up the work without repeating the same report. These are
+instructions for the agent, not a guarantee that every model follows them.
+`tb bears refresh-rules` adds these rules to existing bears and updates
+their built-in tidies. It preserves your persona text, custom routines
+and paused schedules. A bear cannot run it to raise its own access.
+
+An unattended bear can mark an empty run with `end_turn`'s `quiet: true`.
+The runner archives it only after checking for unfinished work. Useful
+reports, questions, failures and threads you have touched stay visible.
+An empty final check cannot hide an earlier report in the same thread.
+
+The separate **Late answers** experiment lets an answer arriving within a
+day of a tool card expiring resume the thread. It passes your answer and
+the original request to the agent, without replaying the old call or
+changing access. The runner supports this now; a button for deliberately
+answering an expired card is still planned for the GPUI app.
 
 A bear on Codex can make pictures: Codex's own `image_gen` tool makes real
 PNGs (a Designer bear on `gpt-6-astra` made 1024 by 1024 ones on 13 Nov).

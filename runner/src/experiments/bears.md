@@ -13,14 +13,16 @@ A bear is a named teammate, like Researcher or Writer, kept as a folder in `Thre
 
 The first time bears are listed, Head Bear is made as the chief of staff: it can hand jobs to the other bears. `tb bears head <bear>` gives the job to another one.
 
-Make and manage bears with `tb bears` (new, rename, set, pin, move, away, archive, delete, head, ask) or the `bears.*` calls. New bears get a daily "tidy memory" routine. Routines and other unattended runs start in Ask unless you raise the bear with `tb bears access`, which a bear's own thread can't do. A follow-up a bear books in its quiet hours (19:30 to 08:30 by default) moves to the morning. A bear that's away or archived skips its routines.
+Make and manage bears with `tb bears` (new, rename, set, pin, move, away, archive, delete, head, ask) or the `bears.*` calls. New bears get a daily memory tidy: Auto for directly created Claude bears, Ask for Codex and agent-created bears. Other unattended runs start in Ask unless you raise the bear with `tb bears access`, which a bear's own thread can't do. `tb bears refresh-rules` preserves personal text while adding managed memory rules and upgrading built-in Claude tidies to Auto; a bear cannot call it to raise access. A follow-up a bear books in its quiet hours (19:30 to 08:30 by default) moves to the morning. A bear that's away or archived skips its routines.
 
 `@Name` or `@bear:<id>` in a message you send, or `tb bears ask` from a thread, hands the message to that bear, and its reply comes back to the thread that asked.
 
+Routines, webhooks and mentions share one busy unattended worker when their access matches. Recurring routines skip while their prior run is busy. Each mention gets the answer from its own queued turn. Memory rules read `memory/told.md` and unfinished `memory/tasks/` before work. An empty run can use `end_turn quiet: true`; unfinished work, user interaction and earlier useful reports keep it visible. This does not require quietInbox.
+
 ## Lives in
 
-`runner/src/bears.ts` (the folder model, `bears.json`, faces and the `bears.*` RPCs), `runner/src/mentions.ts`, `runner/src/cli-bears.ts` (`tb bears`), the bear defaults in `runner/src/runner/new-threads.ts` (`bearDefaults`), the `holdFor` and `adjustAt` hooks in `runner/src/schedules.ts`, the `bears.*` lines in `runner/src/rpc-gate.ts`, its wiring in `main.ts`, the faces in `runner/skills/bears/avatars/`, the skill `runner/skills/bears/SKILL.md`, and the `open-bot-avatar` package.
+`runner/src/bears.ts` (the folder model, `bears.json`, faces and the `bears.*` RPCs), `runner/src/mentions.ts`, `runner/src/cli-bears.ts` (`tb bears`), the bear defaults in `runner/src/runner/new-threads.ts` (`bearDefaults`), the `foldInto`, `holdFor` and `adjustAt` hooks in `runner/src/schedules.ts`, the `bears.*` lines in `runner/src/rpc-gate.ts`, its wiring in `main.ts`, the bear-specific checks in `runner/quiet-inbox.ts`, the faces in `runner/skills/bears/avatars/`, the skill `runner/skills/bears/SKILL.md`, and the `open-bot-avatar` package.
 
 ## Taking it out
 
-Delete `bears.ts`, `mentions.ts`, `cli-bears.ts`, `runner/skills/bears/`, their lines in `main.ts`, `cli.ts` and `rpc-gate.ts`, the `bearDefaults` block in `new-threads.ts` and `runner.ts`, the two hooks in `schedules.ts`, and `open-bot-avatar` from `runner/package.json`. Bears' folders stay where they are as ordinary folders.
+Delete `bears.ts`, `mentions.ts`, `cli-bears.ts`, `runner/skills/bears/`, their lines in `main.ts`, `cli.ts` and `rpc-gate.ts`, the `bearDefaults` block in `new-threads.ts` and `runner.ts`, the three hooks in `schedules.ts`, and `open-bot-avatar` from `runner/package.json`. Bears' folders stay where they are as ordinary folders.

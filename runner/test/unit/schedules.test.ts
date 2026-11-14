@@ -96,6 +96,36 @@ function idleThread(h: ReturnType<typeof makeHarness>) {
   return { thread, s };
 }
 
+test('a bear routine folds into its running worker and keeps scheduled delivery identity', async () => {
+  const { h, sched } = setup();
+  const t = h.runner.create({ text: 'existing job', accountId: 'claude-main' }).thread;
+  sched.foldInto = () => t.id;
+  const s = await sched.create({ text: 'second job', cron: '0 9 * * *', cwd: t.cwd });
+  const r = await sched.runNow(s.id);
+  assert.equal(r.threadId, t.id);
+  assert.equal(h.runner.list().length, 1);
+  const queued = h.runner.threads.get(t.id)!.rec.queue;
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].scheduleId, s.id);
+  assert.match(queued[0].text, /second job/);
+  assert.match(sched.list()[0].lastRun?.note ?? '', /Folded into/);
+  sched.stop();
+});
+
+test('a slow bear cron skips every repeat while its prior run is busy', async () => {
+  const { h, sched } = setup();
+  const t = h.runner.create({ text: 'existing job', accountId: 'claude-main' }).thread;
+  sched.foldInto = () => t.id;
+  await sched.create({ text: 'routine', cron: '* * * * *', cwd: t.cwd });
+  for (let n = 0; n < 4; n++) {
+    h.clock.advance(60_000);
+    await tick();
+  }
+  assert.equal(h.runner.threads.get(t.id)!.rec.queue.length, 1);
+  assert.equal(sched.list()[0].runs, 1);
+  sched.stop();
+});
+
 for (const backend of [false, true]) for (const crashed of [false, true]) for (const manual of [false, true]) test(`a lost draining-runner reply is not delivered again after adoption (${backend ? 'backend' : 'local'}, ${crashed ? 'crash' : 'normal'}, ${manual ? 'Run now' : 'due'})`, async () => {
   const old = makeHarness();
   // Start the primary before the old thread exists, as if it skipped a

@@ -31,11 +31,27 @@ async function setup() {
     send: (id, text) => void sent.push({ id, text }),
     lastReply: (id) => threads.get(id)?.reply ?? '',
   };
+  let pending = false;
+  host.pendingWork = () => pending;
   let table: { id: string; title: string; bears: string[]; maxTurns: number } | undefined;
   const m = new Mentions({ home, bears, host, tableOf: (cwd) => (cwd === '/table' ? table : undefined) });
   threads.set('w1', { id: 'w1', title: 'Launch plan', cwd: '/work', permissionMode: 'full', status: 'idle', projects: [{ id: 'p1' }] });
-  return { bears, r, w, threads, sent, made, m, setTable: (t: typeof table) => (table = t) };
+  return { bears, r, w, threads, sent, made, m, setPending: (v: boolean) => (pending = v), setTable: (t: typeof table) => (table = t) };
 }
+
+test('a queued mention waits for its answer and never folds upward into wider access', async () => {
+  const s = await setup();
+  const first = s.m.ask({ fromThreadId: 'w1', bear: s.r.id, text: 'first' });
+  s.m.ask({ fromThreadId: 'w1', bear: s.r.id, text: 'second' });
+  s.setPending(true);
+  assert.equal(s.m.turnEnded(first.threadId!), 0);
+  s.setPending(false);
+  s.threads.get(first.threadId!)!.reply = 'Both jobs are finished';
+  assert.equal(s.m.turnEnded(first.threadId!), 1);
+  s.threads.get(first.threadId!)!.permissionMode = 'full';
+  assert.throws(() => s.m.ask({ fromThreadId: 'w1', bear: s.r.id, text: 'third' }), /different access/);
+  assert.equal(s.made.length, 1);
+});
 
 test('findMentions: @Name in any case and @bear:<id>, not emails or longer words', async () => {
   const bears = [{ id: 'researcher-1a2b', name: 'Researcher' }, { id: 'mom-1', name: 'Head Bear' }, { id: 'mo-1', name: 'Mo' }];

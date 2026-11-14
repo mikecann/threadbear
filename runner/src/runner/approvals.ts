@@ -15,6 +15,7 @@ import { SECRET_TIMEOUT_DEFAULT_MIN, SECRET_TIMEOUT_MAX_MIN, type SecretFiles } 
 import { START_CARD, type RequestAnswer } from '../cross-runner.ts';
 import { REMOTE_ALLOW_REFUSED, remoteCardShowsAll } from '../tools.ts';
 import { reviewCard, reviewsCards, type CardForReview, type CardVerdict } from './card-review.ts';
+import { respondLateApproval } from './late-answers.ts';
 
 export type SecretRequest = { label: string; reason: string; placeholder?: string; timeoutMinutes?: number; toolUseId?: string; signal?: AbortSignal };
 export type SecretAnswer = ({ status: 'saved' } & SecretFiles) | { status: 'declined' | 'expired'; message?: string };
@@ -56,7 +57,7 @@ export const approvalsPart = {
   }): Record<string, never> {
     const st = this.mustGet(params.threadId);
     const pending = st.rt.approvals.get(params.approvalId);
-    if (!pending) throw new RpcError(ErrorCode.badParams, 'That approval is no longer pending.');
+    if (!pending) return respondLateApproval(this, st, params);
     if (params.remote && pending.kind === 'tool' && pending.macOnly && (params.decision === 'allow' || params.decision === 'allowAlways')) {
       throw new RpcError(ErrorCode.badParams, `${REMOTE_ALLOW_REFUSED} Deny still works from here.`);
     }

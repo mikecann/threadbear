@@ -75,14 +75,20 @@ export type BearInfo = BearFile & {
 export type BearSchedules = {
   list(): Schedule[];
   create(p: { text: string; title?: string; cron?: string; at?: string; cwd?: string; permissionMode?: PermissionMode; createdBy?: string }): Promise<Schedule>;
-  update(p: { scheduleId: string; paused?: boolean }): Promise<Schedule>;
+  update(p: { scheduleId: string; paused?: boolean; text?: string; permissionMode?: PermissionMode }): Promise<Schedule>;
   delete(scheduleId: string): Promise<unknown>;
 };
 
 export type BearThreads = {
   // Threads this runner has, for archiving a deleted bear's.
-  list(): { id: string; cwd: string; archivedAt?: string }[];
+  list(): BearThread[];
   archive(threadId: string): void;
+};
+
+export type BearThread = {
+  id: string; cwd: string; archivedAt?: string; status?: string;
+  permissionMode?: PermissionMode; startedBy?: { kind: string; label?: string };
+  schedule?: { id: string }; queued?: boolean; background?: unknown[];
 };
 
 export type BearsDeps = {
@@ -272,10 +278,34 @@ ${b.personality || 'Calm, warm and to the point.'} Let it colour your words, nev
 - When the user leaves something half done, book one follow-up with
   schedule_message about a day later. Never at night: the runner moves
   anything you book out of your quiet hours.
+
+${ALWAYS_ON_TEXT}
 `;
 }
 
-const TIDY_TEXT = `Tidy your memory. Merge duplicates in memory/, refresh memory/summary.md so it stays one page, and delete anything the user said not to keep. If you own the shared memory (../memory/), tidy that too. Commit the changes with git in this folder. Keep it short and say what changed in one line.`;
+const LEGACY_TIDY_TEXT = `Tidy your memory. Merge duplicates in memory/, refresh memory/summary.md so it stays one page, and delete anything the user said not to keep. If you own the shared memory (../memory/), tidy that too. Commit the changes with git in this folder. Keep it short and say what changed in one line.`;
+const TIDY_TEXT = `Tidy your memory. Change only memory/ and, if you own it, ../memory/. Merge duplicates, refresh memory/summary.md so it stays one page, and delete anything the user said not to keep. Read memory/told.md to avoid repeating a report. Drop completed memory/tasks/*.md files and their summary links; keep unfinished tasks and their next step. Commit only the memory files you changed, never unrelated work. If nothing needs reporting, end_turn with needs "nothing" and quiet true. Otherwise say what changed in one line.`;
+
+const ALWAYS_ON_START = '<!-- bear-always-on: start -->';
+const ALWAYS_ON_END = '<!-- bear-always-on: end -->';
+export const ALWAYS_ON_TEXT = `${ALWAYS_ON_START}
+## Picking up unattended work
+
+- Before a routine, webhook or mention job, read memory/told.md and the
+  unfinished tasks linked from memory/summary.md. Missing files start empty.
+- After reporting to the user, append one dated line to memory/told.md
+  saying what you told them. Never repeat it unless something changed.
+- Keep each unfinished job in memory/tasks/<task>.md: what is done, what
+  is left, and the next step. Link it from memory/summary.md. The tidy
+  removes completed tasks. Keep secrets out of both files.
+- If an unattended run finds nothing new to report, use end_turn with
+  needs "nothing" and quiet true. Keep useful reports in the inbox.
+  A quiet completion never means hiding a failure or an unanswered question.
+${ALWAYS_ON_END}`;
+
+function tidyMode(b: { model?: string; state?: BearState }): PermissionMode {
+  return /^(gpt-|codex)/i.test(b.model ?? '') || /codex/i.test(b.state?.poolId ?? '') ? 'ask' : 'auto';
+}
 
 export class Bears {
   readonly root: string;
@@ -442,6 +472,18 @@ export class Bears {
     return undefined;
   }
 
+  // All unattended sources share this lookup; creating/queuing immediately
+  // after it is synchronous, so two arrivals cannot both claim an idle bear.
+  busyUnattended(bearId: string): BearThread | undefined {
+    const folder = this.folderOf(bearId);
+    return this.d.threads?.()?.list().find((t) => {
+      const rel = path.relative(folder, path.resolve(expandHome(t.cwd)));
+      const inside = !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${path.sep}`);
+      return !t.archivedAt && (t.startedBy || t.schedule) && inside &&
+        (['running', 'starting', 'waiting', 'queued'].includes(t.status ?? '') || t.queued || t.background?.length);
+    });
+  }
+
   // ------------------------------------------------------------ making
 
   async create(p: { name: unknown; does?: unknown; personality?: unknown; icon?: unknown; model?: unknown; effort?: unknown; avatar?: unknown; preset?: unknown; color?: unknown; quietHours?: unknown; tidy?: boolean; createdBy?: string }): Promise<BearInfo> {
@@ -458,11 +500,12 @@ export class Bears {
     const id = newBearId(file.name);
     const folder = path.join(this.root, id);
     fs.mkdirSync(path.join(folder, 'memory'), { recursive: true });
-    for (const sub of ['people', 'facts', 'projects']) {
+    for (const sub of ['people', 'facts', 'projects', 'tasks']) {
       fs.mkdirSync(path.join(folder, 'memory', sub), { recursive: true });
       writeIfMissing(path.join(folder, 'memory', sub, '.gitkeep'), '');
     }
     writeIfMissing(path.join(folder, 'memory', 'summary.md'), `# ${file.name}'s memory\n\nNothing yet.\n`);
+    writeIfMissing(path.join(folder, 'memory', 'told.md'), '# What I told the user\n');
     // The memory every bear shares: lasting facts about the user.
     fs.mkdirSync(path.join(this.root, 'memory'), { recursive: true });
     writeIfMissing(path.join(this.root, 'memory', 'summary.md'), '# What every bear knows about the user\n\nNothing yet.\n');
@@ -481,13 +524,40 @@ export class Bears {
       const s = this.d.schedules?.();
       if (s) {
         try {
-          await s.create({ text: TIDY_TEXT, title: `${file.name}: tidy memory`, cron: TIDY_CRON, cwd: folder, permissionMode: 'ask', ...(p.createdBy ? { createdBy: p.createdBy } : {}) });
+          // Creating bears is allowed below Full access. An agent cannot
+          // use that permission to book an Auto routine for a new bear.
+          await s.create({ text: TIDY_TEXT, title: `${file.name}: tidy memory`, cron: TIDY_CRON, cwd: folder, permissionMode: p.createdBy ? 'ask' : tidyMode(file), ...(p.createdBy ? { createdBy: p.createdBy } : {}) });
         } catch {
           /* the bear is made; the routine can be added later */
         }
       }
     }
     return this.get(id);
+  }
+
+  async refreshRules(id?: string): Promise<string[]> {
+    const bears = id ? [this.get(id, { faces: false })] : this.list({ faces: false });
+    for (const b of bears) {
+      for (const name of ['CLAUDE.md', 'AGENTS.md']) {
+        const file = path.join(b.folder, name);
+        if (!fs.existsSync(file)) continue;
+        const text = fs.readFileSync(file, 'utf8');
+        const start = text.indexOf(ALWAYS_ON_START);
+        const end = text.indexOf(ALWAYS_ON_END, start);
+        // A damaged marker is the user's text too; never guess where it ends.
+        if ((start >= 0) !== (end >= 0)) throw fail(`Fix the always-on markers in ${name} before refreshing ${b.name}.`);
+        const next = start >= 0 ? text.slice(0, start) + ALWAYS_ON_TEXT + text.slice(end + ALWAYS_ON_END.length) : `${text.trimEnd()}\n\n${ALWAYS_ON_TEXT}\n`;
+        if (next !== text) fs.writeFileSync(file, next);
+      }
+      fs.mkdirSync(path.join(b.folder, 'memory', 'tasks'), { recursive: true });
+      writeIfMissing(path.join(b.folder, 'memory', 'told.md'), '# What I told the user\n');
+      for (const s of this.schedulesList()) {
+        if (!s.threadId && s.cwd && path.resolve(expandHome(s.cwd)) === b.folder && s.cron === TIDY_CRON && [LEGACY_TIDY_TEXT, TIDY_TEXT].includes(s.text)) {
+          if (s.text !== TIDY_TEXT || s.permissionMode !== tidyMode(b)) await this.d.schedules?.()?.update({ scheduleId: s.id, text: TIDY_TEXT, permissionMode: tidyMode(b) });
+        }
+      }
+    }
+    return bears.map((b) => b.id);
   }
 
   // Harmless fields only (bear.json). Anything else is refused.
@@ -769,6 +839,12 @@ export function bearsMethods(d: BearsMethodsDeps): Record<string, (p: Record<str
       return { bears };
     },
     'bears.get': (p) => (on(), { bear: d.bears.get(str(p, 'bear')) }),
+    'bears.refreshRules': async (p) => {
+      on();
+      const cwd = callerCwd(p);
+      if (cwd !== undefined && d.bears.forCwd(cwd)) throw fail("A bear's thread can't refresh rules or raise its tidy's access.", ErrorCode.notAllowed);
+      return { bears: await d.bears.refreshRules(p.bear === undefined ? undefined : str(p, 'bear')) };
+    },
     'bears.faces': () => (on(), { faces: avatarPresets().map((x) => ({ ...x, faces: renderFaces(x.avatar, x.color) })) }),
     'bears.create': async (p) => {
       on();

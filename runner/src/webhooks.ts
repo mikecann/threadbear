@@ -120,8 +120,10 @@ export type WebhookCommandsDeps = {
   create: (p: { text: string; cwd: string; permissionMode: PermissionMode; startedBy: ThreadStartedBy; origin: 'runner'; title: string }) => { thread: ThreadSummary };
   send: (threadId: string, text: string) => unknown;
   modeOf: (threadId: string) => PermissionMode | undefined;
+  cwdOf?: (threadId: string) => string | undefined;
   // Why this folder's bear isn't taking work now (bears.ts holdReason).
   held?: (cwd: string) => string | undefined;
+  foldInto?: (cwd: string) => string | undefined;
   home: string;
   registry: HookRegistry;
   now?: () => number;
@@ -150,10 +152,17 @@ export function webhookCommands(d: WebhookCommandsDeps): WebhookCommands {
     fs.writeFileSync(`${file}.tmp`, JSON.stringify(rows.slice(-200)), { mode: 0o600 });
     fs.renameSync(`${file}.tmp`, file);
   };
-  const run = (h: Held): { threadId?: string } | undefined => {
+  const run = (h: Held): { threadId?: string; held?: string } | undefined => {
     const text = hookText(h.from, h.payloads);
     if (h.kind === 'create') {
       const mode: PermissionMode = h.mode === 'auto' ? 'auto' : 'ask';
+      const worker = d.foldInto?.(h.cwd!);
+      if (worker) {
+        const cwd = d.cwdOf?.(worker);
+        if (d.modeOf(worker) !== mode || (cwd && path.resolve(cwd) !== path.resolve(h.cwd!))) return { held: 'The running bear job has different access or a different folder; waiting for it to finish.' };
+        d.send(worker, text);
+        return { threadId: worker };
+      }
       const { thread } = d.create({
         text,
         cwd: h.cwd!,
@@ -195,7 +204,9 @@ export function webhookCommands(d: WebhookCommandsDeps): WebhookCommands {
         write([...read(), h]);
         return { held: why };
       }
-      return run(h);
+      const result = run(h);
+      if (result?.held) write([...read(), h]);
+      return result;
     },
     replayHeld: () => {
       const rows = read();
@@ -208,8 +219,8 @@ export function webhookCommands(d: WebhookCommandsDeps): WebhookCommands {
           continue;
         }
         try {
-          run(h);
-          ran++;
+          if (run(h)?.held) keep.push(h);
+          else ran++;
         } catch {
           /* gone since: dropped */
         }

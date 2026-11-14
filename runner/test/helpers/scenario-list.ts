@@ -16,6 +16,15 @@ export type Scenario = { name: string; play: (p: Play) => void; shows: string[] 
 
 export const SCENARIOS: Scenario[] = [
   {
+    name: 'a late tool answer resumes as a message on every surface',
+    shows: ['answered an expired tool card', 'allowed this request once', 'The old tool call was not replayed'],
+    play: (p) => {
+      p.answerExpiredTool();
+      p.say('I will check whether the greeting is still needed.');
+      p.endTurn({ needs: 'nothing' });
+    },
+  },
+  {
     name: 'a Notion board card mentioned beside a draft picture',
     shows: ['Please check', 'Pick the share button colour'],
     play: (p) => {

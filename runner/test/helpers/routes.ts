@@ -62,6 +62,8 @@ export type Play = {
   runAsks(): void;
   /** Mike presses Go ahead on the last plan (plans.approve). */
   approvePlan(): void;
+  /** A tool card expires and the user answers it after the turn. */
+  answerExpiredTool(): void;
   /** The agent puts a Plan first plan to Mike (plan.proposed). */
   proposePlan(text: string): void;
   /** Turns on the done card's loose ends, with a check-in booked for this thread. */
@@ -174,6 +176,16 @@ export async function playInto(post: Post, runner: { key: string; runnerId: stri
       },
       approvePlan: () => {
         h.runner.approvePlan({ threadId: thread.id, itemId: lastPlan });
+        h.adapter.last.init();
+      },
+      answerExpiredTool: () => {
+        const file = path.join(h.cfg.home, 'runner.json');
+        const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+        fs.writeFileSync(file, JSON.stringify({ ...json, experiments: { ...json.experiments, lateAnswers: true } }));
+        void s.sink.requestApproval({ toolUseId: 'late-call', name: 'Bash', title: 'Print a greeting', input: { command: 'printf hello' }, canAlwaysAllow: false, signal: new AbortController().signal });
+        const id = [...h.runner.threads.get(thread.id)!.rt.approvals.keys()][0];
+        s.result('completed');
+        h.runner.respondApproval({ threadId: thread.id, approvalId: id, decision: 'allow' });
         h.adapter.last.init();
       },
       endTurn: (input) => {

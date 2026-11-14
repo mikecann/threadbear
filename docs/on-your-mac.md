@@ -219,7 +219,16 @@ With Bears on, `tb bears new` (and the first `bears.list`, which makes
 Head Bear) makes `~/ThreadbearThreads/Bears/<id>/` with `CLAUDE.md`,
 `AGENTS.md`, `bear.json` and `memory/`, runs `git init` there, adds a
 shared `Bears/memory/summary.md`, and books a daily "tidy memory" schedule
-for 4:30. Deleting a bear moves its folder to the runner's `trash/`. With
+for 4:30. New memory includes `memory/told.md` (what it reported) and
+`memory/tasks/` (unfinished jobs). `tb bears refresh-rules` updates a marked
+block in the bear's two instruction files and its built-in tidy schedule;
+it preserves other text and custom routines. Directly created Claude
+tidies use Auto, Codex and agent-created ones Ask; an authorized refresh
+moves Claude tidies to Auto. The tidy's instructions limit edits to memory.
+The `lateAnswers` experiment reads existing approval events from the
+thread log and queues a message containing the original request and late
+answer. That message follows the thread's usual sync rules; it creates no
+separate retained-input store. Deleting a bear moves its folder to the runner's `trash/`. With
 Tables on, `tb tables new` makes `~/ThreadbearThreads/Tables/<id>/` with
 the host's `CLAUDE.md`. Faces are drawn by the `open-bot-avatar` package
 (0.2.1, MIT, no dependencies), installed with the runner's packages.
