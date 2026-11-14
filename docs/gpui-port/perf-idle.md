@@ -1,5 +1,10 @@
 # GPUI idle work, 13 November 2026
 
+Candidate status: not landed. A mixed-animation CPU outlier needs an
+independent loader-phase check: window FPS alone cannot show that both the
+working arc and the central loader are still advancing. The following
+measurements remain source-labelled observations, not proof of that condition.
+
 The generic loading spinner drew the window at the display refresh rate.
 The current candidate limits those decorative frames through one display-link
 callback per window. It leaves main's sidebar arc layer and one-second clock
@@ -316,7 +321,33 @@ activation without launching a replacement. It recorded the owned PID as the
 foreground app, `isActive: true`, and then passed the unchanged two-second
 external coverage watch. Priority was 37, nice 0. This establishes foreground
 app activation for that smoke, not key-window state or production equivalence.
-CPU reference intervals remain pending.
+The later UUID-pinned reference completed three alternating pairs plus a
+separate discarded warm-up pair for each scene. GPUI is the stock release
+binary A above; Swift is the cached DEBUG build, direct private launch. Both
+used the same 1,500-turn/1,450-other-thread fixture and 1180 × 800 window.
+
+| Normal-load scene | App-process metric | GPUI release | Swift DEBUG/direct |
+|---|---|---:|---:|
+| Settled transcript | CPU, % of one core | 3.056 | 0.299 |
+| Settled transcript | Interrupt wakeups/s | 17.622 | 2.999 |
+| Another visible thread working | CPU, % of one core | 25.360 | 2.125 |
+| Another visible thread working | Interrupt wakeups/s | 92.483 | 5.874 |
+
+Every Swift arm matched the sealed source's Mach-O build UUID
+`bf69bef0-5277-3da3-b7c7-56b453545bae`. The cached source SHA-256 was
+`3791aa397daaf30ed04a4d731d9c12d43b2cb1c99d1c85d16fdcbf3a0b1101af`;
+private hashes differ because the frozen launcher re-signs each private bundle.
+A narrow copy/re-sign test confirmed that this changes the raw SHA while
+preserving build UUIDs. The initial raw-hash-only attempt failed before Swift
+CPU counters and is excluded.
+
+All intervals passed foreground, awake, unlocked and coverage checks; Swift
+also reported the owned PID as foreground with `isActive: true`. GPUI's native
+active flag was true at both endpoints. Thermal state was normal, Low Power
+Mode off, display 60 Hz, and each process snapshot was priority 37/nice 0.
+The working-row captures show the same visible blue working arc and clock.
+All 16 reference app PIDs were gone afterwards. These are app-process numbers,
+not total animation energy or an installed Swift performance comparison.
 
 Any Swift comparison is labelled debug/direct and covers app-process CPU and
 wakeups. It excludes animation work in the render server; GPUI's process

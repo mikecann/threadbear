@@ -28,6 +28,64 @@ thread_local! {
     static CPU_BASELINE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
+// Scripted perf builds count the generic loader itself: another animation
+// can keep window FPS high even if a cached loader stops being repainted.
+#[cfg(feature = "automation")]
+thread_local! {
+    static LOADERS: RefCell<std::collections::HashMap<WindowId, LoaderPaints>> = RefCell::new(std::collections::HashMap::new());
+}
+#[cfg(feature = "automation")]
+struct LoaderPaints { paints: u64, changes: u64, phase: Option<f32>, last_change: Instant, max_gap: Duration }
+#[cfg(feature = "automation")]
+impl LoaderPaints {
+    fn new(now: Instant) -> Self { Self { paints: 0, changes: 0, phase: None, last_change: now, max_gap: Duration::ZERO } }
+    fn note(&mut self, phase: f32, now: Instant) {
+        self.paints += 1;
+        if self.phase.is_none_or(|old| (old - phase).abs() > 0.0001) {
+            self.max_gap = self.max_gap.max(now.saturating_duration_since(self.last_change));
+            self.last_change = now;
+            self.phase = Some(phase);
+            self.changes += 1;
+        }
+    }
+    fn reset(&mut self, now: Instant) { self.paints = 0; self.changes = 0; self.max_gap = Duration::ZERO; self.last_change = now; }
+}
+#[cfg(feature = "automation")]
+pub(crate) fn loader_painted(window: &Window, phase: f32) {
+    let now = Instant::now();
+    LOADERS.with(|all| all.borrow_mut().entry(window.window_handle().window_id()).or_insert_with(|| LoaderPaints::new(now)).note(phase, now));
+}
+#[cfg(feature = "automation")]
+fn loader_sample(window: &Window, reset: bool) -> Value {
+    let now = Instant::now();
+    LOADERS.with(|all| {
+        let mut all = all.borrow_mut();
+        let Some(sample) = all.get_mut(&window.window_handle().window_id()) else { return Value::Null };
+        let out = json!({ "paints": sample.paints, "phaseChanges": sample.changes,
+            "maxGapMs": sample.max_gap.max(now.saturating_duration_since(sample.last_change)).as_secs_f64() * 1000. });
+        if reset { sample.reset(now); }
+        out
+    })
+}
+#[cfg(all(test, feature = "automation"))]
+mod loader_probe_tests {
+    use super::LoaderPaints;
+    use std::time::{Duration, Instant};
+    #[test]
+    fn repeated_paints_do_not_count_as_animation_and_a_frozen_tail_is_visible() {
+        let now = Instant::now();
+        let mut sample = LoaderPaints::new(now);
+        sample.note(0., now); sample.reset(now);
+        for i in 1..=120 { sample.note(0., now + Duration::from_millis(i * 16)); }
+        assert_eq!(sample.paints, 120); assert_eq!(sample.changes, 0);
+        sample.note(0.25, now + Duration::from_secs(2));
+        assert_eq!(sample.changes, 1); assert_eq!(sample.max_gap, Duration::from_secs(2));
+        sample.reset(now + Duration::from_secs(2));
+        assert_eq!((sample.paints, sample.changes, sample.max_gap), (0, 0, Duration::ZERO));
+        assert_eq!(sample.phase, Some(0.25));
+    }
+}
+
 /// CPU time this thread has used, in nanoseconds. Asked from the automation's
 /// commands, which run on the main thread, so it's the main thread's. It
 /// leaves out time spent waiting for a core, which a frame's wall-clock work
@@ -127,6 +185,7 @@ pub(crate) fn report(window: &Window, reset: bool) -> Value {
     let cpu = thread_cpu_nanos();
     let mut out = out;
     out["windowActive"] = json!(window.is_window_active());
+    out["loader"] = loader_sample(window, reset);
     out["mainCpuMs"] = json!(ms(cpu.saturating_sub(CPU_BASELINE.with(|c| c.get()))));
     if reset {
         BASELINE.with(|b| *b.borrow_mut() = Some(now));

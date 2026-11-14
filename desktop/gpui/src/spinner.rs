@@ -338,9 +338,11 @@ impl RenderOnce for Spinner {
             .when_some(self.color, |icon, color| icon.text_color(color))
             .transform(Transformation::rotate(percentage(phase)));
         div().relative().flex_none().size(side).child(body)
-            .child(canvas(|_, _, _| {}, |bounds, _, window, cx| {
-                if !cx.reduce_motion() && bounds.intersects(&window.content_mask().bounds) {
-                    next_spinner_frame(window, cx);
+            .child(canvas(|_, _, _| {}, move |bounds, _, window, cx| {
+                if bounds.intersects(&window.content_mask().bounds) {
+                    #[cfg(all(feature = "automation", feature = "frame-stats"))]
+                    crate::frame_stats::loader_painted(window, phase);
+                    if !cx.reduce_motion() { next_spinner_frame(window, cx); }
                 }
             }).absolute().inset_0())
     }

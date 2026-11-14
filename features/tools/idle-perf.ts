@@ -204,6 +204,10 @@ async function measure(label: string) {
     const dump = await app.dump();
     if (!dump.transcript.spinner) throw new Error('The read completed during the loading interval.');
     assertMixed(dump);
+    if (process.env.TB_IDLE_REQUIRE_LOADER_PHASE === 'on' && process.env.TB_REDUCE_MOTION !== 'on') {
+      const loader = frames?.loader;
+      if (!loader || loader.phaseChanges < seconds * 10 || loader.maxGapMs > 500) throw new Error(`Generic loader stopped changing phase: ${JSON.stringify(loader)}`);
+    }
     const drawn = frames?.screens.reduce((n: number, s: { drawn: number }) => n + s.drawn, 0) ?? 0;
     if (!swift && process.env.TB_REDUCE_MOTION !== 'on' && drawn < seconds * 10) throw new Error('Too few spinner frames; the display may be asleep or the app covered.');
   }
