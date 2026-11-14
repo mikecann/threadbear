@@ -215,12 +215,25 @@ public struct TranscriptModel: Sendable {
     public func isExpanded(_ key: String) -> Bool { expanded.contains(key) }
 
     /// Approval cards (not questions) still waiting on Mike, oldest first.
-    /// Return in an empty composer allows the one there is.
+    /// Return allows the first of them it can (`approvalForReturn`).
     public var pendingApprovalIds: [String] {
         pendingCards.keys
             .filter { $0.hasPrefix("ap:") }
             .sorted { (itemIndex[$0] ?? 0) < (itemIndex[$1] ?? 0) }
             .map { String($0.dropFirst(3)) }
+    }
+
+    /// The approval Return allows, and whose Allow button shows the ⏎: the
+    /// oldest still waiting whose answer isn't on its way already
+    /// (`answering`), so with several open Return works down them in the
+    /// order they asked. Never another runner's request for a thread: that
+    /// is started only by a click on its card, after reading it.
+    public func approvalForReturn(answering: Set<String> = []) -> String? {
+        pendingApprovalIds.first { id in
+            guard !answering.contains(id) else { return false }
+            if case .approval(let item)? = item(id: "ap:" + id)?.content, item.isStartRequest { return false }
+            return true
+        }
     }
 
     /// Replaces everything with this page of events (oldest first).

@@ -24,6 +24,21 @@ final class TranscriptTableView: NSTableView, TranscriptThreadHost {
         // Let text views inside rows take focus for selection.
         true
     }
+
+    /// Return with the transcript focused (a click on a row's text puts the
+    /// keys here, not in the composer) allows the waiting approval, as it
+    /// does in an empty composer: the card shows the ⏎ either way.
+    override func keyDown(with event: NSEvent) {
+        if Self.isPlainReturn(event), controller?.session?.allowNextApproval() == true { return }
+        super.keyDown(with: event)
+    }
+
+    /// Return or Enter with nothing held, and not a key repeat: holding it
+    /// down mustn't work through every card.
+    static func isPlainReturn(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 36 || event.keyCode == 76, !event.isARepeat else { return false }
+        return event.modifierFlags.intersection([.shift, .option, .command, .control]).isEmpty
+    }
 }
 
 /// Where a thread was scrolled to, so switching back restores it.
@@ -911,6 +926,8 @@ final class TranscriptController: NSObject, NSTableViewDataSource, NSTableViewDe
     }
 
     func isAnswering(_ approvalId: String) -> Bool { session?.answering.contains(approvalId) == true }
+
+    func takesReturn(_ approvalId: String) -> Bool { session?.returnApprovalId == approvalId }
 
     func untickedCalls(_ approvalId: String) -> Set<String> { session?.untickedCalls[approvalId] ?? [] }
 

@@ -1324,6 +1324,16 @@ final class TranscriptTextView: NSTextView {
     // Don't let a row's text view swallow scroll-wheel events or show an
     // insertion point; the table owns scrolling.
     override var acceptsFirstResponder: Bool { true }
+
+    /// Return with a row's text focused allows the waiting approval
+    /// (TranscriptTableView.keyDown): a click to select or read takes the
+    /// keys from the composer, and the card's ⏎ did nothing after it.
+    override func keyDown(with event: NSEvent) {
+        if !isEditable, TranscriptTableView.isPlainReturn(event), let id = transcriptThreadId,
+           AppModel.shared.session(for: id).allowNextApproval() { return }
+        super.keyDown(with: event)
+    }
+
     override func scrollWheel(with event: NSEvent) {
         closeChipCard()
         closeSelectionBar()

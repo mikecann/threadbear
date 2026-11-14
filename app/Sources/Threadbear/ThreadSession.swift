@@ -809,12 +809,31 @@ final class ThreadSession {
 
     private func startAnswering(_ approvalId: String) {
         answering.insert(approvalId)
-        view?.refreshCard(approvalId)
+        refreshWaitingCards(and: approvalId)
     }
 
     private func stopAnswering(_ approvalId: String) {
         answering.remove(approvalId)
+        refreshWaitingCards(and: approvalId)
+    }
+
+    /// The card whose answer started or failed, and every other approval
+    /// still waiting: the ⏎ moves to the next one as this one goes.
+    private func refreshWaitingCards(and approvalId: String) {
         view?.refreshCard(approvalId)
+        for id in feed.model.pendingApprovalIds where id != approvalId { view?.refreshCard(id) }
+    }
+
+    /// The approval Return allows now (TranscriptModel.approvalForReturn).
+    var returnApprovalId: String? { feed.model.approvalForReturn(answering: answering) }
+
+    /// Return with nothing typed, in the composer or with the transcript
+    /// focused: allows the oldest waiting approval, the one showing the ⏎.
+    /// False when there's none, so the key goes on to do what it did.
+    func allowNextApproval() -> Bool {
+        guard let id = returnApprovalId else { return false }
+        respond(approvalId: id, decision: .allow, answers: nil, message: nil)
+        return true
     }
 
     /// Calls Mike has unticked on a card with queued calls (docs/protocol.md,

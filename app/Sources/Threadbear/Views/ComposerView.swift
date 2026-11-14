@@ -373,7 +373,7 @@ struct ComposerView: View {
     }
 
     /// Return with nothing typed sends picked answers on their own (once
-    /// every ask has one, or with ⌘), or else allows the sole approval (below).
+    /// every ask has one, or with ⌘), or else allows the waiting approval (below).
     private func returnWhenEmpty(_ draft: Draft, command: Bool) -> Bool {
         // An edit with only pictures left still sends; an empty one does nothing.
         if let thread, app.editing[thread.id] != nil {
@@ -388,24 +388,17 @@ struct ComposerView: View {
             send()
             return true
         }
-        return draft.images.isEmpty && allowSoleApproval()
+        return draft.images.isEmpty && allowWaitingApproval()
     }
 
     /// Return in an empty box allows the open thread's approval card, the
-    /// ⏎ its Allow button shows, when there's exactly one waiting (with
-    /// two, Return can't know which). Read when the key is pressed, so the
-    /// composer doesn't redraw as approvals come and go.
-    private func allowSoleApproval() -> Bool {
+    /// ⏎ its Allow button shows. With several waiting it's the oldest, the
+    /// only one showing the ⏎ (ThreadSession.allowNextApproval). Read when
+    /// the key is pressed, so the composer doesn't redraw as approvals come
+    /// and go.
+    private func allowWaitingApproval() -> Bool {
         guard let thread else { return false }
-        let session = app.session(for: thread.id)
-        let pending = session.model.pendingApprovalIds
-        guard pending.count == 1, let id = pending.first else { return false }
-        // Another runner asking for a thread is started only by a click on
-        // its card, after reading it: a card that lands as Mike presses
-        // Return in an empty box mustn't start what he never saw.
-        if case .approval(let item)? = session.model.item(id: "ap:" + id)?.content, item.isStartRequest { return false }
-        session.respond(approvalId: id, decision: .allow, answers: nil, message: nil)
-        return true
+        return app.session(for: thread.id).allowNextApproval()
     }
 
     /// Paste, drop and the "+" button put a chip in the words, and each
