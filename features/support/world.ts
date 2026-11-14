@@ -81,6 +81,14 @@ export function describe(d: Dump): string {
 
 setWorldConstructor(ThreadbearWorld);
 
+// A pin request must survive other pane updates while its highlights arrive.
+Before({ tags: '@panel.requests and @highlights.pinned' }, () => {
+  process.env.THREADBEAR_MOCK_HIGHLIGHTS_DELAY_MS = '5000';
+});
+After({ tags: '@panel.requests and @highlights.pinned' }, () => {
+  delete process.env.THREADBEAR_MOCK_HIGHLIGHTS_DELAY_MS;
+});
+
 // The loading rows only show while the list is on its way, so that scenario's
 // mock answers late. Before the app starts, hence above the Before below.
 Before({ tags: '@sidebar.skeleton' }, () => {

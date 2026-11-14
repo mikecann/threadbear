@@ -4907,6 +4907,12 @@ clears it too: he has seen the reply it went with. The tool waits up to 2
 seconds for `threads.panelShown`, so its answer says whether Mike has the
 panel in front of him now or will when he next looks.
 
+A request naming a pin waits for a successful highlights answer requested
+for that pin before a missing pin falls back to Highlights. Other pane or
+thread updates and failed fetches leave the request waiting; later fetches
+from a busy turn do not hold back the answer it needed.
+Transient fetch errors are retried while Mike is looking at that thread.
+
 During a handover the request stays with the thread on the runner that
 has it, and the primary passes `threads.panelShown` on as it does any
 thread's request.

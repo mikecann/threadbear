@@ -252,6 +252,10 @@ File references are where to look.
   connects, the runner runs `lsof` and `ps` on that one connection to see
   which process it is and whether it's under a thread's CLI
   (`runner/src/peer.ts`, docs/protocol.md "Who's really calling").
+- **A pinned file being shown** (`desktop/gpui/src/highlights.rs`): if its
+  Highlights request fails, the app retries after 1 second, then 2, then 4,
+  up to 5 seconds between tries while you're looking at that thread. It
+  stops retrying when you leave or the request goes away.
 - **When OpenCode or Cursor's CLI is installed and logged in** it also starts the
   `opencode acp` and Cursor's `agent acp` CLIs for threads on them, runs each
   with `--version` when the runner starts, and runs its own updater

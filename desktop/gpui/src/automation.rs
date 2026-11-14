@@ -1018,11 +1018,12 @@ fn step(app: &Entity<Threadbear>, cmd: &Value, window: &mut Window, cx: &mut App
         // As if the window had come to the front: both apps read a thread
         // only while it is, and a scripted one never is.
         "focus" => {
-            crate::thread::set_looking(crate::thread::SCRIPTED, true);
+            let active = cmd["on"].as_bool().unwrap_or(true);
+            if !active {
+                crate::thread::set_looking(crate::thread::window_key(window), false);
+            }
             app.update(cx, |t, cx| {
-                if let Some(pane) = t.pane.clone() {
-                    pane.read(cx).mark_seen();
-                }
+                t.looking_changed(crate::thread::SCRIPTED, active, cx);
             });
             Ok(json!("ok"))
         }
