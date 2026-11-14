@@ -59,6 +59,8 @@ New bears get a daily "tidy memory" routine at 04:30. Directly created Claude be
 
 Routines, webhooks and mentions share a busy unattended worker; personal chats stay separate. Incoming work queues for its own turn and each mention gets that turn's reply. Different access or a different working folder cannot be folded: routines retry, webhooks hold, mentions must be retried. A recurring routine already busy skips its next tick.
 
+A mention cannot cross its caller's sandbox boundary. Routines with explicit login, pool, model or effort choices wait if those differ from the worker; their settings are never silently replaced by the worker's.
+
 Read `memory/told.md` before unattended work; append one dated line after a report so the next run knows what the user has heard. Track unfinished jobs in `memory/tasks/<task>.md`, linked from the summary. The tidy removes completed tasks and limits edits to memory. When an unattended run finds nothing new, call `end_turn` with `needs: "nothing", quiet: true`; the runner checks unfinished work before archiving. Useful reports and earlier reports in a shared thread stay in the inbox. Older runners without `quiet` need an explicit archive instruction in the routine; do not assume “needs nothing” means empty.
 
 ## Faces

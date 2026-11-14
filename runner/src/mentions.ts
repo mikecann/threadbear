@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { PermissionMode, ThreadStartedBy } from './protocol.ts';
 import { awayText, lowerMode, type BearInfo, type Bears } from './bears.ts';
+import { above, type Authority } from './threadbear-mcp.ts';
 
 export const MAX_BEARS_PER_MESSAGE = 3;
 export const REPLY_MAX = 6_000;
@@ -30,6 +31,7 @@ type ThreadView = { id: string; title: string; cwd: string; permissionMode?: Per
 export type MentionHost = {
   has(threadId: string): boolean;
   get(threadId: string): ThreadView;
+  authorityOf(threadId: string): Authority;
   create(p: { text: string; cwd: string; permissionMode: PermissionMode; startedBy: ThreadStartedBy; origin: 'runner'; projectIds?: string[]; title?: string }): { thread: { id: string }; turnId?: string };
   send(threadId: string, text: string): unknown;
   note?(threadId: string, text: string): void;
@@ -164,6 +166,9 @@ export class Mentions {
     if (id) {
       const worker = this.host.get(id);
       if (worker.permissionMode !== mode || path.resolve(worker.cwd) !== bear.folder) throw new Error(`${bear.name}'s running job has different access or a different folder. Ask again once it finishes.`);
+      if (from && above(this.host.authorityOf(id), { mode: from.permissionMode ?? 'ask', confined: this.host.authorityOf(from.id).confined })) {
+        throw new Error(`${bear.name}'s running job has more access or is outside the caller's sandbox. Sending to it needs the user's OK.`);
+      }
       const job = s.jobs[id] ??= { bearId: bear.id, bearName: bear.name, waiters: [] };
       const sent = this.host.send(id, body);
       if (waiter && sent && typeof sent === 'object' && 'turnId' in sent && typeof sent.turnId === 'string') waiter.turnId = sent.turnId;

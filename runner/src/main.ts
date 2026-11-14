@@ -470,6 +470,7 @@ async function main(): Promise<void> {
     tableOf: (cwd) => (tablesOn() ? tables.tableOf(cwd) : undefined),
     host: {
       has: (id) => runner.has(id),
+      authorityOf: (id) => runner.authorityNow(id),
       get: (id) => {
         const t = runner.get(id);
         return { id: t.id, title: t.title, cwd: t.cwd, permissionMode: t.permissionMode, status: t.status, projects: t.projects };

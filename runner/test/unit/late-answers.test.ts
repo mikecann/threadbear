@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeHarness, tmpDir } from '../helpers/fakes.ts';
+import { makeHarness, tmpDir, tick } from '../helpers/fakes.ts';
 
 function setup(on = true) {
   const home = tmpDir();
@@ -16,6 +16,30 @@ function setup(on = true) {
   s.result('completed');
   return { h, t, s, id, answer };
 }
+
+for (const restart of [false, true]) test(`a partial late-answer start retries its original message (${restart ? 'restart' : 'same runner'})`, async () => {
+  const { h, t, id } = setup();
+  const log = h.store.log(t.id);
+  const append = log.append.bind(log);
+  log.append = (event) => {
+    if (event.type === 'turn.started') throw new Error('disk full');
+    append(event);
+  };
+  try {
+    assert.throws(() => h.runner.respondApproval({ threadId: t.id, approvalId: id, decision: 'allow', message: 'Proceed once' }), /disk full/);
+  } finally { log.append = append; }
+  assert.equal(h.runner.threads.get(t.id)!.rt.turn, undefined);
+  assert.equal(h.runner.threads.get(t.id)!.rec.queue.length, 0);
+  const next = restart ? h.restart() : h;
+  next.runner.respondApproval({ threadId: t.id, approvalId: id, decision: 'allow', message: 'Proceed once' });
+  await tick(8);
+  const events = next.store.log(t.id).read(1, next.store.log(t.id).lastSeq);
+  const messages = events.filter((e) => e.type === 'user.message' && e.text.includes('answered an expired tool card'));
+  assert.equal(messages.length, 1, 'reuse the logged message');
+  assert.equal(events.filter((e) => e.type === 'turn.started' && e.turnId === messages[0].turnId).length, 1, 'start the turn on retry');
+  assert.equal(next.runner.threads.get(t.id)!.rt.turn?.turnId, messages[0].turnId);
+  assert.match(next.adapter.last.sent.at(-1)?.text ?? '', /Proceed once/);
+});
 
 for (const decision of ['allow', 'deny', 'allowAlways'] as const) test(`late ${decision} resumes exactly once without replay or mode changes`, async () => {
   const { h, t, id, answer } = setup();

@@ -20,6 +20,7 @@ async function setup() {
   const sent: { id: string; text: string }[] = [];
   const made: Parameters<MentionHost['create']>[0][] = [];
   const host: MentionHost = {
+    authorityOf: (id) => ({ mode: threads.get(id)?.permissionMode ?? 'ask', confined: false }),
     has: (id) => threads.has(id),
     get: (id) => threads.get(id)!,
     create: (p) => {

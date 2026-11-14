@@ -2097,6 +2097,11 @@ A repeating routine skips while its previous run is busy. Work with
 different access or a different working folder waits (routines and webhooks), or asks you to retry
 (mentions). Chats you start yourself stay separate.
 
+Mentions also respect sandbox boundaries. A sandboxed thread cannot use a
+bear to send work outside its sandbox. A routine waits when its chosen
+login, pool, model or effort differs from the busy worker, then starts
+with its own settings once that worker finishes.
+
 New bears keep `memory/told.md`, a dated record of what they told you, and
 `memory/tasks/` for unfinished jobs. They read these before starting again
 so they can pick up the work without repeating the same report. These are

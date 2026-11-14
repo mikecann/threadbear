@@ -5066,6 +5066,14 @@ routine retries, a webhook holds its delivery, and a mention asks the
 caller to retry when the running job has different access or a different folder. A mention's
 reply is handed back when that mention's own queued turn finishes. Repeating routines skip while their preceding run is still busy.
 
+Folding a mention checks the sender's saved authority against the worker's
+current authority, including sandbox confinement, as direct messages do.
+A routine also waits when its explicit account, pool, model or effort
+differs from the worker's settings; a pinned account never folds into a
+pooled thread. A late-answer retry counts as delivered only when queued or
+when `turn.started` exists. If only its user message was saved, retry starts
+the turn using that same row and original input, including across restarts.
+
 `end_turn { needs: "nothing", quiet: true }` marks a bear's unattended run
 as having nothing new to report. Once the turn is finished, the runner's
 loose-end check may archive it. Questions, suggested follow-ups, unfinished

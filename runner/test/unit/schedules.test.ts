@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeHarness, tick } from '../helpers/fakes.ts';
+import { makeHarness, tick, FakeAccounts, withCodex } from '../helpers/fakes.ts';
 import { describeAt, describeCron, nextRuns, parseCron } from '../../src/cron.ts';
 import { SAVE_RETRY_MS, Scheduler, scheduleMethods, type ScheduleBackend, type StoredSchedule } from '../../src/schedules.ts';
 import { buildThreadbearTools } from '../../src/threadbear-mcp.ts';
@@ -123,6 +123,49 @@ test('a slow bear cron skips every repeat while its prior run is busy', async ()
   }
   assert.equal(h.runner.threads.get(t.id)!.rec.queue.length, 1);
   assert.equal(sched.list()[0].runs, 1);
+  sched.stop();
+});
+
+for (const fields of [
+  { accountId: 'codex-main', model: 'gpt-6-astra', effort: 'high' as const },
+  { model: 'sonnet' },
+  { effort: 'high' as const },
+  { poolId: 'claude' },
+]) test(`a folded routine waits instead of discarding its explicit settings ${JSON.stringify(fields)}`, async () => {
+  const { h, sched } = setup();
+  h.runner.accounts = new FakeAccounts(withCodex(null));
+  const worker = h.runner.create({ text: 'existing job', accountId: 'claude-main', permissionMode: 'ask', model: 'opus', effort: 'low' }).thread;
+  sched.foldInto = () => worker.id;
+  const s = await sched.create({ text: 'configured job', cron: '* * * * *', cwd: worker.cwd, permissionMode: 'ask', ...fields });
+  h.clock.advance(60_000);
+  await tick(8);
+  assert.equal(h.runner.threads.get(worker.id)!.rec.queue.length, 0);
+  assert.equal(sched.find(s.id).runs, 0);
+  assert.equal(h.runner.list().length, 1);
+  sched.stop();
+});
+
+test('matching explicit routine settings still fold, and a different login starts after the worker finishes', async () => {
+  const { h, sched } = setup();
+  h.runner.accounts = new FakeAccounts(withCodex(null));
+  const worker = h.runner.create({ text: 'existing job', accountId: 'claude-main', permissionMode: 'ask', model: 'opus', effort: 'low' }).thread;
+  const session = h.adapter.last;
+  session.init();
+  sched.foldInto = () => ['starting', 'running', 'waiting'].includes(h.runner.get(worker.id).status) ? worker.id : undefined;
+  const matching = await sched.create({ text: 'same settings', cron: '0 9 * * *', cwd: worker.cwd, accountId: 'claude-main', model: 'opus', effort: 'low' });
+  assert.equal((await sched.runNow(matching.id)).threadId, worker.id);
+  const different = await sched.create({ text: 'codex job', cron: '* * * * *', cwd: worker.cwd, accountId: 'codex-main', model: 'gpt-6-astra', effort: 'high' });
+  h.clock.advance(60_000);
+  await tick(8);
+  assert.equal(sched.find(different.id).runs, 0);
+  session.result('completed');
+  session.result('completed');
+  h.clock.advance(60_000);
+  await tick(8);
+  const next = h.runner.get(sched.find(different.id).lastRun!.threadId!);
+  assert.equal(next.accountId, 'codex-main');
+  assert.equal(next.model, 'gpt-6-astra');
+  assert.equal(next.effort, 'high');
   sched.stop();
 });
 

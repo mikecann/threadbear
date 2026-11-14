@@ -1384,6 +1384,15 @@ export class Scheduler {
       }
       const worker = this.foldInto?.(rec);
       if (worker) {
+        const target = this.runner.get(worker);
+        // A queued message cannot select a login or model for its turn.
+        // Wait for this worker instead of silently discarding the routine's picks.
+        if ((rec.accountId && (target.accountId !== rec.accountId || target.poolId)) ||
+            (rec.poolId && target.poolId !== rec.poolId) ||
+            (rec.model && target.model !== rec.model) ||
+            (rec.effort && target.effort !== rec.effort)) {
+          throw new RpcError(ErrorCode.busy, 'The running bear job has different account, pool, model or effort settings; waiting for it to finish.');
+        }
         const { turnId } = this.runner.sendScheduled(worker, text, rec.id, run, since);
         const note = 'Folded into the running bear job.';
         record('sent', worker, note);

@@ -15,7 +15,7 @@ export type LabLedger = LabReviewLedger & { delivered?: number; answered?: numbe
 // A reviewer's verdict: its findings, none when nothing holds up.
 export type ReviewVerdict = { findings: Pick<ReviewFinding, 'severity' | 'claim' | 'where' | 'case'>[] };
 
-export type QueuedSend = { scheduledSince?: number; turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number };
+export type QueuedSend = { retryMessageSeq?: number; scheduledSince?: number; turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number };
 
 // What thread.json holds: the public summary fields plus a few internal ones.
 export type PressNote = { id: string; line: string; told?: { seq: number; inFlight?: boolean } };

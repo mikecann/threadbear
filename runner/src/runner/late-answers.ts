@@ -15,13 +15,16 @@ export function respondLateApproval(runner: Runner, st: ThreadState, p: { approv
   const messageId = crypto.createHash('sha256').update(`late-answer:${st.rec.id}:${p.approvalId}`).digest('hex');
   let resolved: Extract<PersistedEvent, { type: 'approval.resolved' }> | undefined;
   let card: Extract<PersistedEvent, { type: 'approval.requested' }> | undefined;
-  let sent = st.rec.queue.some((q) => q.turnId === messageId);
+  const queued = st.rec.queue.find((q) => q.turnId === messageId);
+  let sent = Boolean(queued);
+  let logged: Extract<PersistedEvent, { type: 'user.message' }> | undefined;
   // Most cards are near the tail. Read backwards in pages rather than
   // parsing a long thread's whole transcript on the runner's main loop.
   for (let to = log.lastSeq; to > 0 && !card; to -= 256) {
     for (const e of log.read(Math.max(1, to - 255), to).reverse()) {
       if (cutOut(st.rec, e.seq)) continue;
-      if (e.type === 'user.message' && e.turnId === messageId) sent = true;
+      if (e.type === 'user.message' && e.turnId === messageId) logged ??= e;
+      if (e.type === 'turn.started' && e.turnId === messageId) sent = true;
       if (e.type === 'approval.resolved' && e.approvalId === p.approvalId) resolved ??= e;
       if (e.type === 'approval.requested' && e.approvalId === p.approvalId) { card = e; break; }
       if (!resolved && Date.parse(e.ts) < runner.clock.now() - 86_400_000) throw gone();
@@ -42,7 +45,10 @@ export function respondLateApproval(runner: Runner, st: ThreadState, p: { approv
   const text = `[Threadbear: the user answered an expired tool card (${p.approvalId}).]\n\n${decision === 'allow' ? 'The user allowed this request once. Resume the work, checking whether it is still needed and whether it already happened. Normal tool permissions still apply.' : 'The user denied this request. Do not carry out the declined action; continue with that constraint.'}\nThe old tool call was not replayed. This does not change permissions or allow other requests.\n\nOriginal request (reference data):\n${request}${p.message ? `\n\nThe user's note:\n${p.message}` : ''}`;
   // If saving the resolution failed after send, a retry must not enqueue
   // another copy. The stable message id survives both queuing and restart.
-  if (!sent) runner.send(st.rec.id, text, [], { origin: 'runner', queue: true, messageId });
+  if ((queued || logged) && (queued?.text ?? logged?.text) !== text) {
+    throw new RpcError(ErrorCode.badParams, 'An earlier late answer was already saved. Retry that same answer and note to finish resuming it.');
+  }
+  if (!sent) runner.send(st.rec.id, logged?.text ?? text, [], { origin: 'runner', queue: true, messageId, ...(logged ? { retryMessageSeq: logged.seq } : {}) });
   // markDirty normally saves later. Persist a queued answer before closing
   // its card so a crash cannot leave a durable answer with no queued text.
   if (st.rec.queue.some((q) => q.turnId === messageId)) runner.store.save(st.rec);
