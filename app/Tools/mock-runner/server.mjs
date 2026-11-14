@@ -127,7 +127,7 @@ let accounts = [
   },
   {
     id: 'claude-4', provider: 'claude', title: 'mike+4@example.com', configDir: `${tokenStatsAccounts}/claude-4`,
-    defaultModel: 'claude-fable-5-1', models, email: 'mike+4@example.com', plan: 'Pro',
+    defaultModel: 'claude-fable-5-1', models: models.filter((m) => m.id !== 'claude-opus-5'), email: 'mike+4@example.com', plan: 'Pro',
     usage: usage(0, 31, {
       blocked: true,
       windows: [

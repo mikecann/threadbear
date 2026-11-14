@@ -75,6 +75,83 @@ final class ModelPickerTests: XCTestCase {
         XCTAssertEqual(ModelPicker.rows(choices: choices, defaultId: nil, selected: nil, query: "gpt"), [])
     }
 
+    /// A pool with two logins lists Auto and each one. The model list stays
+    /// in one order, and a model the login in front doesn't offer is dimmed.
+    func testLoginChipsAndAModelTheLoginLacks() {
+        let opus = ModelChoice(id: "opus", model: "claude-opus-5", title: "Opus")
+        let fable = ModelChoice(id: "fable", model: "claude-fable-5", title: "Fable")
+        let full = AccountUsage(windows: [UsageWindow(kind: "weekly", title: "Weekly", remainingPercent: 100)])
+        let low = AccountUsage(windows: [
+            UsageWindow(kind: "five_hour", title: "5-hour", remainingPercent: 4),
+            UsageWindow(kind: "weekly", title: "Weekly", remainingPercent: 75),
+        ])
+        let behrooz = Account(id: "claude-main", title: "behrooz@collabute.com", models: [opus], email: "behrooz@collabute.com", usage: low)
+        let team = Account(id: "claude-1", title: "team@collabute.com", models: [opus, fable], email: "team@collabute.com", usage: full)
+        let pool = Pool(id: "claude", title: "Claude", accountIds: ["claude-main", "claude-1"])
+        let accounts = [behrooz, team]
+        let chips = ModelPicker.loginChips(pool: pool, accounts: accounts, selected: "claude-1")
+        XCTAssertEqual(chips.map(\.title), ["Auto", "behrooz", "team"])
+        XCTAssertEqual(chips.map(\.subtitle), ["best room", "4% left", "100% left"])
+        XCTAssertEqual(chips.map(\.isSelected), [false, false, true])
+        XCTAssertEqual(chips[1].tone, .low)
+        XCTAssertEqual(ModelPicker.loginChips(pool: Pool(id: "c", title: "C", accountIds: ["claude-1"]), accounts: accounts, selected: nil), [], "one login: no row")
+        let onBehrooz = ModelPicker.accountRows(logins: accounts, accounts: accounts, focused: behrooz, defaultId: "opus", selected: "opus")
+        XCTAssertEqual(onBehrooz.map(\.title), ["Opus", "Fable"])
+        XCTAssertEqual(onBehrooz[0].subtitle, "On behrooz · 5-hour 4%")
+        XCTAssertFalse(onBehrooz[0].unavailable)
+        XCTAssertEqual(onBehrooz[1].subtitle, "Not on this login")
+        XCTAssertTrue(onBehrooz[1].unavailable)
+        let onTeam = ModelPicker.accountRows(logins: accounts, accounts: accounts, focused: team, defaultId: nil, selected: "opus")
+        XCTAssertEqual(onTeam.map(\.title), ["Opus", "Fable"], "switching login doesn't reshuffle")
+        XCTAssertEqual(onTeam[0].subtitle, "On team · week 100%")
+        XCTAssertEqual(onTeam[1].subtitle, "On team")
+        XCTAssertFalse(onTeam[1].unavailable)
+    }
+
+    /// Two logins can both call a row "opus" and run different models.
+    /// Focusing one dims the other's, and the two rows don't share an id,
+    /// so a click can't send the alias the other login runs as its own.
+    func testSharedAliasStaysTwoRows() {
+        let opus55 = ModelChoice(id: "opus", model: "claude-opus-5-5", title: "Opus 5.5")
+        let opus5 = ModelChoice(id: "opus", model: "claude-opus-5", title: "Opus 5")
+        let behrooz = Account(id: "claude-main", title: "behrooz@collabute.com", defaultModel: "claude-opus-5-5", models: [opus55], email: "behrooz@collabute.com")
+        let team = Account(id: "claude-1", title: "team@collabute.com", defaultModel: "claude-opus-5", models: [opus5], email: "team@collabute.com")
+        let accounts = [behrooz, team]
+        let onTeam = ModelPicker.accountRows(logins: accounts, accounts: accounts, focused: team, defaultId: "claude-opus-5", selected: "claude-opus-5-5")
+        XCTAssertEqual(onTeam.map(\.title), ["Opus 5.5", "Opus 5"])
+        XCTAssertEqual(Set(onTeam.map(\.id)).count, 2)
+        XCTAssertTrue(onTeam[0].unavailable)
+        XCTAssertFalse(onTeam[0].isSelected)
+        XCTAssertFalse(onTeam[0].isDefault)
+        XCTAssertNotEqual(onTeam[0].id, "opus")
+        XCTAssertFalse(onTeam[1].unavailable)
+        XCTAssertEqual(onTeam[1].id, "claude-opus-5")
+        XCTAssertTrue(onTeam[1].isDefault)
+        XCTAssertFalse(onTeam[1].isSelected)
+        let onBehrooz = ModelPicker.accountRows(logins: accounts, accounts: accounts, focused: behrooz, defaultId: "claude-opus-5-5", selected: "claude-opus-5-5")
+        XCTAssertFalse(onBehrooz[0].unavailable)
+        XCTAssertTrue(onBehrooz[0].isSelected)
+        XCTAssertEqual(onBehrooz[0].id, "claude-opus-5-5")
+        XCTAssertTrue(onBehrooz[1].unavailable)
+        XCTAssertNotEqual(onBehrooz[1].id, onBehrooz[0].id)
+        XCTAssertEqual(ModelPicker.modelMove("opus", from: behrooz, to: team), .clear)
+        XCTAssertEqual(ModelPicker.modelMove("opus", from: behrooz, to: behrooz), .keep)
+        let asFullId = Account(id: "claude-2", title: "other@collabute.com", models: [ModelChoice(id: "claude-opus-5-5", model: "claude-opus-5-5", title: "Opus 5.5")])
+        XCTAssertEqual(ModelPicker.modelMove("opus", from: behrooz, to: asFullId), .set("claude-opus-5-5"))
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5", from: team, to: Account(id: "x", title: "x", models: [])), .keep, "no list yet: don't guess")
+        let unknown = Account(id: "a", title: "a@collabute.com", models: [])
+        let onlyOpus = Account(id: "b", title: "b@collabute.com", defaultModel: "claude-opus-5", models: [opus5])
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5", from: unknown, to: onlyOpus), .clear)
+        XCTAssertEqual(ModelPicker.modelMove("opus", from: unknown, to: onlyOpus), .clear, "an unresolved alias is not this login's opus")
+        XCTAssertEqual(ModelPicker.modelMove("claude-opus-5", from: unknown, to: onlyOpus), .set("opus"))
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5", from: nil, to: onlyOpus), .clear)
+        let fable1m = ModelChoice(id: "claude-fable-5-1[1m]", model: "claude-fable-5-1", title: "Fable 5.1")
+        let withFable = Account(id: "c", title: "c@collabute.com", models: [fable1m])
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5-1[1m]", from: unknown, to: withFable), .keep, "the stored choice id is that row")
+        XCTAssertEqual(ModelPicker.modelMove("claude-fable-5-1[1m]", from: nil, to: withFable), .keep)
+        XCTAssertEqual(ModelPicker.modelMove("opus[1m]", from: unknown, to: onlyOpus), .clear, "a suffixed alias is still an alias")
+    }
+
     /// The levels come from the chosen model's row when the CLI gave any,
     /// else the usual five.
     func testEffortLevelsFollowTheModel() {

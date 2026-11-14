@@ -465,26 +465,79 @@ struct ThreadSettings {
                                                     providers: Pools.providers($0, accounts: logins.accounts)) }
     }
 
-    /// The column the picker opens on.
+    /// The column the picker opens on. A pinned login opens on the pool
+    /// that holds it, with that login selected in the row above the models.
     var columnId: String {
         guard usesPools else { return providerId }
-        return pool?.id ?? Self.pinnedColumn
+        if let pool { return pool.id }
+        if let holding = logins.pools.first(where: { $0.accountIds.contains(account) }) { return holding.id }
+        return Self.pinnedColumn
     }
 
     /// A column's models. A pool lists each of its providers' models, under
     /// the provider's name when there's more than one. The default and the
     /// tick are only for the thread's own pool and provider; elsewhere it's
     /// a plain list until a model there is picked.
-    func sections(for columnId: String, query: String = "") -> [ModelPicker.Section] {
+    ///
+    /// `login` nil follows the thread: its pinned login when this pool
+    /// holds it, otherwise Auto (the login the pool would pick). Pass
+    /// `ModelPicker.autoLogin` to force Auto, or an account id to list
+    /// that login's models. With two or more logins the list is the same
+    /// either way, and a model the login doesn't offer is dimmed.
+    func sections(for columnId: String, login explicit: String? = nil, query: String = "") -> [ModelPicker.Section] {
         guard usesPools else { return [ModelPicker.Section(id: columnId, rows: rows(for: columnId, query: query))] }
         guard let shown = logins.pool(columnId) else {
             return [ModelPicker.Section(id: provider, rows: ModelPicker.rows(choices: choices, defaultId: defaultModel, selected: effectiveModel, query: query, provider: provider))]
         }
         let providers = Pools.providers(shown, accounts: logins.accounts)
+        let switching = Pools.logins(shown, accounts: logins.accounts).count >= 2
+        let chosen = focusedLogin(in: shown, explicit: explicit)
         return providers.compactMap { providerId -> ModelPicker.Section? in
             let own = shown.id == pool?.id && providerId == provider
             let listed = own ? account : Pools.pickLogin(shown, accounts: logins.accounts, provider: providerId, current: app.lastAccountId(provider: providerId))
             let listedAccount = listed.flatMap(logins.account)
+            if switching {
+                let current = providerId == provider ? account : app.lastAccountId(provider: providerId)
+                let autoId = Pools.pickLogin(shown, accounts: logins.accounts, provider: providerId, current: current)
+                let focused = chosen.flatMap(logins.account) ?? autoId.flatMap(logins.account)
+                let same = focused.map { providerOf($0) == providerId } ?? false
+                let currentAccount = current.flatMap(logins.account)
+                // Auto has moved the focus off the thread's login: the next
+                // turn runs on `focused`, so the star is that login's default.
+                let shifted = chosen == nil && providerId == provider && focused != nil && focused?.id != current
+                let rawDefault: String? = if chosen != nil {
+                    same ? focused?.defaultModel : nil
+                } else if shifted {
+                    focused?.defaultModel
+                } else if own {
+                    defaultModel
+                } else {
+                    logins.defaults.model(for: providerId) ?? focused?.defaultModel
+                }
+                let defaultOn = (chosen != nil || shifted) ? focused : (own ? currentAccount : focused)
+                let defaultId = ModelPicker.resolvedModel(rawDefault, on: defaultOn)
+                // Resolve the tick on the login the thread is still on, so
+                // an alias doesn't tick every row with that id. A model the
+                // focused login won't run is not ticked.
+                let explicit = providerId == provider ? model : nil
+                let selected: String? = if providerId != provider {
+                    nil
+                } else if shifted {
+                    if let explicit, ModelPicker.modelMove(explicit, from: currentAccount, to: focused) != .clear {
+                        ModelPicker.resolvedModel(explicit, on: currentAccount)
+                    } else {
+                        nil
+                    }
+                } else {
+                    ModelPicker.resolvedModel(effectiveModel, on: currentAccount)
+                }
+                let rows = ModelPicker.accountRows(
+                    logins: Pools.logins(shown, accounts: logins.accounts, provider: providerId),
+                    accounts: logins.accounts, focused: focused, defaultId: defaultId,
+                    selected: selected, query: query, provider: providerId, now: app.now)
+                if rows.isEmpty, !query.isEmpty { return nil }
+                return ModelPicker.Section(id: providerId, title: providers.count > 1 ? ModelPicker.providerTitle(providerId) : nil, rows: rows)
+            }
             let defaultId = own ? defaultModel : (logins.defaults.model(for: providerId) ?? listedAccount?.defaultModel)
             let rows = ModelPicker.rows(choices: listedAccount?.models ?? [], defaultId: defaultId, selected: own ? effectiveModel : nil,
                                         query: query, provider: providerId)
@@ -493,15 +546,68 @@ struct ThreadSettings {
         }
     }
 
+    /// The login the model list is for. Nil is Auto.
+    private func focusedLogin(in pool: Pool, explicit: String?) -> String? {
+        if let explicit {
+            if explicit == ModelPicker.autoLogin { return nil }
+            return pool.accountIds.contains(explicit) ? explicit : nil
+        }
+        if isPinned, pool.accountIds.contains(account) { return account }
+        return nil
+    }
+
+    private func providerOf(_ account: Account) -> String {
+        account.provider.isEmpty ? "claude" : account.provider
+    }
+
+    /// Auto and each login, when this pool has more than one. `selected`
+    /// nil follows the thread.
+    func loginChips(for columnId: String, selected explicit: String? = nil) -> [ModelPicker.LoginChip] {
+        guard let pool = logins.pool(columnId) else { return [] }
+        return ModelPicker.loginChips(pool: pool, accounts: logins.accounts, selected: focusedLogin(in: pool, explicit: explicit), now: app.now)
+    }
+
+    /// Auto hands the thread back to the pool. A login pins it there.
+    /// Nothing while a pin is already on its way.
+    func chooseLogin(_ id: String) {
+        if let thread, app.isBusy(BusyKey.moving(thread.id)) { return }
+        if id == ModelPicker.autoLogin {
+            if isPinned { unpin() }
+            return
+        }
+        guard logins.account(id) != nil else { return }
+        if isPinned, account == id { return }
+        pin(id)
+    }
+
     /// Picks a model from a column. Without pools, as `pick(_:in:)`. In the
     /// pinned column, or the thread's own pool and provider, it's just the
     /// model; anywhere else it moves the thread (or the draft) to that pool
     /// and provider.
     func pick(_ row: ModelPicker.Row, section: String, column: String) {
         guard usesPools else { return pick(row, in: column) }
+        guard !row.unavailable else { return }
         let model = row.isDefault ? nil : row.id
-        if column == Self.pinnedColumn || (column == pool?.id && section == provider) { return setModel(model) }
+        let onThisLogin = isPinned && logins.pool(column)?.accountIds.contains(account) == true && section == provider
+        if column == Self.pinnedColumn || onThisLogin || (column == pool?.id && section == provider) { return setModel(model) }
         app.choosePool(column, provider: section, model: model, threadId: thread?.id)
+    }
+
+    /// A model picked with a login in front. Auto is an ordinary pick.
+    /// A login pins the thread to it with this model. A dimmed row does
+    /// nothing.
+    func pick(_ row: ModelPicker.Row, section: String, column: String, login: String?) {
+        guard !row.unavailable else { return }
+        guard let login, login != ModelPicker.autoLogin else { return pick(row, section: section, column: column) }
+        if let thread, app.isBusy(BusyKey.moving(thread.id)) { return }
+        let model = row.isDefault ? nil : row.id
+        if isPinned, account == login, section == provider { return setModel(model) }
+        if let thread {
+            app.moveThread(thread.id, toAccount: login, model: model)
+        } else {
+            pin(login)
+            app.remember(model: model, provider: logins.account(login).map(providerOf) ?? provider)
+        }
     }
 
     /// "Pinned to gmail", for a pinned thread.
@@ -514,11 +620,20 @@ struct ThreadSettings {
     func pin(_ accountId: String) {
         if let thread {
             app.pinThread(thread.id, to: accountId)
-        } else {
-            app.newThreadPool = nil
-            app.newThreadProvider = nil
-            app.newThreadAccount = accountId
+            return
         }
+        let dest = logins.account(accountId)
+        let nextProvider = dest.map { providerOf($0) } ?? provider
+        if nextProvider == provider {
+            switch ModelPicker.modelMove(app.lastModels[provider], from: logins.account(account), to: dest) {
+            case .keep: break
+            case .clear: app.remember(model: nil, provider: provider)
+            case .set(let id): app.remember(model: id, provider: provider)
+            }
+        }
+        app.newThreadPool = nil
+        app.newThreadProvider = nil
+        app.newThreadAccount = accountId
     }
 
     func unpin() {
@@ -583,12 +698,18 @@ struct ThreadSettings {
                 }
             }
         }
-        if isPinned {
+        let held = logins.pools.contains { $0.accountIds.contains(account) }
+        if isPinned, !held {
             lines.append("# " + (pinnedLine ?? "Pinned"))
             add(sections(for: Self.pinnedColumn))
         }
         for column in columns {
-            lines.append("# " + (column.id == pool?.id ? "[x] " : "[ ] ") + column.title + (column.subtitle.map { " · " + $0 } ?? ""))
+            lines.append("# " + (column.id == columnId ? "[x] " : "[ ] ") + column.title + (column.subtitle.map { " · " + $0 } ?? ""))
+            for chip in loginChips(for: column.id) {
+                var line = "@ " + (chip.isSelected ? "[x] " : "[ ] ") + chip.title
+                if !chip.subtitle.isEmpty { line += " - " + chip.subtitle }
+                lines.append(line)
+            }
             add(sections(for: column.id))
         }
         lines.append("# Effort")
@@ -598,7 +719,7 @@ struct ThreadSettings {
             if let porridge = ComposerChips.effortPorridge(level) { line += " - " + porridge }
             lines.append(line)
         }
-        if let pinnedLine { lines.append("--- " + pinnedLine + " · Unpin") }
+        if let pinnedLine { lines.append("--- " + pinnedLine + " · Use the pool") }
         return lines
     }
 
@@ -607,15 +728,20 @@ struct ThreadSettings {
     /// then the rest, by default); "Unpin" unpins.
     func pickerClick(_ title: String, column: String? = nil) -> Bool {
         if usesPools {
-            if title == "Unpin" {
+            if title == "Unpin" || title == "Use the pool" {
                 guard isPinned else { return false }
                 unpin()
                 return true
             }
             let order = column.map { [$0] } ?? ([columnId] + columns.map(\.id).filter { $0 != columnId })
             for id in order {
+                if let chip = loginChips(for: id).first(where: { $0.title == title }) {
+                    chooseLogin(chip.id)
+                    return true
+                }
                 for section in sections(for: id) {
                     if let row = section.rows.first(where: { $0.title == title }) {
+                        guard !row.unavailable else { return false }
                         pick(row, section: section.id, column: id)
                         return true
                     }
@@ -1189,8 +1315,9 @@ private struct CircleButtonStyle: ButtonStyle {
 ///
 /// With pools (docs/pools-plan.md) the rail lists pools with their logins
 /// and best room, and a mixed pool lists its models under each provider.
-/// "Pin to a login ›" went (28 Oct): Mike didn't want it. A thread pinned
-/// before then (or by a script) still gets a "Pinned to … · Unpin" line.
+/// A pool with more than one login has those logins in a row under the
+/// search: Auto lets the pool pick, and a login pins the thread to it.
+/// The list stays the same, and a model that login doesn't offer is dimmed.
 struct ModelPickerView: View {
     @Environment(AppModel.self) private var app
     /// Nil for the new-thread composer.
@@ -1198,6 +1325,9 @@ struct ModelPickerView: View {
     let close: () -> Void
     @State private var query = ""
     @State private var columnId: String?
+    /// A login clicked in this open picker, before the runner has answered.
+    /// Nil follows the thread. `ModelPicker.autoLogin` is Auto.
+    @State private var loginPick: String?
     @FocusState private var searching: Bool
 
     static var width: CGFloat { zoomed(380) }
@@ -1207,13 +1337,14 @@ struct ModelPickerView: View {
     static var poolRailWidth: CGFloat { zoomed(96) }
 
     /// The model list scrolls past 320 pt at 100%, or sooner when there
-    /// isn't room above the chip for the search box, the list, the effort
-    /// levels and a pinned thread's Unpin line.
+    /// isn't room above the chip for the search box, the login row, the
+    /// list, the effort levels and a pinned thread's line.
     /// Sized from the window it ran off the bottom of the screen in a
     /// thread whose window went up near the top of it.
-    static func listMaxHeight(pools: Bool) -> CGFloat {
+    static func listMaxHeight(pools: Bool, switcher: Bool = false) -> CGFloat {
         var chrome = zoomed(140)
         if pools { chrome += zoomed(40) }
+        if switcher { chrome += zoomed(44) }
         let room = AppWindow.roomAboveAnchor ?? (AppWindow.contentHeight ?? 800) - zoomed(170)
         return max(zoomed(120), min(zoomed(320), room - chrome))
     }
@@ -1224,7 +1355,10 @@ struct ModelPickerView: View {
         let settings = settings
         let pools = settings.usesPools
         let column = columnId ?? settings.columnId
-        let sections = settings.sections(for: column, query: query)
+        let chips = settings.loginChips(for: column, selected: loginPick)
+        let sections = settings.sections(for: column, login: loginPick, query: query)
+        let moving = threadId.map { app.isBusy(BusyKey.moving($0)) } ?? false
+        let pinTarget = loginPick.flatMap { $0 == ModelPicker.autoLogin ? nil : $0 } ?? (loginPick == nil && settings.isPinned ? settings.account : nil)
         let railWidth = pools ? Self.poolRailWidth : Self.railWidth
         // The rail is laid over the column's leading edge rather than
         // beside it in a stack: its full-height frame made the stack's
@@ -1241,15 +1375,22 @@ struct ModelPickerView: View {
                         .tip("Search by name or id. Return picks the first match.")
                         .focused($searching)
                         .onSubmit {
-                            // Return takes the first match.
-                            guard let section = sections.first(where: { !$0.rows.isEmpty }), let first = section.rows.first else { return }
-                            settings.pick(first, section: section.id, column: column)
-                            close()
+                            // Return takes the first match the login in front can run.
+                            guard let section = sections.first(where: { $0.rows.contains { !$0.unavailable } }),
+                                  let first = section.rows.first(where: { !$0.unavailable }) else { return }
+                            pick(first, section: section.id, column: column, settings: settings, moving: moving)
                         }
                 }
                 .padding(.horizontal, zoomed(12))
                 .frame(height: zoomed(36))
                 Divider()
+                if !chips.isEmpty {
+                    LoginSwitcher(chips: chips, moving: moving) { chip in
+                        guard !moving else { return }
+                        loginPick = chip.id
+                        settings.chooseLogin(chip.id)
+                    }
+                }
                 ScrollView {
                     // Not lazy: a list this short costs nothing to build,
                     // and a lazy stack's guessed height left a short list
@@ -1262,8 +1403,7 @@ struct ModelPickerView: View {
                             }
                             ForEach(section.rows.filter { !$0.isOlder }) { row in
                                 ModelRow(row: row, provider: section.id) {
-                                    settings.pick(row, section: section.id, column: column)
-                                    close()
+                                    pick(row, section: section.id, column: column, settings: settings, moving: moving)
                                 }
                             }
                             let older = section.rows.filter(\.isOlder)
@@ -1271,8 +1411,7 @@ struct ModelPickerView: View {
                                 ListHeading(title: "Older", first: false)
                                 ForEach(older) { row in
                                     ModelRow(row: row, provider: section.id) {
-                                        settings.pick(row, section: section.id, column: column)
-                                        close()
+                                        pick(row, section: section.id, column: column, settings: settings, moving: moving)
                                     }
                                 }
                             }
@@ -1286,16 +1425,24 @@ struct ModelPickerView: View {
                     }
                     .padding(zoomed(6))
                 }
-                .frame(maxHeight: Self.listMaxHeight(pools: pools))
+                .frame(maxHeight: Self.listMaxHeight(pools: pools, switcher: !chips.isEmpty))
                 .fixedSize(horizontal: false, vertical: true)
                 Divider()
                 if !settings.effortLevels.isEmpty {
                     EffortRow(levels: settings.effortLevels, chosen: settings.effectiveEffort) { settings.setEffort($0) }
                 }
-                if pools, settings.pinnedLine != nil {
+                if pools, let pinTarget {
                     Divider()
-                    PoolFooter(settings: settings, column: column, showPinned: { columnId = ThreadSettings.pinnedColumn },
-                               close: close)
+                    PoolFooter(name: AccountName.login(pinTarget, accounts: settings.logins.accounts), moving: moving, usePool: {
+                        guard !moving else { return }
+                        loginPick = ModelPicker.autoLogin
+                        settings.chooseLogin(ModelPicker.autoLogin)
+                    }, showPinned: {
+                        if let holding = settings.logins.pools.first(where: { $0.accountIds.contains(pinTarget) }) {
+                            columnId = holding.id
+                            loginPick = pinTarget
+                        }
+                    })
                 }
         }
         .padding(.leading, railWidth + 1)
@@ -1303,6 +1450,7 @@ struct ModelPickerView: View {
             HStack(spacing: 0) {
                 PickerRail(columns: settings.columns, selected: column, width: railWidth) { id in
                     columnId = id
+                    loginPick = nil
                     query = ""
                 }
                 Divider()
@@ -1310,7 +1458,17 @@ struct ModelPickerView: View {
         }
         .frame(width: pools ? Self.poolWidth : Self.width)
         .onAppear { searching = true }
-        // Shut again for next time.
+        // The runner has answered: follow the thread again.
+        .onChange(of: settings.account) { _, _ in loginPick = nil }
+        .onChange(of: settings.isPinned) { _, _ in loginPick = nil }
+    }
+
+    /// A model row. A dimmed one stays. A login in front pins to it.
+    private func pick(_ row: ModelPicker.Row, section: String, column: String, settings: ThreadSettings, moving: Bool) {
+        guard !row.unavailable, !moving else { return }
+        let login = loginPick ?? (settings.isPinned && settings.logins.pool(column)?.accountIds.contains(settings.account) == true ? settings.account : nil)
+        settings.pick(row, section: section, column: column, login: login)
+        close()
     }
 }
 
@@ -1438,34 +1596,97 @@ private struct PickerRail: View {
     }
 }
 
-/// Under the effort levels, for a pinned thread: the login it's on, and
-/// Unpin to hand it back to the pool.
-private struct PoolFooter: View {
-    let settings: ThreadSettings
-    let column: String
-    let showPinned: () -> Void
-    let close: () -> Void
+/// The logins of the pool in front, under the search. Auto lets the pool
+/// pick. A login pins the thread to it.
+private struct LoginSwitcher: View {
+    let chips: [ModelPicker.LoginChip]
+    let moving: Bool
+    let choose: (ModelPicker.LoginChip) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: zoomed(6)) {
-            if let pinned = settings.pinnedLine {
-                HStack(spacing: zoomed(4)) {
-                    Button(pinned, action: showPinned)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .tip("Show this login's models")
-                    Text("·").foregroundStyle(.tertiary)
-                    Button("Unpin") {
-                        settings.unpin()
-                        close()
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.primary)
-                    .tip("Let the pool pick the login again")
-                }
-                .font(.system(size: zoomed(11)))
+        HStack(spacing: zoomed(6)) {
+            ForEach(chips) { chip in
+                LoginChipButton(chip: chip, moving: moving && chip.isSelected) { choose(chip) }
             }
         }
+        .padding(.horizontal, zoomed(10))
+        .padding(.top, zoomed(8))
+        .padding(.bottom, zoomed(4))
+    }
+}
+
+private struct LoginChipButton: View {
+    let chip: ModelPicker.LoginChip
+    let moving: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: zoomed(1)) {
+                Text(chip.title)
+                    .font(.system(size: zoomed(12), weight: .medium))
+                    .foregroundStyle(chip.isSelected ? .primary : .secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                if moving {
+                    SpinnerMark(color: .secondaryLabelColor)
+                        .frame(width: zoomed(10), height: zoomed(10))
+                } else if !chip.subtitle.isEmpty {
+                    Text(chip.subtitle)
+                        .font(.system(size: zoomed(10.5)))
+                        .monospacedDigit()
+                        .foregroundStyle(subtitleColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, zoomed(8))
+            .padding(.vertical, zoomed(6))
+            .background(
+                RoundedRectangle(cornerRadius: zoomed(8), style: .continuous)
+                    .fill(Color.primary.opacity(chip.isSelected ? 0.12 : hovering ? 0.06 : 0.04))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .tip(moving ? "Moving this thread" : chip.help)
+        .accessibilityLabel(chip.title + (chip.subtitle.isEmpty ? "" : ", " + chip.subtitle) + (chip.isSelected ? ", chosen" : ""))
+    }
+
+    private var subtitleColor: Color {
+        switch chip.tone {
+        case .low: .orange
+        case .blocked: .red
+        case .normal: chip.isSelected ? .secondary : Color.secondary.opacity(0.8)
+        }
+    }
+}
+
+/// Under the effort levels, when a login is chosen: which one, and a way
+/// back to letting the pool pick.
+private struct PoolFooter: View {
+    let name: String
+    let moving: Bool
+    let usePool: () -> Void
+    let showPinned: () -> Void
+
+    var body: some View {
+        HStack(spacing: zoomed(4)) {
+            Button("Pinned to " + name, action: showPinned)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .tip("Show this login's models")
+            Text("·").foregroundStyle(.tertiary)
+            Button("Use the pool", action: usePool)
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary)
+                .disabled(moving)
+                .tip("Let the pool pick the login again")
+        }
+        .font(.system(size: zoomed(11)))
         .padding(.horizontal, zoomed(12))
         .padding(.vertical, zoomed(10))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1493,7 +1714,7 @@ private struct ModelRow: View {
                         RoundedRectangle(cornerRadius: zoomed(7), style: .continuous)
                             .fill(Color.primary.opacity(0.07))
                     )
-                    .opacity(row.isOlder ? 0.6 : 1)
+                    .opacity(row.unavailable ? 0.45 : row.isOlder ? 0.6 : 1)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: zoomed(1)) {
                     Text(row.title)
@@ -1506,6 +1727,7 @@ private struct ModelRow: View {
                             .lineLimit(1)
                     }
                 }
+                .opacity(row.unavailable ? 0.45 : 1)
                 Spacer(minLength: zoomed(8))
                 if row.isDefault {
                     Image(systemName: "star.fill")
@@ -1527,8 +1749,8 @@ private struct ModelRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         // The id the CLI is given, which the name hides.
-        .tip(row.id)
-        .accessibilityLabel(row.title + (row.isSelected ? ", chosen" : ""))
+        .tip(row.unavailable ? "Not on this login" : row.id)
+        .accessibilityLabel(row.title + (row.unavailable ? ", not on this login" : row.isSelected ? ", chosen" : ""))
     }
 }
 

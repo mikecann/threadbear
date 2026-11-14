@@ -147,10 +147,34 @@ extension AppModel {
     func pinThread(_ threadId: String, to accountId: String) {
         guard let thread = threads[threadId] else { return }
         let provider = provider(ofAccount: accountId)
+        let dest = account(accountId)
         if provider != thread.provider {
-            moveThread(threadId, toAccount: accountId, model: lastModels[provider])
+            // The remembered model is already that provider's. Drop it when
+            // this login's list is known and doesn't have it.
+            var model = lastModels[provider]
+            if let remembered = model, let dest, !dest.models.isEmpty {
+                if let there = dest.models.first(where: { $0.id == remembered || $0.model == remembered }) {
+                    model = there.id
+                } else {
+                    model = nil
+                }
+            }
+            moveThread(threadId, toAccount: accountId, model: model)
         } else {
-            setAccount(threadId, accountId)
+            // One update: a pin that only names the login leaves the old
+            // model, and model clicks do nothing until the pin returns.
+            switch ModelPicker.modelMove(thread.model, from: account(thread.accountId), to: dest) {
+            case .keep:
+                setAccount(threadId, accountId)
+            case .clear:
+                rememberLastAccount(accountId)
+                remember(model: nil, provider: provider)
+                update(threadId, ThreadUpdate(accountId: accountId, model: .some(nil)))
+            case .set(let id):
+                rememberLastAccount(accountId)
+                remember(model: id, provider: provider)
+                update(threadId, ThreadUpdate(accountId: accountId, model: .some(id)))
+            }
         }
     }
 

@@ -117,12 +117,58 @@ final class PoolPickTests: XCTestCase {
         XCTAssertTrue(settings.isPinned)
         XCTAssertEqual(settings.modelChipTitle, "gmail · Opus 5.5 · High")
         XCTAssertEqual(settings.pinnedLine, "Pinned to gmail")
-        XCTAssertEqual(settings.columnId, ThreadSettings.pinnedColumn)
+        XCTAssertEqual(settings.columnId, "claude", "a pinned login opens on the pool that holds it")
+        XCTAssertEqual(settings.loginChips(for: "claude").first { $0.isSelected }?.title, "gmail")
         request = app.newThreadRequest(text: "hi", images: [])
         XCTAssertEqual(request.accountId, "claude-1")
         XCTAssertNil(request.poolId)
         settings.unpin()
         XCTAssertEqual(app.newThreadPoolId, "claude")
+    }
+
+    /// A draft pinned onto a login that doesn't list the remembered model
+    /// forgets it, so the new thread doesn't start on that model.
+    func testPinningADraftDropsAModelTheLoginDoesNotList() {
+        let app = app()
+        let fable = ModelChoice(id: "fable", model: "claude-fable-5", title: "Fable")
+        app.accounts[1].models = [opus, fable]
+        app.remember(model: "fable", provider: "claude")
+        app.newThreadAccount = "claude-1"
+        ThreadSettings(app: app, thread: nil).pin("claude-main")
+        XCTAssertEqual(app.newThreadAccount, "claude-main")
+        XCTAssertNil(app.lastModels["claude"])
+        let request = app.newThreadRequest(text: "hi", images: [])
+        XCTAssertEqual(request.accountId, "claude-main")
+        XCTAssertNil(request.model)
+    }
+
+    /// The login being left hasn't reported a list. The destination's list
+    /// still drops a model it doesn't offer, and an unresolved alias.
+    func testPinningADraftDropsAModelWhenThatLoginHasNoList() {
+        let app = app()
+        app.accounts[1].models = []
+        app.remember(model: "fable", provider: "claude")
+        app.newThreadAccount = "claude-1"
+        ThreadSettings(app: app, thread: nil).pin("claude-main")
+        XCTAssertNil(app.lastModels["claude"])
+        XCTAssertNil(app.newThreadRequest(text: "hi", images: []).model)
+
+        let again = self.app()
+        again.accounts[0].models = []
+        again.accounts[1].models = [ModelChoice(id: "opus", model: "claude-opus-5", title: "Opus 5")]
+        again.remember(model: "opus", provider: "claude")
+        again.newThreadAccount = "claude-main"
+        ThreadSettings(app: again, thread: nil).pin("claude-1")
+        XCTAssertNil(again.lastModels["claude"], "opus would run as this login's own opus")
+
+        let kept = self.app()
+        let fable1m = ModelChoice(id: "claude-fable-5-1[1m]", model: "claude-fable-5-1", title: "Fable 5.1")
+        kept.accounts[0].models = [fable1m]
+        kept.accounts[1].models = []
+        kept.remember(model: "claude-fable-5-1[1m]", provider: "claude")
+        kept.newThreadAccount = "claude-1"
+        ThreadSettings(app: kept, thread: nil).pin("claude-main")
+        XCTAssertEqual(kept.lastModels["claude"], "claude-fable-5-1[1m]", "the destination lists that choice id")
     }
 
     /// A mixed pool lists each provider's models under its name, and a
@@ -218,12 +264,71 @@ final class PoolPickTests: XCTestCase {
         ThreadSettings(app: app, thread: app.threads["th1"]).pin("claude-1")
         for _ in 0..<200 where transport.updates.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(transport.updates.first?["accountId"] as? String, "claude-1")
+        XCTAssertNil(transport.updates.first?["model"], "no model of its own: the pin names only the login")
         app.threads["th1"] = ThreadSummary(id: "th1", title: "t", accountId: "claude-2")
-        XCTAssertTrue(ThreadSettings(app: app, thread: app.threads["th1"]).pickerClick("Unpin"))
+        XCTAssertTrue(ThreadSettings(app: app, thread: app.threads["th1"]).pickerClick("Use the pool"))
         for _ in 0..<200 where transport.updates.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(transport.updates.last?["poolId"] as? String, "convex", "back into a pool that has its login")
         XCTAssertFalse(ThreadSettings(app: app, thread: ThreadSummary(id: "th3", title: "t", accountId: "claude-1", poolId: "claude")).pickerClick("Unpin"),
                        "nothing to unpin")
+    }
+
+    /// Pinning a login that doesn't list the thread's model clears it in
+    /// the same update. A shared "opus" alias is resolved on the login
+    /// being left, so the other login's opus isn't sent under that name.
+    func testPinDropsAModelTheLoginDoesNotList() async throws {
+        let app = app()
+        let transport = PoolRecordingTransport()
+        let client = RPCClient(transport: transport)
+        try await client.start()
+        app.useClientForTesting(client)
+        let fable = ModelChoice(id: "fable", model: "claude-fable-5", title: "Fable")
+        app.accounts[1].models = [opus, fable]
+        app.threads["th1"] = ThreadSummary(id: "th1", title: "t", accountId: "claude-1", model: "fable", poolId: "claude")
+        ThreadSettings(app: app, thread: app.threads["th1"]).pin("claude-main")
+        for _ in 0..<200 where transport.updates.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(transport.updates.first?["accountId"] as? String, "claude-main")
+        XCTAssertTrue(transport.updates.first?["model"] is NSNull)
+
+        app.accounts[1].models = [ModelChoice(id: "opus", model: "claude-opus-5", title: "Opus 5")]
+        app.threads["th2"] = ThreadSummary(id: "th2", title: "t", accountId: "claude-main", model: "opus", poolId: "claude")
+        ThreadSettings(app: app, thread: app.threads["th2"]).pin("claude-1")
+        for _ in 0..<200 where transport.updates.count < 2 { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(transport.updates.last?["accountId"] as? String, "claude-1")
+        XCTAssertTrue(transport.updates.last?["model"] is NSNull, "the team login's opus is a different model")
+
+        app.accounts[1].models = []
+        app.threads["th3"] = ThreadSummary(id: "th3", title: "t", accountId: "claude-1", model: "fable", poolId: "claude")
+        ThreadSettings(app: app, thread: app.threads["th3"]).pin("claude-main")
+        for _ in 0..<200 where transport.updates.count < 3 { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(transport.updates.last?["accountId"] as? String, "claude-main")
+        XCTAssertTrue(transport.updates.last?["model"] is NSNull, "no list on the login being left: the destination still refuses Fable")
+    }
+
+    /// On Auto, a login under the floor shows the other login's list.
+    /// The model this login will drop is dimmed and not ticked, and the
+    /// star is the login the next turn uses.
+    func testAutoDoesNotTickAModelTheNextLoginLacks() {
+        let app = app()
+        var list = accounts
+        list[0].usage = room(4)
+        list[0].defaultModel = "claude-opus-5-5"
+        list[1].models = [ModelChoice(id: "opus", model: "claude-opus-5", title: "Opus 5", effortLevels: ["low", "high"])]
+        list[1].defaultModel = "claude-opus-5"
+        list[1].usage = room(100)
+        app.accounts = list
+        let thread = ThreadSummary(id: "th1", title: "t", accountId: "claude-main", model: "opus", poolId: "claude")
+        app.threads["th1"] = thread
+        let rows = ThreadSettings(app: app, thread: thread).sections(for: "claude").flatMap(\.rows)
+        let old = rows.first { $0.title == "Opus 5.5" }
+        let next = rows.first { $0.title == "Opus 5" }
+        XCTAssertEqual(old?.unavailable, true)
+        XCTAssertEqual(old?.isSelected, false)
+        XCTAssertEqual(next?.unavailable, false)
+        XCTAssertEqual(next?.isDefault, true)
+        XCTAssertEqual(next?.isSelected, false)
+        XCTAssertNotEqual(old?.id, next?.id)
+        XCTAssertNotEqual(old?.id, "opus")
     }
 
     /// A pool thread's limit line: nothing while the pool has room (the

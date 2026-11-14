@@ -74,16 +74,52 @@ public enum ModelPicker {
         /// A dated or superseded id, listed under "Older" rather than with
         /// the main rows.
         public var isOlder: Bool
+        /// The login in front of the list doesn't offer this model.
+        public var unavailable: Bool
+        /// The model id this row runs as (`ModelChoice.model`). Empty
+        /// means the same as `id`. Two logins can share a choice id
+        /// ("opus") for different models, so matching goes by this.
+        public var resolved: String
 
-        public init(id: String, title: String, subtitle: String? = nil, isDefault: Bool = false, isSelected: Bool = false, isOlder: Bool = false) {
+        public init(id: String, title: String, subtitle: String? = nil, isDefault: Bool = false, isSelected: Bool = false, isOlder: Bool = false, unavailable: Bool = false, resolved: String = "") {
             self.id = id
             self.title = title
             self.subtitle = subtitle
             self.isDefault = isDefault
             self.isSelected = isSelected
             self.isOlder = isOlder
+            self.unavailable = unavailable
+            self.resolved = resolved
         }
     }
+
+    /// One login in the row above the models, or Auto. Shown when the
+    /// pool has more than one login.
+    public struct LoginChip: Sendable, Equatable, Identifiable {
+        public var id: String
+        public var title: String
+        public var subtitle: String
+        public var help: String
+        /// Under 25% left, or at its limit.
+        public var tone: LoginTone
+        public var isSelected: Bool
+
+        public init(id: String, title: String, subtitle: String, help: String, tone: LoginTone = .normal, isSelected: Bool = false) {
+            self.id = id
+            self.title = title
+            self.subtitle = subtitle
+            self.help = help
+            self.tone = tone
+            self.isSelected = isSelected
+        }
+    }
+
+    public enum LoginTone: Sendable, Equatable {
+        case normal, low, blocked
+    }
+
+    /// The id of the Auto chip: the pool picks the login.
+    public static let autoLogin = "auto"
 
     /// The providers in the rail, in the order the runner first lists an
     /// account for each. No accounts yet means a rail with just Claude, so
@@ -145,15 +181,15 @@ public enum ModelPicker {
         var seenModels = Set<String>()
         func add(_ c: ModelChoice, older: Bool) {
             guard seenModels.insert(c.model).inserted else { return }
-            let isDefault = matches(c, defaultId)
-            rows.append(Row(id: c.id, title: c.title, subtitle: c.description, isDefault: isDefault, isSelected: matches(c, selected), isOlder: older))
+            let isDefault = matches(c, defaultId, in: known)
+            rows.append(Row(id: c.id, title: c.title, subtitle: c.description, isDefault: isDefault, isSelected: matches(c, selected, in: known), isOlder: older, resolved: runsAs(c)))
         }
         let isMain = { (c: ModelChoice) -> Bool in
-            codex || c.id.allSatisfy(\.isLetter) || matches(c, defaultId) || matches(c, selected)
+            codex || c.id.allSatisfy(\.isLetter) || matches(c, defaultId, in: known) || matches(c, selected, in: known)
         }
         for c in known where isMain(c) { add(c, older: false) }
-        if let selected, !selected.isEmpty, !known.contains(where: { matches($0, selected) }) {
-            rows.append(Row(id: selected, title: ComposerChips.model(selected), isSelected: true))
+        if let selected, !selected.isEmpty, !known.contains(where: { matches($0, selected, in: known) }) {
+            rows.append(Row(id: selected, title: ComposerChips.model(selected), isSelected: true, resolved: selected))
         }
         for c in known where !isMain(c) { add(c, older: true) }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -167,9 +203,76 @@ public enum ModelPicker {
         }
     }
 
-    private static func matches(_ c: ModelChoice, _ id: String?) -> Bool {
+    /// What a choice runs as. An empty `model` is the choice id itself.
+    static func runsAs(_ choice: ModelChoice) -> String {
+        choice.model.isEmpty ? choice.id : choice.model
+    }
+
+    /// The model id `stored` runs as on this account. An alias ("opus")
+    /// becomes that login's resolved model. No list yet, or not listed,
+    /// comes back unchanged.
+    public static func resolvedModel(_ stored: String?, on account: Account?) -> String? {
+        guard let stored, !stored.isEmpty else { return nil }
+        guard let account, let row = account.models.first(where: { $0.id == stored || $0.model == stored }) else { return stored }
+        return runsAs(row)
+    }
+
+    /// What happens to an explicit model when a thread moves onto `to`.
+    /// `.keep` leaves it: nothing was set, `to`'s list isn't known yet, or
+    /// `to` already uses that choice id for the same model. `.clear` drops
+    /// a model `to` doesn't list. `.set` is `to`'s choice id for that same
+    /// resolved model. An alias is resolved on `from`. A list that hasn't
+    /// come back for `from` does not keep a model `to` doesn't list. A
+    /// stored choice id is that row when `to` lists it, and an unresolved
+    /// alias is not `to`'s own alias.
+    public enum ModelMove: Equatable {
+        case keep
+        case clear
+        case set(String)
+    }
+
+    public static func modelMove(_ explicit: String?, from: Account?, to: Account?) -> ModelMove {
+        guard let explicit, !explicit.isEmpty, let to else { return .keep }
+        if to.models.isEmpty { return .keep }
+        if let from, let row = from.models.first(where: { $0.id == explicit || $0.model == explicit }) {
+            let resolved = runsAs(row)
+            guard let there = to.models.first(where: { runsAs($0) == resolved }) else { return .clear }
+            return there.id == explicit ? .keep : .set(there.id)
+        }
+        // The login being left has a list, and this id isn't on it. `to`
+        // still decides, matched by id or model.
+        if from?.models.isEmpty == false {
+            if let there = to.models.first(where: { $0.id == explicit || $0.model == explicit }) {
+                return there.id == explicit ? .keep : .set(there.id)
+            }
+            return .clear
+        }
+        // No list yet on the login being left, so an alias can't be
+        // resolved. The same resolved model counts, and so does a stored
+        // choice id (Fable's "claude-fable-5-1[1m]", whose resolved model
+        // is shorter). A bare alias is not this login's alias.
+        if let there = to.models.first(where: { runsAs($0) == explicit || (!unresolvedAlias(explicit) && $0.id == explicit) }) {
+            return there.id == explicit ? .keep : .set(there.id)
+        }
+        return .clear
+    }
+
+    /// Claude's short aliases. `opus[1m]` is still `opus`. A stored choice
+    /// id such as `claude-fable-5-1[1m]` is not one: its resolved model is
+    /// shorter, and the id is the same row on every login.
+    private static func unresolvedAlias(_ id: String) -> Bool {
+        let bare = id.replacingOccurrences(of: #"\[[^\]]*\]$"#, with: "", options: .regularExpression).lowercased()
+        return ["opus", "sonnet", "haiku", "default", "opusplan"].contains(bare)
+    }
+
+    private static func matches(_ c: ModelChoice, _ id: String?, in choices: [ModelChoice]) -> Bool {
         guard let id, !id.isEmpty else { return false }
-        return c.id == id || c.model == id
+        if c.model == id || (c.model.isEmpty && c.id == id) { return true }
+        guard c.id == id else { return false }
+        // A shared alias is not a match: "opus" on two resolved models
+        // would tick both. The caller passes the resolved model once it
+        // knows which login's alias it is.
+        return choices.filter { $0.id == id }.count <= 1
     }
 
     /// The effort levels the picker offers for a model: the CLI's list for
@@ -192,5 +295,133 @@ public enum ModelPicker {
         if let own = account?.defaultEffort, !own.isEmpty { return own }
         guard let model else { return nil }
         return ComposerChips.choice(for: model, in: choices)?.defaultEffort
+    }
+
+    /// Auto, then each login, for a pool with two or more. Empty for one
+    /// login: the picker stays as it was. `selected` nil, or `autoLogin`,
+    /// is Auto. A login's line is how much room it has left.
+    public static func loginChips(pool: Pool, accounts: [Account], selected: String?, now: Date = Date()) -> [LoginChip] {
+        let own = Pools.logins(pool, accounts: accounts)
+        guard own.count >= 2 else { return [] }
+        let auto = selected == nil || selected == autoLogin
+        var chips = [LoginChip(id: autoLogin, title: "Auto", subtitle: "best room", help: "The pool picks the login", isSelected: auto)]
+        for account in own {
+            let name = AccountName.login(account.id, accounts: accounts)
+            let blocked = account.usage?.blocked == true
+            let room = AccountUsageText.room(account.usage)
+            let subtitle: String
+            let tone: LoginTone
+            if blocked {
+                subtitle = "Limit reached"
+                tone = .blocked
+            } else if let room {
+                subtitle = AccountUsageText.percent(room) + " left"
+                tone = room < AccountUsageText.chipWarning ? .low : .normal
+            } else {
+                subtitle = ""
+                tone = .normal
+            }
+            chips.append(LoginChip(id: account.id, title: name, subtitle: subtitle, help: AccountUsageText.tooltip(account, fallback: name, now: now), tone: tone, isSelected: selected == account.id))
+        }
+        return chips
+    }
+
+    /// One provider's models across a pool's logins, in the same order
+    /// whichever login is in front. A model the focused login doesn't
+    /// offer is marked unavailable. With no list for that login yet, the
+    /// rows stay as they are: dimming them would be a guess.
+    ///
+    /// A login is matched by the resolved model, never by a shared alias:
+    /// two "opus" rows that run as different models stay two rows, and
+    /// only the one this login runs is clickable. `selected` and
+    /// `defaultId` should already be resolved on the account they belong
+    /// to, or an alias ticks every row with that id.
+    public static func accountRows(logins: [Account], accounts: [Account], focused: Account?, defaultId: String?, selected: String?, query: String = "", provider: String = "claude", now: Date = Date()) -> [Row] {
+        let merged = mergedChoices(logins)
+        let base = rows(choices: merged, defaultId: defaultId, selected: selected, query: query, provider: provider)
+        guard let focused, !focused.models.isEmpty else { return uniqueRowIds(base) }
+        let name = AccountName.login(focused.id, accounts: accounts)
+        let detail = loginDetail(focused)
+        let adjusted = base.map { row -> Row in
+            var row = row
+            let resolved = row.resolved.isEmpty ? row.id : row.resolved
+            if let match = focused.models.first(where: { runsAs($0) == resolved }) {
+                row.id = clickId(match, among: merged)
+                row.resolved = runsAs(match)
+                row.unavailable = false
+                row.subtitle = "On " + name + (row.isSelected && !detail.isEmpty ? " · " + detail : "")
+            } else {
+                row.unavailable = true
+                row.isSelected = false
+                row.isDefault = false
+                row.subtitle = "Not on this login"
+                if resolved != row.id { row.id = resolved }
+            }
+            return row
+        }
+        return uniqueRowIds(adjusted)
+    }
+
+    /// The id a click sends. A choice id shared by two resolved models
+    /// ("opus") would run as whichever login is in front, so the click
+    /// sends the resolved model instead.
+    private static func clickId(_ match: ModelChoice, among merged: [ModelChoice]) -> String {
+        let resolved = runsAs(match)
+        let shared = merged.contains { $0.id == match.id && runsAs($0) != resolved }
+        return shared ? resolved : match.id
+    }
+
+    /// ForEach identity is the row id, and a click sends it too. Two
+    /// rows that share an alias get distinct ids; a clickable row keeps
+    /// the id it already has.
+    private static func uniqueRowIds(_ rows: [Row]) -> [Row] {
+        var seen = Set<String>()
+        let claimed = Set(rows.filter { !$0.unavailable }.map(\.id))
+        return rows.map { row in
+            var row = row
+            if seen.contains(row.id) || (row.unavailable && claimed.contains(row.id)) {
+                let resolved = row.resolved.isEmpty ? row.id : row.resolved
+                var candidate = resolved
+                var n = 2
+                while seen.contains(candidate) || claimed.contains(candidate) {
+                    candidate = "\(resolved)#\(n)"
+                    n += 1
+                }
+                row.id = candidate
+            }
+            seen.insert(row.id)
+            return row
+        }
+    }
+
+    /// The pool's models in login order, each model once. The first login
+    /// to list it keeps the row, so switching login doesn't reshuffle.
+    static func mergedChoices(_ logins: [Account]) -> [ModelChoice] {
+        var byKey: [String: ModelChoice] = [:]
+        var order: [String] = []
+        for account in logins {
+            for choice in account.models {
+                let key = choice.model.isEmpty ? choice.id : choice.model
+                if byKey[key] == nil {
+                    order.append(key)
+                    byKey[key] = choice
+                }
+            }
+        }
+        return order.compactMap { byKey[$0] }
+    }
+
+    /// "5-hour 4%" or "week 100%", the tighter window, for the chosen
+    /// model's line. Empty when nothing is known.
+    static func loginDetail(_ account: Account) -> String {
+        if account.usage?.blocked == true { return "limit reached" }
+        guard let window = AccountUsageText.tightest(account.usage) else { return "" }
+        let name: String
+        switch window.kind {
+        case "five_hour": name = "5-hour"
+        case "weekly": name = "week"
+        default: name = window.title.lowercased()
+        }
+        return name + " " + AccountUsageText.percent(window.remainingPercent)
     }
 }
