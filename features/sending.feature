@@ -20,7 +20,7 @@ Feature: Sending a message
     When I type "A draft to continue" in the composer
     And I leave the composer untouched for 12 seconds
     Then the composer says "A draft to continue"
-    When I type "A draft to continue later" in the composer
+    When I type " later" in the composer
     Then the composer says "A draft to continue later"
 
   @composer.return
