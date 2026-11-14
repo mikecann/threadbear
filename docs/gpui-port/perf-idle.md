@@ -6,6 +6,54 @@ callback per window, without adding a background timer. Main's sidebar arc
 layer and one-second clock are unchanged. Two kit Button controls still use
 their own internal loaders.
 
+## Caret timeout on source base e6198501b
+
+The focused text box blinked forever. The next change uses the kit's existing
+idle policy: after ten seconds without an edit or cursor movement, the caret
+stays visible and its timer stops. Activity starts it again. `Theme::update`
+sets the policy before any window exists and keeps both theme layers in sync.
+
+Same Tinker Desk fixture, window, release flags and unchanged external guards
+as below. Three alternating pairs per condition follow a discarded warm-up
+pair. Each app settles for twelve seconds before its eight-second interval;
+otherwise a ten-second timeout would still be blinking during part of the run.
+A is e6198501b, Q is cef37f4cd. Their only production-code difference is the
+startup caret policy. Normal CPU ranges are 3.166–3.409 versus 0.575–0.649%;
+loaded ranges are 1.454–1.677 versus 0.341–0.387% of one core.
+
+| Settled scene | Metric | A | Q | Q/A |
+|---|---|---:|---:|---:|
+| Normal | App CPU | 3.337 | 0.593 | 0.178 |
+| Normal | Main-thread CPU | 2.990 | 0.515 | 0.172 |
+| Normal | Interrupt wakeups/s | 17.748 | 5.374 | 0.303 |
+| Normal | Drawn frames/s | 2.000 | 0.125 | 0.062 |
+| Seven cores busy | App CPU | 1.631 | 0.343 | 0.210 |
+| Seven cores busy | Main-thread CPU | 1.541 | 0.318 | 0.206 |
+| Seven cores busy | Interrupt wakeups/s | 18.748 | 5.249 | 0.280 |
+| Seven cores busy | Drawn frames/s | 2.000 | 0.125 | 0.063 |
+
+The profiler counted one frame in each eight-second Q interval. A separate
+functional check counted no frames in either two-second settled interval,
+then four redraws after a native, PID-targeted Quartz `z` key event. The
+expected letter reached the private draft, and blinking stopped again after
+the next idle period. GPUI reported its window active in all three checks;
+117 external checks over 30.5 seconds kept the unchanged foreground, awake,
+unlocked and uncovered requirements. These functional counters are excluded
+from the CPU table. The draft-retention behavior spec passed all twelve steps.
+All sixteen matrix app processes and the functional app were gone afterwards.
+
+An initial private key helper needed cleanup and foreground-race corrections
+in review. It posted no key in the excluded attempt. The corrected helper
+sends both events only to the owned PID, pairs key-down/up through ordinary
+cancellation, and fails closed on permission or identity mismatch. Neutral
+signal tests posted no events on Mike's Mac. No installed app was controlled.
+
+Baseline SHA-256: `197a6fa7b5e60c066d99b19d7f25f343f75a393efa9647ccd93571ab78024088`.
+Q SHA-256: `acc1d8c12f8547c3d83ace809b9274a22bf1a06a321963a60b4abda4432e7eee`.
+Raw samples, owned-process cleanup and the functional record are in the private
+`idle-20261113/caret-results` evidence folder. This is a GPUI A/Q result;
+the earlier Swift DEBUG/direct reference below remains separately labelled.
+
 ## Final comparison on source base 466f42925
 
 Tinker Desk, 60 Hz, release `automation,frame-stats`, a 1,500-turn transcript
