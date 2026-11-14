@@ -533,6 +533,9 @@ Threadbear. Stop on its own doesn't retry them. Clearing the conversation
 discards them. Moving the thread to another runner keeps the original messages
 in its history, but you need to send the stopped request again there.
 
+The caret stays visible after ten seconds without editing or moving it,
+and starts blinking again when you continue typing or refocus the box.
+
 On a Mac the composer checks your spelling as the Mac's own text boxes do. A
 misspelled word gets a red wavy line once you've finished typing it, and
 with Correct Spelling Automatically on (it starts as your Mac's Keyboard

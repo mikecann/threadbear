@@ -254,6 +254,11 @@ fn main() {
     let links = deep_links::receive(&application);
     application.run(|cx| {
         gpui_kit::init(cx);
+        // An untouched caret should not redraw the window indefinitely.
+        // It stays visible after ten seconds and resumes on editing or focus.
+        gpui_kit::component::Theme::update(cx, |theme| {
+            theme.cursor_blink = theme.cursor_blink.with_idle_timeout(std::time::Duration::from_secs(10));
+        });
         native_text::init(cx);
         // Every window's colours as sRGB, before the first opens (colour_space.rs).
         colour_space::install(cx);

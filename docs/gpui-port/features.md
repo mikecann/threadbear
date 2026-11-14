@@ -225,6 +225,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | ID | Feature | What it does | How in GPUI | Route | Size | Swift |
 |---|---|---|---|---|---|---|
 | `composer.textbox` | Text box | Multi-line, grows, undo, wrap, per-thread drafts | `Textarea`, tested early with IME and dictation (XIM on X11, text-input on Wayland). | kit | L | `ComposerView` (`ComposerTextView`) |
+| `composer.idle` | Idle text box | Keeps an untouched draft and accepts editing again | The caret stays visible after ten seconds without editing or cursor movement, then resumes on activity. | kit | S | `ComposerView` |
 | `composer.spelling` | Spelling | Misspelled words marked, guesses, Ignore and Learn Spelling on right-click, autocorrect and text replacements as a word ends, the right-click menu's Spelling and Grammar, Substitutions, Transformations and Speech | The Mac's spell checker (NSSpellChecker) and speech through objc2, the marks drawn by the kit's textarea (our `set_text_marks`); none on Windows or Linux. | build | M | `ComposerView` (`ComposerTextView`, NSTextView's own) |
 | `composer.return` | Return, Shift-Return | Send, new line | Key bindings on `Textarea`. | build | S | `ComposerView` |
 | `composer.listcontinue` | List continuation | "2. " after "1. x", empty item ends it, one undo | Port the rule on `Textarea` (unverified that it can make one undo step). | build | S | `ComposerView` (`insertLineContinuingList`) |
