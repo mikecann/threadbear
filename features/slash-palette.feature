@@ -130,6 +130,15 @@ Feature: The slash command palette
     And I type "m" in the composer
     Then the palette is still 60 points taller than it was
 
+  # On the new-thread page the box sits 40% down, so the palette is held to
+  # the room over the box, not half the window: it ran off the window's top
+  # when the box was measured from its bottom edge (Wayne, 14 Nov).
+  @composer.slash.resize @swift-pending
+  Scenario: On the new-thread page the palette stays inside the window
+    When I start a new thread
+    And I type "Is there a setting for this? Look it up with /" in the composer
+    Then the palette fits between the window's top and the box
+
   @composer.slash.resize @swift-pending
   Scenario: Default Size, from its right-click menu, puts it back
     When I type "/" in the composer

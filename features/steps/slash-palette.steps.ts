@@ -157,3 +157,18 @@ Then('the list is {int} points wider than it was', async function (this: Threadb
     return columns && near(columns[1], before.columns[1] + points);
   });
 });
+
+// The box's top as the palette measured it (the GPUI dump's `palette.boxTop`,
+// window pixels, the same as points at 100%) must be above the box's Send
+// button, and the palette no taller than the room over that, less its 8-point
+// gap and 8 points from the window's top.
+Then('the palette fits between the window\'s top and the box', async function (this: ThreadbearWorld) {
+  const [height, boxTop] = await this.until('the palette drawn over the box', (d) => {
+    const p = (d as unknown as { palette?: { size?: [number, number]; boxTop?: number } }).palette;
+    return p?.size && typeof p.boxTop === 'number' && p.boxTop < 1e6 ? [p.size[1], p.boxTop] : undefined;
+  });
+  const point = await this.app.do({ cmd: 'label-point', label: 'Send' });
+  const sendY = Number(point.trim().split(/\s+/).at(-1));
+  assert.ok(boxTop < sendY, `the box's top was measured at ${boxTop}, under its Send button at ${sendY}`);
+  assert.ok(height <= boxTop - 16 + 1, `the palette is ${height} tall with ${boxTop - 16} of room over the box`);
+});

@@ -110,7 +110,7 @@ pub(crate) fn left_offset(width: f32, window_width: f32) -> f32 {
 
 /// A canvas that keeps where the box is across the window.
 pub(crate) fn measure_box() -> impl IntoElement {
-    canvas(|bounds, _, _| BOX.set((f32::from(bounds.origin.x), f32::from(bounds.size.width))), |_, _, _, _| {}).absolute().size_full()
+    canvas(|bounds, _, _| BOX.set((f32::from(bounds.origin.x), f32::from(bounds.size.width))), |_, _, _, _| {}).absolute().inset_0().size_full()
 }
 
 /// While a drag goes on: the window's pointer moves resize, and letting go
@@ -156,7 +156,7 @@ pub(crate) fn drag_watch(composer: WeakEntity<Composer>) -> Option<AnyElement> {
 fn dragged_to(composer: &Composer, at: Point<Pixels>, cx: &mut App) {
     let Some(drag) = DRAG.with_borrow(|d| *d) else { return };
     // Points, as the sizes are kept at 100%.
-    let scale = f64::from(style::zoomed(1.));
+    let scale = f64::from(style::zoom_factor());
     match drag {
         Drag::Edge { edge, from, start } => {
             let (dx, dy) = (f64::from(at.x - from.x) / scale, f64::from(at.y - from.y) / scale);
@@ -320,7 +320,7 @@ pub(crate) fn drag_command(cmd: &serde_json::Value, window: &mut Window, cx: &mu
     window.render_frame(cx);
     let Some(handle) = window.find_all_by_label(name).into_iter().find(|e| e.visible()) else { return Err("the palette isn't open".into()) };
     let from = handle.visible_bounds().center();
-    let scale = style::zoomed(1.);
+    let scale = style::zoom_factor();
     let to = point(from.x + gpui_kit::px(cmd["dx"].as_f64().unwrap_or(0.) as f32 * scale), from.y + gpui_kit::px(cmd["dy"].as_f64().unwrap_or(0.) as f32 * scale));
     window.pointer_move(from, None, cx);
     window.pointer_down(from, MouseButton::Left, cx);

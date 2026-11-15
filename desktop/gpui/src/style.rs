@@ -96,6 +96,14 @@ pub fn zoomed(size: f32) -> f32 {
     threadbear_core::zoom::scaled(size, zoom_percent())
 }
 
+/// The zoom as a factor, unrounded: 1.25 at 125%. For turning the window's
+/// pixels back into points. `zoomed(1.)` rounds to a whole point, so it is 1
+/// from 80% to 140%, and a palette sized with it came out taller than the room
+/// it had and ran off the top of the window.
+pub fn zoom_factor() -> f32 {
+    zoom_percent() as f32 / 100.
+}
+
 /// A SwiftUI `Text`'s own line height at `size`, as SwiftUI lays it out on
 /// macOS (measured with NSHostingView.fittingSize: 14 at 11 pt, 16 at 13, 19
 /// at 15). GPUI's own is 1.618 times the size, so a view drawn in SwiftUI

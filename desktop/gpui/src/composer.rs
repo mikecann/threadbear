@@ -1705,13 +1705,20 @@ impl Render for Composer {
                     .child(canvas(move |bounds, window, _| {
                         width.set(f32::from(bounds.size.width));
                         // A box that moved draws again, so an open palette
-                        // fits the room it has now.
+                        // fits the room it has now. On the next frame: a
+                        // refresh asked for while drawing is dropped.
                         let moved = (top.get() - f32::from(bounds.top())).abs() > 0.5;
                         top.set(f32::from(bounds.top()));
                         if moved {
-                            window.refresh();
+                            window.request_animation_frame();
                         }
-                    }, |_, _, _, _| {}).absolute().size_full())
+                    }, |_, _, _, _| {})
+                    // Pinned to the box's top left: with no inset, an absolute
+                    // child sits where it would in the flow, under the words,
+                    // and measured the box's bottom as its top, so the palette
+                    // thought it had a box's height more room than it did and
+                    // ran off the top of the window (Wayne, 14 Nov).
+                    .absolute().inset_0().size_full())
                     .children(palette)
                     // The main panel's box, for the tour's first thread.
                     .children(crate::tour::mark_composer(self.thread_id.as_deref())),

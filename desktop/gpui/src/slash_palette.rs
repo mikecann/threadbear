@@ -307,7 +307,7 @@ impl Composer {
         // Its size: what it was dragged to, kept within the window, else as
         // wide as the box and about half the window tall (slash_resize.rs).
         // In points, as kept; the window's are zoomed.
-        let zoom = style::zoomed(1.);
+        let zoom = style::zoom_factor();
         let viewport = window.viewport_size();
         let layout = crate::slash_resize::kept(self, cx);
         let auto_height = slash::palette_height(f64::from(viewport.height / zoom), 300., 560.);
@@ -572,6 +572,9 @@ impl Composer {
             // height, and its categories' and list's widths.
             "size": crate::slash_resize::drawn().map(|d| [d[0], d[1]]),
             "columns": crate::slash_resize::drawn().map(|d| [d[2], d[3]]),
+            // The box's top as last measured, in window pixels: the room
+            // the palette has over it.
+            "boxTop": self.box_top.get(),
         })
     }
 }
