@@ -277,6 +277,8 @@ test("Claude's rate_limit_event becomes a limits reading the store keeps", () =>
     {
       kind: 'limits',
       blocked: false,
+      // The CLI's event says isUsingOverage: false.
+      extraRoom: false,
       windows: [
         { kind: 'five_hour', title: '5-hour', remainingPercent: 38, resetsAt: new Date(1793002800_000).toISOString() },
         { kind: 'weekly', title: 'Weekly', remainingPercent: 95, resetsAt: new Date(1793250000_000).toISOString() },
@@ -676,4 +678,26 @@ test("a Codex login's usage resets: kept from its reading, dropped once one has 
   // Past the soonest expiry the count can't be trusted until the next read.
   s.clock.advance(61 * 60_000);
   assert.equal(store.usageFor(codex)?.resets, undefined);
+});
+
+test('rateLimitReading: extra usage in use counts as extra room, and only when it says', () => {
+  assert.equal(rateLimitReading({ status: 'allowed', rateLimitType: 'seven_day', utilization: 1, isUsingOverage: true })?.extraRoom, true);
+  assert.equal(rateLimitReading({ status: 'allowed', rateLimitType: 'seven_day', utilization: 0.4, isUsingOverage: false })?.extraRoom, false);
+  assert.equal(rateLimitReading({ status: 'rejected', rateLimitType: 'seven_day', utilization: 1, isUsingOverage: true })?.extraRoom, false, 'rejected is out, paid or not');
+  assert.equal('extraRoom' in rateLimitReading({ status: 'allowed', rateLimitType: 'seven_day', utilization: 0.4 })!, false);
+});
+
+test('UsageStore: extra room shows until a reading blocks the login', () => {
+  const dir = tmpDir();
+  const clock = new FakeClock();
+  const store = new UsageStore({ limitsFile: path.join(dir, 'limits.json'), dataDir: dir, clock, log: nullLogger });
+  const a = { id: 'claude-main', provider: 'claude' as const, configDir: '/tmp/x' };
+  store.record(a.id, { windows: [{ kind: 'weekly', title: 'Weekly', remainingPercent: 0 }], blocked: false, extraRoom: true });
+  assert.equal(store.usageFor(a)?.extraRoom, true);
+  store.record(a.id, { windows: [], blocked: true });
+  assert.equal(store.usageFor(a)?.extraRoom, undefined);
+  assert.equal(store.usageFor(a)?.blocked, true);
+  store.record(a.id, { windows: [], blocked: false, extraRoom: true });
+  store.record(a.id, { windows: [], extraRoom: false });
+  assert.equal(store.usageFor(a)?.extraRoom, undefined);
 });

@@ -30,13 +30,13 @@ import {
 const NOW = Date.parse('2026-10-27T08:00:00.000Z');
 const at = (mins: number) => new Date(NOW + mins * 60_000).toISOString();
 
-function acct(id: string, opts: { provider?: 'claude' | 'codex'; note?: string; five?: number; week?: number; resets?: number; weekResets?: number; blocked?: boolean } = {}): Account {
+function acct(id: string, opts: { provider?: 'claude' | 'codex'; note?: string; five?: number; week?: number; resets?: number; weekResets?: number; blocked?: boolean; extra?: boolean } = {}): Account {
   const a: Account = { id, provider: opts.provider ?? (id.startsWith('codex') ? 'codex' : 'claude'), title: `${id}@example.com`, configDir: `/tmp/${id}` };
   if (opts.note) a.note = opts.note;
   const windows: UsageWindow[] = [];
   if (opts.five !== undefined) windows.push({ kind: 'five_hour', title: '5-hour', remainingPercent: opts.five, ...(opts.resets !== undefined ? { resetsAt: at(opts.resets) } : {}) });
   if (opts.week !== undefined) windows.push({ kind: 'weekly', title: 'Weekly', remainingPercent: opts.week, ...(opts.weekResets !== undefined ? { resetsAt: at(opts.weekResets) } : {}) });
-  if (windows.length || opts.blocked) a.usage = { windows, readAt: at(0), source: 'live', ...(opts.blocked ? { blocked: true } : {}) };
+  if (windows.length || opts.blocked) a.usage = { windows, readAt: at(0), source: 'live', ...(opts.blocked ? { blocked: true } : {}), ...(opts.extra ? { extraRoom: true } : {}) };
   return a;
 }
 
@@ -126,6 +126,16 @@ test('loginOk: blocked or under 1% is not; unknown usage is', () => {
   assert.equal(loginOk(acct('a', { five: 0.9, week: 50 })), false);
   assert.equal(loginOk(acct('a', { five: 80, week: 0.5 })), false);
   assert.equal(loginOk(acct('a', { five: 80, blocked: true })), false);
+});
+
+test('extra usage the user paid for: OK, but a pool takes it only when no login has plan room', () => {
+  assert.equal(loginOk(acct('a', { five: 0, week: 40, extra: true })), true);
+  assert.equal(loginOk(acct('a', { five: 0, extra: true, blocked: true })), false, 'a block wins');
+  const list = [acct('claude-main', { five: 0, extra: true }), acct('claude-1', { five: 20 }), acct('claude-3', { five: 0 })];
+  assert.equal(pickInPool(CLAUDE, list, { provider: 'claude', current: 'claude-main' }), 'claude-1', 'plan room first, even off the current login');
+  assert.equal(pickInPool(CLAUDE, list, { provider: 'claude', exclude: ['claude-1'] }), 'claude-main', 'then the paid one');
+  const two = [acct('claude-main', { five: 0, extra: true }), acct('claude-1', { five: 0, extra: true }), acct('claude-3', { five: 0 })];
+  assert.equal(pickInPool(CLAUDE, two, { provider: 'claude', current: 'claude-1' }), 'claude-1', 'staying on the paid one it is on');
 });
 
 test('pickInPool: current stays while OK; else most room; unknown after known; prefer breaks ties', () => {

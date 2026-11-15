@@ -387,11 +387,16 @@ impl SettingsWindow {
             Some(label) => format!("{} ({label})", account.name()),
             None => account.name(),
         };
+        // The Usage panel's refresh, shared: the same check, its words after
+        // the login's details until the next.
+        let check = self.app.upgrade().and_then(|app| app.read(cx).usage.checks.get(&account.id).cloned()).unwrap_or_default();
+        let checked = check.words.clone().map(|words| div().flex_none().text_color(if check.room { style::tick_green(cx) } else { secondary }).child(words));
         let label = h_flex()
             .gap(px(6.))
             .min_w_0()
             .child(div().flex_none().child(title.clone()))
-            .child(div().min_w_0().truncate().text_color(secondary).child(detail.join(" · ")));
+            .child(div().min_w_0().truncate().text_color(secondary).child(detail.join(" · ")))
+            .children(checked);
         let toggle = {
             let (pool_id, login) = (pool_id.clone(), login.clone());
             Checkbox::new(SharedString::from(format!("settings-pool-login-{}", account.id))).checked(included).small().on_click(move |on: &bool, _, cx| {
@@ -400,6 +405,19 @@ impl SettingsWindow {
             })
         };
         let mut controls = h_flex().gap(px(2.));
+        controls = controls.child(if check.busy {
+            crate::highlights::tipped(div().id(SharedString::from(format!("settings-pool-recheck-{}", account.id))).size(px(22.)).flex().items_center().justify_center(), "Checking this login…")
+                .child(gpui_kit::component::spinner::Spinner::new().with_size(px(12.)).color(secondary))
+                .into_any_element()
+        } else {
+            let account_id = account.id.clone();
+            self.icon_button(format!("settings-pool-recheck-{}", account.id), "arrow.clockwise", threadbear_core::usage::RECHECK_TIP, cx, move |this, _, cx| {
+                if let Some(app) = this.app.upgrade() {
+                    let id = account_id.clone();
+                    app.update(cx, |app, cx| app.recheck_login(id, cx));
+                }
+            })
+        });
         if included {
             let first = pool.account_ids.first() == Some(&account.id);
             let last = pool.account_ids.last() == Some(&account.id);

@@ -7,13 +7,23 @@ import type { RunnerPart } from './part.ts';
 import type { Account, Pool, Provider } from '../protocol.ts';
 import { ErrorCode, RpcError } from '../protocol.ts';
 import { cutOut } from '../store.ts';
-import { resetTime } from '../usage.ts';
+import { MIN_ROOM_PERCENT, resetTime } from '../usage.ts';
 import { DEFAULT_POOL_FOLDERS, peekRunnerJson, readRunnerJson, writeRunnerJson } from '../config.ts';
-import { UNKNOWN_WAIT_MS, WAIT_SLACK_MS, backAt, blockedUntil, limitWhy, loginOk, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from '../pools.ts';
+import { UNKNOWN_WAIT_MS, WAIT_SLACK_MS, backAt, blockedUntil, limitWhy, loginOk, onExtraRoom, nextLogin, pickInPool, poolAccounts, poolForFolder, poolProviders, readPools, roomWait, validatePools } from '../pools.ts';
 import { historyItems, selectHistory } from '../handoff-history.ts';
 import type { ThreadState } from '../runner.ts';
 import { CARRY_ON_BACK, CARRY_ON_MOVED, CARRY_ON_SIGNED_OUT, isClaudeModel, modelRow, modelTitle } from '../runner.ts';
 import { providerName } from '../providers.ts';
+
+// How long a check of a login may take: a Claude check is a real reply,
+// which a cold CLI takes a few seconds to start for.
+export const RECHECK_TIMEOUT_MS = 45_000;
+
+// What accounts.recheck found. room: a turn can start on it now (extra:
+// only on extra usage the user paid for). backAt: when it's back, if it's
+// still out and a reading says. woke: the threads waiting for room that
+// carry on because of it.
+export type RecheckResult = { accountId: string; room: boolean; extra?: boolean; backAt?: string; woke: number; account?: Account };
 
 export const poolsPart = {
   // The pools in force: runner.json's, else the built-in ones from the
@@ -52,6 +62,101 @@ export const poolsPart = {
   noteRanDry(this: Runner, accountId: string): void {
     const account = this.safeAccounts().find((a) => a.id === accountId);
     if (account) this.markRanDry(account);
+  },
+
+  // accounts.recheck: the Usage panel's refresh button. A login marked out
+  // until its reset stays out though the user bought more usage (Wayne, 14
+  // Nov 2026), so this asks the login itself (AgentAdapter.readLimits),
+  // keeps what it says, and if there's room carries on every thread
+  // waiting for it, its own threads included: earlyLogin never picks the
+  // login a thread ran dry on, as an old reading could say it has room
+  // when it hasn't, but this reading is new.
+  recheckLogin(this: Runner, accountId: string): Promise<RecheckResult> {
+    const running = this.rechecks.get(accountId);
+    if (running) return running;
+    const p = this.runRecheck(accountId).finally(() => this.rechecks.delete(accountId));
+    this.rechecks.set(accountId, p);
+    return p;
+  },
+
+  async runRecheck(this: Runner, accountId: string): Promise<RecheckResult> {
+    const account = this.safeAccounts().find((a) => a.id === accountId);
+    if (!account) throw new RpcError(ErrorCode.badParams, `No login called ${accountId} on this Mac.`);
+    const adapter = this.adapters[account.provider];
+    if (!adapter?.readLimits) throw new RpcError(ErrorCode.badParams, `${account.title} can't be checked from here.`);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let check: Awaited<ReturnType<NonNullable<typeof adapter.readLimits>>>;
+    try {
+      check = await Promise.race([
+        adapter.readLimits(account),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`no answer in ${RECHECK_TIMEOUT_MS / 1000} s`)), RECHECK_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (e) {
+      throw new RpcError(ErrorCode.other, `Couldn't check ${account.title}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!check) throw new RpcError(ErrorCode.other, `${account.title} didn't say how much room it has. Try again in a minute.`);
+    const { reading, answered } = check;
+    const blocked = reading.blocked === true;
+    // A failed reply that isn't a limit (signed out, offline) says nothing
+    // about room, so nothing changes.
+    if (answered === false && !blocked) throw new RpcError(ErrorCode.other, `Couldn't check ${account.title}: its CLI gave an error. Is it still signed in?`);
+    // A reply that went through on a login whose windows read empty is
+    // running on extra usage, whatever the reading says about overage.
+    const windows = reading.windows.filter((w) => w.kind === 'five_hour' || w.kind === 'weekly');
+    const lowest = windows.length ? Math.min(...windows.map((w) => w.remainingPercent)) : undefined;
+    const extraRoom = blocked ? false : (reading.extraRoom ?? (answered === true && lowest !== undefined && lowest < MIN_ROOM_PERCENT ? true : undefined));
+    try {
+      this.usage?.record(account.id, {
+        windows: reading.windows,
+        blocked,
+        ...(extraRoom !== undefined ? { extraRoom } : {}),
+        ...(reading.email ? { email: reading.email } : {}),
+        ...(reading.plan ? { plan: reading.plan } : {}),
+      });
+    } catch (e) {
+      this.log.warn('could not record a usage check', { accountId, error: String(e) });
+    }
+    const now = this.clock.now();
+    let fresh = this.usableAccounts().find((a) => a.id === accountId);
+    if (blocked) {
+      this.ranDry.set(accountId, blockedUntil(fresh ?? account, now));
+    } else {
+      this.ranDry.delete(accountId);
+      fresh = this.usableAccounts().find((a) => a.id === accountId);
+    }
+    const room = !!fresh && loginOk(fresh);
+    let woke = 0;
+    if (room) {
+      for (const st of [...this.threads.values()]) {
+        const { rec, rt } = st;
+        if (!rec.waitingForRoom) continue;
+        // As earlyLogin: a snoozed or busy thread keeps its wait for the
+        // timer, which endWait would drop without carrying it on.
+        if (rt.deleted || rt.turn || rec.queue.length || this.bucket(rec) !== 'inbox' || rec.carryOnAtReset === false) continue;
+        const pool = this.poolById(rec.poolId);
+        const own = rec.accountId === accountId;
+        if (!own && !pool?.accountIds.includes(accountId)) continue;
+        // Its own login: endWait finds it OK now and carries on there.
+        // Another in its pool: it moves there, as a pool wait means none
+        // of the pool's other logins had room.
+        this.endWait(st, own || !pool ? undefined : accountId);
+        if (!rec.waitingForRoom) woke++;
+      }
+    }
+    this.armRoomTimer();
+    const back = !room && fresh ? (backAt(fresh, now) ?? (blocked ? blockedUntil(fresh, now) : undefined)) : undefined;
+    return {
+      accountId,
+      room,
+      ...(room && fresh && onExtraRoom(fresh) ? { extra: true } : {}),
+      ...(back !== undefined ? { backAt: new Date(back).toISOString() } : {}),
+      woke,
+      ...(fresh ? { account: fresh } : {}),
+    };
   },
 
   // pools.save: replaces the whole list (an empty one goes back to the

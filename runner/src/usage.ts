@@ -15,7 +15,7 @@ import type { UsageHistory } from './usage-history.ts';
 // blockedUntil (ms) says when a block ends when no window does: the runner
 // marks a login blocked when a turn hits its limit (pools, runner.ts) and
 // the reading didn't already say so.
-export type UsageReading = { windows: UsageWindow[]; blocked?: boolean; blockedUntil?: number; email?: string; plan?: string; resets?: UsageResets };
+export type UsageReading = { windows: UsageWindow[]; blocked?: boolean; blockedUntil?: number; extraRoom?: boolean; email?: string; plan?: string; resets?: UsageResets };
 
 // Another runner's reading of one of its logins, from the backend's
 // accounts table (sync.ts). A subscription is one limit wherever it's
@@ -148,6 +148,7 @@ type LiveAccount = {
   windows: LiveWindow[];
   blocked?: boolean;
   blockedUntil?: number; // a block ends when the windows that caused it reset
+  extraRoom?: boolean; // running on paid extra usage past the plan's limits
   email?: string;
   plan?: string;
   resets?: UsageResets; // Codex: the resets its latest read said were left
@@ -254,6 +255,10 @@ export class UsageStore {
         else if (reading.blockedUntil !== undefined && Number.isFinite(reading.blockedUntil)) next.blockedUntil = reading.blockedUntil;
       } else delete next.blocked;
     }
+    // A block ends any extra room: what was paid for has run out too.
+    if (reading.blocked) delete next.extraRoom;
+    else if (reading.extraRoom === true) next.extraRoom = true;
+    else if (reading.extraRoom === false) delete next.extraRoom;
     if (reading.email) next.email = reading.email;
     if (reading.plan) next.plan = reading.plan;
     if (reading.resets) next.resets = reading.resets;
@@ -356,6 +361,7 @@ export class UsageStore {
     // brought a reading in that time either.
     if (base && this.baseline && now - this.baseline.generatedAt > STALE_MS && !(live && now - live.at <= STALE_MS) && !(shared && now - shared.at <= STALE_MS)) usage.stale = true;
     if (blocked) usage.blocked = true;
+    else if (live?.extraRoom) usage.extraRoom = true;
     if (base?.notice) usage.notice = base.notice;
     // A reset that has expired since the read can't be counted on: the
     // count is left out until the next read rather than offered wrongly.

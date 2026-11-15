@@ -12,7 +12,7 @@ import type { Account, EffortLevel, ModelChoice, PermissionMode } from '../../pr
 import { isEffortLevel } from '../../protocol.ts';
 import type { Logger } from '../../log.ts';
 import type { ProcessRegistry } from '../../proc.ts';
-import type { AdapterOutput, AgentAdapter, AgentSession, RewindRequest, RewindResult, SessionSink, StartSessionOptions, TurnResult, UseResetResult, UserInput } from '../types.ts';
+import type { AdapterOutput, AgentAdapter, AgentSession, LimitsCheck, RewindRequest, RewindResult, SessionSink, StartSessionOptions, TurnResult, UseResetResult, UserInput } from '../types.ts';
 import { RewindRefusedError, SessionNotFoundError } from '../types.ts';
 import { fileContext, type NormalizerContext } from '../context.ts';
 import {
@@ -201,6 +201,19 @@ export class CodexAdapter implements AgentAdapter {
         const read = await p.request<GetAccountRateLimitsResponse>('account/rateLimits/read', null).catch(() => null);
         const limits = limitsFromRateLimits(read as never);
         return limits ? { outcome, limits } : { outcome };
+      },
+      (p, live) => this.track(p, live),
+    );
+  }
+
+  // The login's limits as Codex has them now, without a turn: no tokens.
+  async readLimits(account: Account): Promise<LimitsCheck | null> {
+    return withShortLivedProcess(
+      this.shortLived(account, `limits:${account.id}`),
+      async (p) => {
+        const r = await p.request<GetAccountRateLimitsResponse>('account/rateLimits/read', null);
+        const reading = limitsFromRateLimits(new RateLimitTracker().read(r));
+        return reading ? { reading } : null;
       },
       (p, live) => this.track(p, live),
     );

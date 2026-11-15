@@ -100,6 +100,9 @@ export type AccountUsage = {
   source: 'tokenStats' | 'live' | 'shared';
   stale?: boolean; // Token Stats has gone quiet and there's no live reading since
   blocked?: boolean; // the provider says this login is at its limit
+  // Past its plan's limits but running on extra usage or credits the user
+  // paid for: a pool uses it only when no login has plan room left.
+  extraRoom?: boolean;
   notice?: string; // Token Stats' own note
   // Codex: the usage-limit resets the login has left (docs/protocol.md,
   // "Usage resets"), from its last account/rateLimits/read.

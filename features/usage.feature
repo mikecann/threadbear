@@ -69,3 +69,12 @@ Feature: The Usage panel and its honey pot
     And I scroll to settings in Usage
     And I press "A login's own limit on one model. Hide it if you don't use that model" in the Usage panel
     Then in the "Claude" card, "alex@example.com" has "Weekly 78% left"
+
+  # The SwiftUI app takes fixes only, so the refresh is the GPUI app's.
+  @usage.pools @swift-pending
+  Scenario: Refreshing a login that ran out, after buying more usage, shows it has room again
+    When I click the honey pot in the activity bar
+    Then in the "Claude" card, "alex+4@example.com" says "Limit reached"
+    When I press refresh beside "claude-4" in the Usage panel
+    Then in the "Claude" card, "alex+4@example.com" has been checked: "Has room again on extra usage"
+    And in the "Claude" card, "alex+4@example.com" says "On extra usage"

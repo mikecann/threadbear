@@ -122,11 +122,19 @@ export function loginOut(account: Account): boolean {
 }
 
 // A login a turn can start on: not blocked or signed out, and at or above
-// the minimum room, or its usage isn't known.
+// the minimum room, or its usage isn't known, or it's past its plan's
+// limits on extra usage the user paid for (onExtraRoom).
 export function loginOk(account: Account): boolean {
   if (loginOut(account)) return false;
   const room = accountRoom(account);
-  return room === undefined || room >= MIN_ROOM_PERCENT;
+  return room === undefined || room >= MIN_ROOM_PERCENT || !!account.usage?.extraRoom;
+}
+
+// A login out of plan room that carries on only on paid extra usage. It
+// costs money, so a pool takes it last (pickInPool).
+export function onExtraRoom(account: Account): boolean {
+  const room = accountRoom(account);
+  return !loginOut(account) && !!account.usage?.extraRoom && room !== undefined && room < MIN_ROOM_PERCENT;
 }
 
 // The providers a pool has logins of, in the order its accountIds first
@@ -158,7 +166,7 @@ export function poolAccounts(pool: Pool, accounts: Account[]): Account[] {
 export function pickInPool(pool: Pool, accounts: Account[], o: { provider: Provider; exclude?: string[]; current?: string; prefer?: string; now?: number }): string | undefined {
   const members = poolAccounts(pool, accounts).filter((a) => a.provider === o.provider && !o.exclude?.includes(a.id));
   const current = members.find((a) => a.id === o.current);
-  if (current && loginOk(current)) return current.id;
+  if (current && loginOk(current) && !onExtraRoom(current)) return current.id;
   const preferred = members.find((a) => a.id === o.prefer && !loginOut(a));
   if (preferred && accountRoom(preferred) === undefined) return preferred.id;
   const now = o.now ?? Date.now();
@@ -173,7 +181,11 @@ export function pickInPool(pool: Pool, accounts: Account[], o: { provider: Provi
     if (better) best = { id: a.id, room, reset };
   }
   if (best) return best.id;
-  return members.find((a) => !loginOut(a) && accountRoom(a) === undefined)?.id;
+  const unknown = members.find((a) => !loginOut(a) && accountRoom(a) === undefined);
+  if (unknown) return unknown.id;
+  // Paid extra usage last, staying on the current login if it has some.
+  if (current && onExtraRoom(current)) return current.id;
+  return members.find(onExtraRoom)?.id;
 }
 
 // When a login's weekly window resets, to the minute so two read a few

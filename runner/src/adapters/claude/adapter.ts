@@ -6,13 +6,13 @@ import type { HookInput, McpServerConfig, ModelInfo, Options, PermissionResult, 
 import type { Account, ContextUsage, EffortLevel, ModelChoice, PermissionMode, Question, QueuedAnswers, QueuedCall } from '../../protocol.ts';
 import { isEffortLevel } from '../../protocol.ts';
 import fs from 'node:fs';
-import type { AgentAdapter, AgentSession, RewindRequest, RewindResult, SessionSink, StartSessionOptions, UserInput } from '../types.ts';
+import type { AgentAdapter, AgentSession, LimitsCheck, RewindRequest, RewindResult, SessionSink, StartSessionOptions, UserInput } from '../types.ts';
 import { RewindRefusedError } from '../types.ts';
 import type { SlashCommand } from '../../slash-commands.ts';
 import { frontmatter } from '../../claude-trust.ts';
 import { cutPointBefore, sessionTranscriptPath } from '../../transcripts.ts';
 import type { Logger } from '../../log.ts';
-import { ClaudeNormalizer, fileContext } from './normalize.ts';
+import { ClaudeNormalizer, USAGE_LIMIT_TEXT, fileContext, rateLimitReading } from './normalize.ts';
 import { groupSpawner, type ProcessRegistry } from '../../proc.ts';
 import { prepareImageForModel } from '../../media.ts';
 import { placePictures } from '../../pictures.ts';
@@ -173,6 +173,58 @@ export class ClaudeAdapter implements AgentAdapter {
       }
       abort.abort();
     }
+  }
+
+  // The login's limits now. Claude has no usage endpoint the CLI exposes,
+  // so this is one tiny Haiku reply with nothing of the user's setup
+  // loaded (a few hundred tokens), and the rate_limit_event that comes
+  // with it. The reply itself says whether the login has room.
+  async readLimits(account: Account): Promise<LimitsCheck | null> {
+    const { deps } = this;
+    const abort = new AbortController();
+    const options: Options = {
+      cwd: os.tmpdir(),
+      pathToClaudeCodeExecutable: deps.claudePath,
+      env: cliEnv(account),
+      // models/index.ts's HAIKU, the small-model calls' model.
+      model: 'claude-haiku-5-5',
+      effort: 'low',
+      settingSources: [],
+      tools: [],
+      strictMcpConfig: true,
+      mcpServers: {},
+      persistSession: false,
+      maxTurns: 1,
+      systemPrompt: 'Reply with the single word ok.',
+      abortController: abort,
+      spawnClaudeCodeProcess: groupSpawner(deps.registry, deps.log, () => {}, `limits:${account.id}`),
+    };
+    const queryFn = deps.queryFn ?? sdkQuery;
+    let reading: LimitsCheck['reading'] | undefined;
+    let answered: boolean | undefined;
+    const q = queryFn({ prompt: 'ok?', options });
+    try {
+      for await (const m of q as AsyncIterable<{ type: string; subtype?: string; is_error?: boolean; result?: unknown; rate_limit_info?: Record<string, unknown> }>) {
+        if (m.type === 'rate_limit_event') {
+          const r = rateLimitReading(m.rate_limit_info);
+          if (r) reading = { kind: 'limits', ...r };
+        } else if (m.type === 'result') {
+          const limit = typeof m.result === 'string' && USAGE_LIMIT_TEXT.test(m.result);
+          answered = m.subtype === 'success' && !m.is_error;
+          if (limit) reading = { ...(reading ?? { kind: 'limits', windows: [] }), blocked: true, extraRoom: false };
+          break;
+        }
+      }
+    } finally {
+      try {
+        q.close();
+      } catch {
+        // already closed
+      }
+      abort.abort();
+    }
+    if (!reading && answered === undefined) return null;
+    return { reading: reading ?? { kind: 'limits', windows: [], blocked: false }, ...(answered !== undefined ? { answered } : {}) };
   }
 
   // The slash commands the CLI offers in a folder (its built-in ones, the

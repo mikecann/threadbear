@@ -804,6 +804,8 @@ export class Runner {
   // runner.json's or the built-in ones.
   sharedPools?: import('./shared-pools.ts').SharedPools;
   ranDry = new Map<string, number>();
+  // accounts.recheck calls under way, by login, so a second click joins the first.
+  rechecks = new Map<string, Promise<import('./runner/pools.ts').RecheckResult>>();
   // Threads waiting for the API to be reachable again (waitingForNetwork):
   // one timer probes for all of them, backing off from NET_PROBE_FIRST_MS.
   netTimer?: TimerHandle;
@@ -2471,6 +2473,7 @@ export class Runner {
           this.usage?.record(rec.accountId, {
             windows: o.windows,
             ...(o.blocked !== undefined ? { blocked: o.blocked } : {}),
+            ...(o.extraRoom !== undefined ? { extraRoom: o.extraRoom } : {}),
             ...(o.email ? { email: o.email } : {}),
             ...(o.plan ? { plan: o.plan } : {}),
             ...(o.resets ? { resets: o.resets } : {}),

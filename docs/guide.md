@@ -1356,6 +1356,16 @@ long before the reset; in green, how much of the week will go unused, so
 it's worth leaning on that login; otherwise that it's on track, or when it
 resets. Hover a window for its rate.
 
+Bought more usage after a login ran out? Press the refresh arrow beside
+the login, in Usage or in Settings > Pools. Threadbear asks the login how
+much room it has now (for Claude that's one short Haiku reply, a few
+hundred tokens; Codex costs nothing), and says what it found under the
+login's name: "Has room again", or "Still out, back 3:40 pm". With room,
+the threads waiting on it carry on straight away, without waiting for the
+reset. A login running on extra usage or credits you paid for says "On
+extra usage". Pools use it only when no login has room left on its plan,
+because extra usage costs money.
+
 A Claude login with a limit of its own on Fable shows that week too,
 "Weekly Fable", with its own chart beside the others, as Claude Code's
 `/usage` does. Running out of it only stops Fable: the login can still run

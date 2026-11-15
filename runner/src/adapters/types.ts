@@ -112,8 +112,10 @@ export type AdapterOutput =
   | { kind: 'effort'; level: EffortLevel }
   | { kind: 'context'; contextTokens: number; contextWindow?: number }
   // A rate-limit reading for the session's account (D's UsageStore keeps
-  // it). email and plan come with it when the CLI reports them.
-  | { kind: 'limits'; windows: UsageWindow[]; blocked?: boolean; email?: string; plan?: string; resets?: UsageResets }
+  // it). email and plan come with it when the CLI reports them. extraRoom:
+  // the login runs past its plan's limits on extra usage or credits the
+  // user paid for (true), or says it doesn't (false).
+  | { kind: 'limits'; windows: UsageWindow[]; blocked?: boolean; extraRoom?: boolean; email?: string; plan?: string; resets?: UsageResets }
   // The version of the CLI process actually running this session (not the
   // one that created it).
   | { kind: 'cliVersion'; version: string }
@@ -349,4 +351,12 @@ export interface AgentAdapter {
   // the files the CLI checkpointed since, where it can. Throws
   // RewindRefusedError when the session doesn't have the message.
   rewind?(req: RewindRequest): Promise<RewindResult>;
+  // A fresh reading of the login's limits, for the Usage panel's refresh
+  // button (accounts.recheck): after buying more usage, a login marked out
+  // until its reset can carry on now. answered: the check made a real
+  // call that the provider answered, so the login has room whatever its
+  // windows read. null when the CLI said nothing about its limits.
+  readLimits?(account: Account): Promise<LimitsCheck | null>;
 }
+
+export type LimitsCheck = { reading: Extract<AdapterOutput, { kind: 'limits' }>; answered?: boolean };

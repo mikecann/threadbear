@@ -590,7 +590,7 @@ function usageWindow(type: string, utilization: unknown, resetsAt: unknown): Usa
 // unifiedWindows (five_hour, seven_day and, for logins that have it,
 // seven_day_overage_included) though sdk.d.ts doesn't list
 // it; without it, the documented single rateLimitType and utilization.
-export function rateLimitReading(info: AnyMsg | undefined): { windows: UsageWindow[]; blocked: boolean } | undefined {
+export function rateLimitReading(info: AnyMsg | undefined): { windows: UsageWindow[]; blocked: boolean; extraRoom?: boolean } | undefined {
   if (!info || typeof info !== 'object') return undefined;
   const windows: UsageWindow[] = [];
   const unified = info.unifiedWindows;
@@ -606,7 +606,11 @@ export function rateLimitReading(info: AnyMsg | undefined): { windows: UsageWind
   }
   const blocked = info.status === 'rejected';
   if (!windows.length && typeof info.status !== 'string') return undefined;
-  return { windows, blocked };
+  // Extra usage the user bought on claude.ai: the plan's windows read 0%
+  // left while requests still go through on it (Wayne, 14 Nov 2026).
+  const overage = info.isUsingOverage === true || info.overageInUse === true;
+  const said = typeof info.isUsingOverage === 'boolean' || typeof info.overageInUse === 'boolean';
+  return { windows, blocked, ...(said ? { extraRoom: !blocked && overage } : {}) };
 }
 
 // The session model's window from a result's modelUsage, keyed by model

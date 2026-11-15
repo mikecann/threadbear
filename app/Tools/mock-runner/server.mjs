@@ -633,6 +633,22 @@ async function dispatch(client, method, p) {
     case 'pools.list':
       if (oldRunner) throw rpcError(-32601, 'Method not found');
       return { pools };
+    case 'accounts.recheck': {
+      // The Usage panel's refresh: a blocked login has room again on extra
+      // usage paid for, as a Claude login does once more is bought.
+      if (oldRunner) throw rpcError(-32601, 'Method not found');
+      const a = accounts.find((x) => x.id === p.accountId);
+      if (!a) throw rpcError(-32602, `No login called ${p.accountId} on this Mac.`);
+      await sleep(300);
+      const extra = !!a.usage?.blocked;
+      if (a.usage) {
+        delete a.usage.blocked;
+        if (extra) a.usage.extraRoom = true;
+        a.usage.readAt = new Date().toISOString();
+      }
+      broadcast('accounts.updated', { accounts: publicAccounts() });
+      return { accountId: a.id, room: true, ...(extra ? { extra: true } : {}), woke: 0, account: a };
+    }
     case 'pools.save': {
       if (oldRunner) throw rpcError(-32601, 'Method not found');
       validatePools(p.pools);

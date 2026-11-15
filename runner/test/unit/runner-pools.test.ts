@@ -958,3 +958,123 @@ test('noted logins get a pool of their own and are never picked for another', ()
   const t = h.runner.create({ text: 'x', poolId: 'claude' }).thread;
   assert.notEqual(t.accountId, 'claude-2');
 });
+
+// ------------------------------------------------------- accounts.recheck
+
+// The usage store, as far as these tests need it: a check's reading shows
+// up on the login, as the real one's would.
+function checking(h: ReturnType<typeof poolHarness>, answer: () => import('../../src/adapters/types.ts').LimitsCheck | null) {
+  let calls = 0;
+  h.adapter.readLimits = async (account) => {
+    calls++;
+    await tick();
+    const a = answer();
+    if (a) h.setUsage(account.id, { windows: a.reading.windows, readAt: new Date(h.clock.now()).toISOString(), source: 'live', ...(a.reading.blocked ? { blocked: true } : {}), ...(a.reading.extraRoom ? { extraRoom: true } : {}) });
+    return a;
+  };
+  return { calls: () => calls };
+}
+
+const empty = (blocked: boolean, extraRoom?: boolean) => ({
+  reading: { kind: 'limits' as const, windows: [{ kind: 'five_hour' as const, title: '5-hour', remainingPercent: 0, resetsAt: new Date(START + 60 * MIN).toISOString() }], blocked, ...(extraRoom !== undefined ? { extraRoom } : {}) },
+  answered: !blocked,
+});
+
+test('recheck: a pinned login that has room again on paid extra usage carries its waiting thread on now', async () => {
+  const h = poolHarness();
+  const { thread } = h.runner.create({ text: 'x', accountId: 'claude-3' });
+  h.adapter.last.init();
+  h.setUsage('claude-3', room(0, 60, true));
+  limit(h.adapter.last);
+  await tick();
+  assert.ok(h.runner.get(thread.id).waitingForRoom);
+  const c = checking(h, () => empty(false, true));
+  const r = await h.runner.recheckLogin('claude-3');
+  assert.equal(r.room, true);
+  assert.equal(r.extra, true);
+  assert.equal(r.woke, 1);
+  assert.equal(c.calls(), 1);
+  assert.deepEqual(h.records.at(-1), ['claude-3', { windows: empty(false).reading.windows, blocked: false, extraRoom: true }]);
+  await tick();
+  assert.equal(h.runner.get(thread.id).waitingForRoom, undefined);
+  assert.equal(h.adapter.last.sent.at(-1)?.text, CARRY_ON_BACK);
+  assert.equal(h.runner.get(thread.id).accountId, 'claude-3');
+});
+
+test("recheck: a pool thread carries on on the login it ran dry on, which the early carry-on never picks", async () => {
+  const pools: Pool[] = [{ id: 'claude', title: 'Claude', accountIds: ['claude-main', 'claude-3'] }];
+  const h = poolHarness({ pools });
+  h.setUsage('claude-main', room(0, 120, true));
+  h.setUsage('claude-3', room(50, 60));
+  const { thread } = h.runner.create({ text: 'x' });
+  assert.equal(thread.accountId, 'claude-3');
+  h.adapter.last.init();
+  h.setUsage('claude-3', room(0, 60, true));
+  limit(h.adapter.last);
+  await tick();
+  assert.equal(h.runner.get(thread.id).waitingForRoom?.accountId, 'claude-3');
+  checking(h, () => ({ reading: { kind: 'limits', windows: [{ kind: 'five_hour', title: '5-hour', remainingPercent: 80 }], blocked: false }, answered: true }));
+  const r = await h.runner.recheckLogin('claude-3');
+  assert.equal(r.room, true);
+  assert.equal(r.extra, undefined);
+  await tick();
+  assert.equal(h.runner.get(thread.id).waitingForRoom, undefined);
+  assert.equal(h.runner.get(thread.id).accountId, 'claude-3');
+  assert.deepEqual(notes(h, thread.id).filter((t) => t.startsWith('Moved')), []);
+});
+
+test('recheck: a login still out stays out, says when it is back, and the thread keeps waiting', async () => {
+  const h = poolHarness();
+  const { thread } = h.runner.create({ text: 'x', accountId: 'claude-3' });
+  h.adapter.last.init();
+  h.setUsage('claude-3', room(0, 60, true));
+  limit(h.adapter.last);
+  await tick();
+  const before = h.runner.get(thread.id).waitingForRoom;
+  checking(h, () => empty(true));
+  const r = await h.runner.recheckLogin('claude-3');
+  assert.equal(r.room, false);
+  assert.equal(r.woke, 0);
+  assert.equal(r.backAt, new Date(START + 60 * MIN).toISOString());
+  assert.deepEqual(h.runner.get(thread.id).waitingForRoom, before);
+  assert.equal(h.adapter.sessions.length, 1);
+});
+
+test('recheck: two clicks share one check; an error changes nothing; a provider without it is refused', async () => {
+  const h = poolHarness();
+  const c = checking(h, () => empty(false, true));
+  const [a, b] = await Promise.all([h.runner.recheckLogin('claude-3'), h.runner.recheckLogin('claude-3')]);
+  assert.equal(c.calls(), 1);
+  assert.equal(a, b);
+  const records = h.records.length;
+  checking(h, () => ({ reading: { kind: 'limits', windows: [], blocked: false }, answered: false }));
+  await assert.rejects(h.runner.recheckLogin('claude-3'), /its CLI gave an error/);
+  checking(h, () => null);
+  await assert.rejects(h.runner.recheckLogin('claude-3'), /didn't say how much room/);
+  assert.equal(h.records.length, records);
+  await assert.rejects(h.runner.recheckLogin('codex-main'), /can't be checked from here/);
+  await assert.rejects(h.runner.recheckLogin('nope'), /No login called nope/);
+});
+
+test("recheck isn't open to a thread below Full access: it spends the login's tokens", () => {
+  const gate = new CallerGate({ runner: { has: () => true, get: () => ({ title: 't', permissionMode: 'ask' }), accessOf: () => 'ask' } });
+  assert.throws(() => gate.check('t1', 'accounts.recheck', { accountId: 'claude-3' }));
+});
+
+test('recheck: a snoozed thread waiting on the login keeps its wait for the timer', async () => {
+  const h = poolHarness();
+  const { thread } = h.runner.create({ text: 'x', accountId: 'claude-3' });
+  h.adapter.last.init();
+  h.setUsage('claude-3', room(0, 60, true));
+  limit(h.adapter.last);
+  await tick();
+  const w = h.runner.get(thread.id).waitingForRoom;
+  assert.ok(w);
+  h.runner.update({ threadId: thread.id, snoozedUntil: new Date(START + 30 * MIN).toISOString() });
+  checking(h, () => empty(false, true));
+  const r = await h.runner.recheckLogin('claude-3');
+  assert.equal(r.room, true);
+  assert.equal(r.woke, 0);
+  assert.deepEqual(h.runner.get(thread.id).waitingForRoom, w);
+  assert.equal(h.adapter.sessions.length, 1);
+});

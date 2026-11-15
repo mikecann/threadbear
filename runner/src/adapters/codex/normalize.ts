@@ -842,6 +842,9 @@ export function limitsFromRateLimits(snapshot: AnyMsg | null | undefined): Extra
   // Always true or false, never left out: the usage store only lifts a block
   // when a reading says false.
   out.blocked = snapshot.ordinaryUsageAllowed === false || Boolean(main.rateLimitReachedType);
+  // Credits bought on chatgpt.com carry a login past its plan's windows.
+  const c = main.credits as AnyMsg | null | undefined;
+  if (c && typeof c === 'object' && typeof c.hasCredits === 'boolean') out.extraRoom = !out.blocked && c.hasCredits && (c.unlimited === true || Number(c.balance) > 0);
   const plan = planTitle(main.planType);
   if (plan) out.plan = plan;
   const resets = resetsFrom(snapshot.rateLimitResetCredits);

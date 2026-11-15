@@ -10,8 +10,10 @@
 // The limits come with the runner's logins (hello, then `accounts.updated`
 // and `pools.updated`); the tokens and the readings over time from
 // `usage.stats`, asked for when the panel opens and once a minute while it's
-// on screen. Nothing here sends anything to the runner, so the only clicks
-// (the icon, the chart's range, the Settings switch) show at once.
+// on screen. The one click that sends anything is a login's refresh
+// (`accounts.recheck`), which Settings > Pools has too: it spins until the
+// runner has asked the login, then says what it found under its name. The
+// rest (the icon, the chart's range, the Settings switch) show at once.
 use crate::app::Threadbear;
 use crate::{call, icons, now_ms, shell, style};
 use gpui_kit::base::TestSupportExt as _;
@@ -24,6 +26,7 @@ use gpui_kit::*;
 use crate::style::px;
 use serde_json::{json, Value};
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -64,6 +67,18 @@ pub(crate) struct UsageState {
     pot: Pot,
     /// The panel as a view of its own, made the first time it's shown.
     pub(crate) view: Option<Entity<UsagePanelView>>,
+    /// Each login's refresh (`accounts.recheck`): under way, or what it
+    /// found, by login id. Shared with Settings > Pools.
+    pub(crate) checks: HashMap<String, LoginCheck>,
+}
+
+/// A login's refresh: spinning while `busy`, then its words, green when it
+/// has room, until the next.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LoginCheck {
+    pub(crate) busy: bool,
+    pub(crate) words: Option<String>,
+    pub(crate) room: bool,
 }
 
 /// The Usage panel as a view of its own, so the dock reuses its last frame
@@ -108,6 +123,7 @@ impl UsageState {
             width: Rc::new(Cell::new(0.)),
             pot: Pot::default(),
             view: None,
+            checks: HashMap::new(),
         }
     }
 }
@@ -153,6 +169,34 @@ impl Threadbear {
             }
             this.update(cx, |t, _| t.usage.poll = None).ok();
         }));
+    }
+
+    /// A login's refresh button: asks the runner to check the login now
+    /// (`accounts.recheck`), which carries on the threads waiting on it if
+    /// it has room. A second click while it runs does nothing.
+    pub(crate) fn recheck_login(&mut self, account_id: String, cx: &mut Context<Self>) {
+        let check = self.usage.checks.entry(account_id.clone()).or_default();
+        if check.busy {
+            return;
+        }
+        check.busy = true;
+        cx.notify();
+        let client = self.client.clone();
+        cx.spawn(async move |this, cx| {
+            let res = call(client, "accounts.recheck", json!({ "accountId": account_id })).await;
+            this.update(cx, |t, cx| {
+                let (words, room) = match res {
+                    Ok(v) => rules::recheck_words(&v, now_ms(), &Local),
+                    // A runner from before accounts.recheck.
+                    Err(e) if e.code == -32601 => ("This Mac's runner is too old to check. Update it in Updates".to_owned(), false),
+                    Err(e) => (e.message, false),
+                };
+                t.usage.checks.insert(account_id, LoginCheck { busy: false, words: Some(words), room });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// The chart's Today and 7 days: shown at once, and remembered.
@@ -241,7 +285,7 @@ impl Threadbear {
         }
         let dark = cx.theme().is_dark();
         for card in rules::cards_named(&self.logins.pools, accounts, stats, self.usage.show_model_weeks, now, &zone, |p| self.logins.provider_title(p)) {
-            column = column.child(pool_card(&card, accounts, content, dark, now, &p, cx));
+            column = column.child(pool_card(&card, accounts, &self.usage.checks, content, dark, now, &p, ghost, cx));
         }
         // Only when some login has a model's own week, or the switch would
         // do nothing.
@@ -321,6 +365,7 @@ impl Threadbear {
                     "today": l.today.as_ref().map(|t| &t.0),
                     "status": l.status.map(LoginStatus::words),
                     "signInEnds": l.sign_in_ends,
+                    "check": self.usage.checks.get(&l.id).map(|c| if c.busy { json!("checking") } else { json!(c.words) }),
                     "meters": l.meters.iter().map(|m| json!({ "title": m.title, "left": m.left, "verdict": m.verdict.as_ref().map(|v| &v.text) })).collect::<Vec<_>>(),
                     "more": l.more,
                 }))).collect::<Vec<_>>(),
@@ -690,7 +735,8 @@ fn hover_note(chart: &Chart, slot: i64, accounts: &[Account], dark: bool, now: i
 /// `PoolCard`: the pool's icon, name and what it's spent today, then each
 /// login in it. A pool of more than one provider names each provider over
 /// its logins, as a Claude and a Codex login have different windows.
-fn pool_card(card: &Card, accounts: &[Account], content: f32, dark: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> AnyElement {
+#[allow(clippy::too_many_arguments)]
+fn pool_card(card: &Card, accounts: &[Account], checks: &HashMap<String, LoginCheck>, content: f32, dark: bool, now: i64, p: &Palette, ghost: bool, cx: &mut Context<Threadbear>) -> AnyElement {
     let mut column = card_box(v_flex(), p).child(
         h_flex()
             .gap(px(7.))
@@ -706,7 +752,7 @@ fn pool_card(card: &Card, accounts: &[Account], content: f32, dark: bool, now: i
             column = column.child(div().px(px(12.)).pt(px(6.)).text_size(px(11.)).line_height(px(14.)).font_weight(FontWeight::MEDIUM).text_color(p.tertiary).child(title.clone()));
         }
         for login in &section.logins {
-            column = column.child(div().w_full().h(gpui_kit::px(1.)).bg(p.divider)).child(login_row(&format!("{}-{s}", card.id), login, accounts, content, dark, now, p, cx));
+            column = column.child(div().w_full().h(gpui_kit::px(1.)).bg(p.divider)).child(login_row(&format!("{}-{s}", card.id), login, accounts, checks.get(&login.id), content, dark, now, p, ghost, cx));
         }
     }
     column.into_any_element()
@@ -753,15 +799,25 @@ fn today_words(id: SharedString, words: &str, tip: &str, p: &Palette) -> AnyElem
 /// `LoginRow`: its colour's dot, its name and note and what it's spent
 /// today, its windows' meters side by side (two a row, or one over the other,
 /// in a narrower panel), then only the extras that decide something.
-fn login_row(key: &str, login: &LoginRow, accounts: &[Account], content: f32, dark: bool, now: i64, p: &Palette, cx: &mut Context<Threadbear>) -> AnyElement {
+#[allow(clippy::too_many_arguments)]
+fn login_row(key: &str, login: &LoginRow, accounts: &[Account], check: Option<&LoginCheck>, content: f32, dark: bool, now: i64, p: &Palette, ghost: bool, cx: &mut Context<Threadbear>) -> AnyElement {
     let colour = login_colour(&login.id, accounts, dark);
     let id = |part: &str| SharedString::from(format!("usage-{key}-{}-{part}", login.id));
+    // A drag's ghost draws no buttons that could be clicked.
+    let refresh = (!ghost).then(|| {
+        let account = login.id.clone();
+        crate::activity_panels::icon_button(id("recheck"), "arrow.clockwise", rules::RECHECK_TIP, check.is_some_and(|c| c.busy), cx, move |t, _, cx| t.recheck_login(account.clone(), cx))
+    });
     let name_row = crate::highlights::tipped_as(h_flex().id(id("name")).gap(px(7.)).items_center(), login.tip.clone(), gpui_kit::Role::GenericContainer)
         .when(login.dot, |s| s.child(dot(colour, p)))
         .child(div().min_w_0().text_size(px(12.5)).line_height(px(15.)).font_weight(FontWeight::MEDIUM).text_color(p.fg).truncate().child(login.name.clone()))
         .children(login.note.as_ref().map(|note| div().min_w_0().text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).truncate().child(note.clone())))
         .child(div().flex_1().min_w(px(8.)))
-        .children(login.today.as_ref().map(|(words, tip)| today_words(id("today"), words, tip, p)));
+        .children(login.today.as_ref().map(|(words, tip)| today_words(id("today"), words, tip, p)))
+        .children(refresh);
+    let checked = check.and_then(|c| c.words.as_ref().map(|w| (w.clone(), c.room))).map(|(words, room)| {
+        div().id(id("recheck-words")).text_size(px(11.)).line_height(px(14.)).text_color(if room { p.green } else { p.secondary }).child(words)
+    });
     let status = login.status.map(|s| {
         let limit = s.is_stop();
         div().text_size(px(11.)).line_height(px(14.)).when(limit, |d| d.font_weight(FontWeight::MEDIUM)).text_color(if limit { p.red } else { p.tertiary }).child(s.words())
@@ -789,7 +845,7 @@ fn login_row(key: &str, login: &LoginRow, accounts: &[Account], content: f32, da
     };
     let meters = (!login.meters.is_empty()).then(|| meters_layout(&id(""), &login.meters, colour, content - style::zoomed(24.), now, p));
     let more = (!login.more.is_empty()).then(|| v_flex().gap(px(2.)).text_size(px(11.)).line_height(px(14.)).text_color(p.tertiary).children(login.more.iter().map(|line| div().child(line.clone()))));
-    v_flex().w_full().gap(px(8.)).px(px(12.)).py(px(10.)).child(name_row).children(status).children(meters).children(more).into_any_element()
+    v_flex().w_full().gap(px(8.)).px(px(12.)).py(px(10.)).child(name_row).children(status).children(checked).children(meters).children(more).into_any_element()
 }
 
 /// SwiftUI's ViewThatFits over the meters: a row of them when they fit at
@@ -1174,8 +1230,8 @@ fn paint_honey(bounds: Bounds<Pixels>, level: f64, colour: Hsla, window: &mut Wi
 
 /// The Swift app's `usage` command: `show` opens or closes the panel, as the
 /// icon does; `range` ("today" or "week") is the chart's control and
-/// `showModelWeeks` the Settings card's switch; with none of them, the panel
-/// as text. The CLIs' buttons it also takes in the Swift app are the Updates
+/// `showModelWeeks` the Settings card's switch, `recheck` a login's refresh
+/// button (its id); with none of them, the panel as text. The CLIs' buttons it also takes in the Swift app are the Updates
 /// panel's.
 #[cfg(feature = "automation")]
 pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) -> Result<Value, String> {
@@ -1207,6 +1263,14 @@ pub(crate) fn automation(app: &Entity<Threadbear>, cmd: &Value, cx: &mut App) ->
     if let Some(on) = cmd["showModelWeeks"].as_bool() {
         app.update(cx, |t, cx| t.set_show_model_weeks(on, cx));
         return Ok(json!(if on { "ok on" } else { "ok off" }));
+    }
+    if let Some(id) = cmd["recheck"].as_str() {
+        if !app.read(cx).logins.accounts.iter().any(|a| a.id == id) {
+            return Err(format!("no login {id}"));
+        }
+        let id = id.to_owned();
+        app.update(cx, |t, cx| t.recheck_login(id, cx));
+        return Ok(json!("ok checking"));
     }
     if cmd.get("click").is_some() {
         return Err("the CLIs' buttons are in the Updates panel".into());

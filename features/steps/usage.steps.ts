@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import type { Dump } from '../support/driver.ts';
 import type { ThreadbearWorld } from '../support/world.ts';
 
-type Login = { name: string; provider?: string | null; status?: string | null; signInEnds?: string | null; meters: { title: string; left: string; verdict?: string | null }[]; more: string[] };
+type Login = { name: string; provider?: string | null; status?: string | null; signInEnds?: string | null; check?: string | null; meters: { title: string; left: string; verdict?: string | null }[]; more: string[] };
 type Usage = {
   shown: boolean;
   icon: { percent: number; login?: string | null; tip: string; dot?: boolean };
@@ -147,4 +147,12 @@ Then('the honey pot has no dot', async function (this: ThreadbearWorld) {
 
 Then("a line of the honey pot's tooltip starts {string}", async function (this: ThreadbearWorld, start: string) {
   await this.until(`a line starting "${start}" in the honey pot's tooltip`, (d) => !!usage(d)?.icon.tip.split('\n').some((l) => l.startsWith(start)));
+});
+
+When('I press refresh beside {string} in the Usage panel', async function (this: ThreadbearWorld, account: string) {
+  await this.app.do({ cmd: 'usage', recheck: account });
+});
+
+Then('in the {string} card, {string} has been checked: {string}', async function (this: ThreadbearWorld, card: string, name: string, words: string) {
+  await this.until(`${name} in ${card} checked: ${words}`, (d) => login(d, card, name)?.check === words);
 });
