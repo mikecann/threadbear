@@ -514,6 +514,9 @@ Shift-Return on an empty item ends the list. You can paste or drop images
 into the composer, or add them with +. Each one goes in where the cursor
 is as a small chip, "Picture 1", "Picture 2", with
 its thumbnail, and the agent gets each picture right there in your words.
+The + menu's Attach images or Markdown… also takes `.md` files: each
+goes in as its path, as a dropped file does, and the agent reads it from
+there.
 Let go of a file over the box's words and it goes in right there. You can
 also let go of it anywhere else over the thread: the thread's outlined while
 it'll take it, and the file goes in where the cursor is. A picture or file

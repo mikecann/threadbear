@@ -5036,9 +5036,11 @@ Fixes from Codex's review of the slice before:
 - Wait-line tips include the local start and end times and all finished
   jobs. Sending and queued messages have Swift's tips, and review answers
   begin with the review icon.
-- Attach images filters supported image types in the Mac's native sheet.
-  On Windows and Linux the kit cannot filter the dialog; nonimage selections
-  are rejected before they can become attachments.
+- Attach images or Markdown filters to supported image types and Markdown
+  (`.md`, `.markdown`) in the Mac's native sheet. Pictures become chips; a
+  Markdown file goes in as its path, as a dropped file does. On Windows and
+  Linux the kit cannot filter the dialog; other selections are rejected
+  before they can become attachments.
 - Pick a time has a month calendar and a separate time field. A past time
   leaves the dialog open with its warning inside it.
 - A selected sidebar row dims from 8% to 6% when its window is behind.

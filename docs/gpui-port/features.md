@@ -238,7 +238,7 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `composer.threadid` | Thread id paste or drop | Becomes a chip | Paste rule and an in-app drag, on top of inline chips. | build | S | `ComposerView`, `ThreadDrag` |
 | `composer.cardmention` | Card mention | Click on a board adds a chip | Inserts a chip, on top of inline chips. | build | S | `CardChips`, `HighlightsBoard` |
 | `composer.dropanywhere` | Drop anywhere on thread | Outlined while it'll take it | GPUI file drop on the thread area, with a drawn outline. | kit | S | `ComposerView` (`ComposerDropView`) |
-| `composer.plus` | + menu | Attach images, Folder, Schedule | gpui-kit menu and GPUI path prompts. | kit | S | `ComposerControls` (`plusMenu`, `folderMenu`) |
+| `composer.plus` | + menu | Attach images or Markdown, Folder, Schedule | gpui-kit menu and GPUI path prompts. | kit | S | `ComposerControls` (`plusMenu`, `folderMenu`) |
 | `composer.runner` | Runner chip | Which Mac, star sets default | gpui-kit menu. | kit | S | `ComposerControls` (`runnerMenu`) |
 | `composer.account` | Account chip | When not using pools | `Popover`. | kit | M | `ComposerControls` (`AccountPickerView`) |
 | `composer.modelpicker` | Model picker | Search, provider rail, logos, Older, Effort, Speed, Unpin | Custom content in a `Popover`, with `Input` for search. | build | L | `ComposerControls` (`ModelPickerView`), `ModelPicker` |

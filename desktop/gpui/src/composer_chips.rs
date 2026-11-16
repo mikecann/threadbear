@@ -250,7 +250,7 @@ impl Composer {
         out
     }
 
-    /// Picks files for "+" > Attach images… (ComposerView.chooseImages).
+    /// Picks files for "+" > Attach images or Markdown… (ComposerView.chooseImages).
     fn attach_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = crate::composer_media::choose_images(window, cx);
         cx.spawn_in(window, async move |this, cx| {
@@ -337,7 +337,7 @@ impl Composer {
             .into_any_element()
     }
 
-    /// Opens a small menu: "Attach images…" and the folder (PlusButton).
+    /// Opens a small menu: "Attach images or Markdown…" and the folder (PlusButton).
     fn render_plus(&self, data: &ChipData, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let composer = cx.entity().downgrade();
         let current = data.summary.as_ref().map(|t| t.cwd.clone()).unwrap_or_default();
@@ -346,7 +346,7 @@ impl Composer {
         // Not for another Mac's thread or a new one for another Mac: its
         // schedules are made there (the Swift app's Send menu says the same).
         let can_schedule = data.away.is_none() && self.app.upgrade().is_some_and(|a| a.read(cx).schedules_supported);
-        let trigger = ChipTrigger { busy: self.chips_busy(cx).1, badge: None, id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images, change the folder or schedule the message".into(), selected: false };
+        let trigger = ChipTrigger { busy: self.chips_busy(cx).1, badge: None, id: "composer-plus-button".into(), kind: TriggerKind::Plus, title: SharedString::default(), icon: None, tip: "Attach images or Markdown, change the folder or schedule the message".into(), selected: false };
         // Spinning while a folder change lands, and no menu till then.
         if trigger.busy {
             return trigger.into_any_element();
@@ -361,7 +361,7 @@ impl Composer {
                 let (popover2, c2) = (popover.clone(), composer.clone());
                 v_flex()
                     .w(gpui_kit::px(260.))
-                    .child(menu_row("attach", Some(IconName::Image), "Attach images…", None, false, window, cx, move |window, cx| {
+                    .child(menu_row("attach", Some(IconName::Image), "Attach images or Markdown…", None, false, window, cx, move |window, cx| {
                         popover.update(cx, |s, cx| s.dismiss(window, cx));
                         if let Some(c) = c1.upgrade() {
                             c.update(cx, |c, cx| c.attach_images(window, cx));

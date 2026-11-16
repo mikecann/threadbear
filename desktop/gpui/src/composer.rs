@@ -1793,6 +1793,12 @@ pub(crate) fn is_picture(path: &Path) -> bool {
     )
 }
 
+/// Whether a picked file is Markdown, which "+" takes besides pictures. It
+/// goes in as its path, as any dropped document does, for the agent to read.
+pub(crate) fn is_markdown(path: &Path) -> bool {
+    matches!(path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(), Some("md" | "markdown"))
+}
+
 /// A picture pasted as raw image data (a screenshot on the clipboard, say),
 /// saved to a file the runner can import, as ComposerTextView.takeImages does.
 /// PNG and JPEG go as they are; the runner turns TIFF and BMP into PNG
