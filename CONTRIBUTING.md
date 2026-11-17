@@ -26,8 +26,9 @@ When you open a PR:
   some and leave the others.
 - Rebase it on the latest main just before you open it.
 - Run the checks: `./check.sh --quick`, or at least the test file for what you
-  changed (`node --test test/unit/<name>.test.ts` in `runner/`). CI runs on
-  your PR too.
+  changed (`node --test test/unit/<name>.test.ts` in `runner/`). CI on a
+  PR from a fork waits until I approve the run, so don't count on it
+  catching things first.
 - Keep the docs true: [docs/guide.md](docs/guide.md) when it changes what
   someone sees or does, [docs/on-your-mac.md](docs/on-your-mac.md) when it adds
   a file, a timer, something it reads or a network call, and
