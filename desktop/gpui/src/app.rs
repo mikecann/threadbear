@@ -105,6 +105,12 @@ pub struct Threadbear {
     sections_cache: std::cell::RefCell<Option<SectionsCache>>,
     pub(crate) last_window_title: String,
     pub(crate) archived_note: Option<ArchivedNote>,
+    /// The last few threads archived here, newest last, for ⌘Z
+    /// (`shell::ARCHIVE_UNDO_DEPTH`). Kept after the note goes.
+    pub(crate) archive_history: Vec<ArchivedNote>,
+    /// How far a swipe has carried the archived note so far, while a
+    /// trackpad gesture is on it.
+    pub(crate) toast_swipe: gpui_kit::Point<gpui_kit::Pixels>,
     pub(crate) inbox_end_note: Option<InboxEndNote>,
     /// What came across from the Swift app, while its note's up (swift_import.rs).
     pub(crate) import_note: Option<String>,
@@ -513,6 +519,8 @@ impl Threadbear {
             sections_cache: Default::default(),
             last_window_title: String::new(),
             archived_note: None,
+            archive_history: Vec::new(),
+            toast_swipe: gpui_kit::Point::default(),
             inbox_end_note: None,
             import_note: None,
             updater: Default::default(),

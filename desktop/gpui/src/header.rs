@@ -1478,11 +1478,45 @@ impl Threadbear {
     }
 
     /// "Archived" and the thread's name with Undo; a click on it opens the
-    /// thread in the Archived section (`ArchivedToast`).
+    /// thread in the Archived section (`ArchivedToast`). An x, or a
+    /// sideways swipe on a trackpad, puts it away; it follows the fingers
+    /// and goes past `SWIPE_AWAY`, else springs back.
     fn render_archived_toast(&mut self, note: shell::ArchivedNote, cx: &mut Context<Self>) -> AnyElement {
+        const SWIPE_AWAY: f32 = 60.;
         let (secondary, separator, accent) = (style::secondary_text(cx), style::hairline(cx), style::accent(cx));
         let title = if note.title.is_empty() { "Untitled".to_string() } else { note.title.clone() };
+        let shift = self.toast_swipe.x;
+        let fade = (1. - (f32::from(shift).abs() / (SWIPE_AWAY * 2.))).clamp(0.3, 1.);
         self.toast_capsule("archived-toast", cx)
+            .relative()
+            .left(shift)
+            .opacity(fade)
+            .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| {
+                // A trackpad's own pixels only: a mouse wheel's lines have
+                // no end to the gesture to spring back on.
+                if !ev.delta.precise() {
+                    return;
+                }
+                match ev.touch_phase {
+                    TouchPhase::Ended | TouchPhase::Cancelled => {
+                        if f32::from(this.toast_swipe.x).abs() > SWIPE_AWAY && ev.touch_phase == TouchPhase::Ended {
+                            this.dismiss_archived_note(cx);
+                        } else {
+                            this.toast_swipe = Point::default();
+                            cx.notify();
+                        }
+                    }
+                    _ => {
+                        let d = ev.delta.pixel_delta(px(16.));
+                        // Sideways only: an up or down scroll is for the page under it.
+                        if f32::from(d.x).abs() > f32::from(d.y).abs() || this.toast_swipe.x != px(0.) {
+                            this.toast_swipe.x += d.x;
+                            cx.stop_propagation();
+                            cx.notify();
+                        }
+                    }
+                }
+            }))
             .child(
                 tipped!(h_flex().id("archived-open").gap(px(7.)).items_center(), "Open this thread")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_archived_note(window, cx)))
@@ -1495,6 +1529,11 @@ impl Threadbear {
                 tipped!(div().id("archived-undo").text_color(accent).font_weight(FontWeight::MEDIUM), "Put it back in the inbox")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.undo_archive(window, cx)))
                     .child("Undo"),
+            )
+            .child(
+                tipped!(div().id("archived-dismiss").flex().items_center().justify_center().size(px(18.)).rounded_full().cursor_pointer().hover(|d| d.bg(separator)), "Dismiss (⌘Z still brings it back)")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.dismiss_archived_note(cx)))
+                    .child(icon("xmark", style::size::LABEL - 2., secondary)),
             )
             .into_any_element()
     }

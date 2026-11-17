@@ -123,6 +123,13 @@ pub(crate) fn install(main: &mut Window, cx: &mut App) {
     cx.on_action(|_: &crate::shell::BringAllToFront, cx| bring_all_to_front(cx));
     let paste_plain = if cfg!(target_os = "macos") { "alt-shift-cmd-v" } else { "ctrl-shift-v" };
     cx.bind_keys([KeyBinding::new(paste_plain, crate::composer_spelling::PasteAndMatchStyle, None)]);
+    // ⌘Z outside a text box too, where a text box's own binding doesn't
+    // reach: it's how an archive comes back (shell.rs,
+    // `undo_key_is_archive`). A Mac's only: elsewhere it'd be Ctrl+Z, which
+    // a terminal panel needs for itself.
+    if cfg!(target_os = "macos") {
+        cx.bind_keys([KeyBinding::new("cmd-z", gpui_kit::component::input::Undo, None)]);
+    }
 }
 
 fn with_front_window(cx: &mut App, f: impl FnOnce(&mut Window)) {

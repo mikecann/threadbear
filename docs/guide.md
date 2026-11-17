@@ -696,7 +696,11 @@ next thread comes in. If it was the last one, the bear comes up over the
 new thread page and waves. When you archive one, a note saying so floats at
 the top of the thread panel for a few seconds (longer while the pointer's
 on it): Undo puts the thread back, and a click anywhere else on it opens
-the thread. The Archived section at the foot of the list has
+the thread. Its x, or a sideways two-finger swipe on it, puts the note
+away early. In the desktop app on a Mac, ⌘Z brings back the last thread you
+archived, then the one before, up to seven, even after the note has
+gone. It works outside a text box or in an empty message box; with words
+in the box, ⌘Z undoes your typing instead. The Archived section at the foot of the list has
 them, most recently archived first, with the older ones behind Show more
 (the search at the top finds any of them). Unarchive, or the same swipe
 there, puts one back.

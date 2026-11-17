@@ -71,6 +71,10 @@ pub(crate) struct NavPlace {
     pub(crate) project: Option<String>,
 }
 
+/// How many archives ⌘Z can take back, newest first: a run of archiving
+/// down the Inbox, with room to change your mind about the last few.
+pub(crate) const ARCHIVE_UNDO_DEPTH: usize = 7;
+
 /// "Archived" and the thread's name, floating over the main panel with Undo
 /// (`ArchivedNote`).
 #[derive(Clone, Debug)]
@@ -1058,7 +1062,14 @@ impl Threadbear {
     pub(crate) fn show_archived_note(&mut self, thread: String, title: String, was_open: bool, cx: &mut Context<Self>) {
         self.note_counter += 1;
         let id = self.note_counter;
-        self.archived_note = Some(ArchivedNote { id, thread, title, was_open });
+        let note = ArchivedNote { id, thread, title, was_open };
+        // Newest last, one entry a thread, the oldest dropped past the depth.
+        self.archive_history.retain(|n| n.thread != note.thread);
+        self.archive_history.push(note.clone());
+        let over = self.archive_history.len().saturating_sub(ARCHIVE_UNDO_DEPTH);
+        self.archive_history.drain(..over);
+        self.archived_note = Some(note);
+        self.toast_swipe = Point::default();
         self.inbox_end_note = None;
         let task = cx.spawn(async move |this, cx| {
             loop {
@@ -1086,11 +1097,60 @@ impl Threadbear {
     /// the one open when it went (`undoArchive`).
     pub(crate) fn undo_archive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(note) = self.archived_note.take() else { return };
+        self.archive_history.retain(|n| n.thread != note.thread);
+        self.bring_back(note, window, cx);
+    }
+
+    /// ⌘Z: the last thread archived here that's still archived comes back,
+    /// as the note's Undo would, then the one before, up to
+    /// `ARCHIVE_UNDO_DEPTH`. False with none left, so the key goes on.
+    pub(crate) fn undo_last_archive(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        // Ones unarchived or deleted some other way since are passed over.
+        while let Some(note) = self.archive_history.pop() {
+            if self.threads.get(&note.thread).is_some_and(|t| t.archived_at.is_some()) {
+                if self.archived_note.as_ref().is_some_and(|n| n.thread == note.thread) {
+                    self.archived_note = None;
+                }
+                self.bring_back(note, window, cx);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether ⌘Z is for an archive rather than text: nothing to undo in a
+    /// text box, so outside one, or in the open thread's empty message box
+    /// (where the key lands after an archive opens the next thread). Words
+    /// in a box keep the key for themselves.
+    fn undo_key_is_archive(&self, window: &Window, cx: &App) -> bool {
+        if self.archive_history.is_empty() {
+            return false;
+        }
+        let in_text = window.context_stack().iter().any(|c| c.contains("Input"));
+        if !in_text {
+            return true;
+        }
+        let composer = self.selected.as_ref().and_then(|id| self.composers.get(id));
+        composer.is_some_and(|c| {
+            let c = c.read(cx);
+            c.input.read(cx).focus_handle(cx).is_focused(window) && !c.holds_anything(cx)
+        })
+    }
+
+    fn bring_back(&mut self, note: ArchivedNote, window: &mut Window, cx: &mut Context<Self>) {
         self.unarchive_row(&note.thread, cx);
         if note.was_open {
             self.mode = SidebarMode::Inbox;
             self.open(note.thread, window, cx);
         }
+        cx.notify();
+    }
+
+    /// The note's x, or a swipe off: gone, but ⌘Z can still bring it back.
+    pub(crate) fn dismiss_archived_note(&mut self, cx: &mut Context<Self>) {
+        self.archived_note = None;
+        self.toast_hovered = false;
+        self.toast_swipe = Point::default();
         cx.notify();
     }
 
@@ -1497,7 +1557,14 @@ impl Threadbear {
             // with it held puts them away (key_hints.rs).
             .on_modifiers_changed(cx.listener(|this, ev: &ModifiersChangedEvent, window, cx| this.hints_modifiers_changed(&ev.modifiers, window, cx)))
             .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, cx| this.hints_used(&ev.modifiers, cx)))
-            .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| this.hints_used(&ev.modifiers, cx)));
+            .on_scroll(cx.listener(|this, ev: &ScrollEvent, _, cx| this.hints_used(&ev.modifiers, cx)))
+            // ⌘Z, before a text box takes it: an archive back, when that's
+            // what it's for (`undo_key_is_archive`).
+            .capture_action(cx.listener(|this, _: &gpui_kit::component::input::Undo, window, cx| {
+                if this.undo_key_is_archive(window, cx) && this.undo_last_archive(window, cx) {
+                    cx.stop_propagation();
+                }
+            }));
         register_commands(root, cx)
     }
 
