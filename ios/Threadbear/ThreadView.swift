@@ -73,6 +73,8 @@ struct ThreadView: View {
     @State private var workLink: ThreadLinks.Hit?
     /// The plan open in its sheet, from its card or the card it waits on.
     @State private var planShown: PhoneMessage?
+    @State private var designReviewShown: DesignReviewTarget?
+    @State private var designReviewDrafts: [String: DesignReviewDraft] = [:]
     @Environment(\.pushThread) private var pushThread
     static let firstPage = 80
     static let morePerPage = 200
@@ -102,8 +104,18 @@ struct ThreadView: View {
                     }
                     .accessibilityElement(children: .combine)
                 }
+                if (thread.pendingReviews ?? 0) > 0 {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { designReviewShown = DesignReviewTarget(id: "") } label: {
+                            Label("Reviews", systemImage: "rectangle.on.rectangle")
+                        }.accessibilityHint("Read the pending design reviews and answer")
+                    }
+                }
                 menu(thread)
             }
+        }
+        .sheet(item: $designReviewShown) { target in
+            DesignReviewsView(threadId: threadId, reviewId: target.id, drafts: $designReviewDrafts)
         }
         .hibernateDialog(for: $hibernateTarget, leaving: { dismiss() })
         .renameDialog(for: $renameTarget)
@@ -111,6 +123,9 @@ struct ThreadView: View {
         // comes back from the background, so these follow it, not the old one.
         .task(id: "\(threadId):\(model.connection)") { await follow() }
         .task {
+            if model.isFake, ProcessInfo.processInfo.arguments.contains("-ThreadbearReview") {
+                designReviewShown = DesignReviewTarget(id: "sample-review")
+            }
             // For sim-shots.sh: a reply box with something typed in.
             if let text = model.draftText {
                 draft = text
@@ -324,8 +339,7 @@ struct ThreadView: View {
 
     /// A link in a message. A work: link opens the turn's working over the
     /// thread with the step lit. The Mac opens it in place; on this small
-    /// screen a sheet leaves your place in the reply alone. A review only opens
-    /// on the Mac, so that one says so rather than doing nothing.
+    /// screen a sheet leaves your place in the reply alone. A review opens its own sheet so its options stay out of folded working.
     private func follow(_ url: URL, from seq: Int?, in items: [ThreadItem]) -> OpenURLAction.Result {
         switch ThreadLinks.target(of: url) {
         case nil:
@@ -340,8 +354,8 @@ struct ThreadView: View {
         case let .thread(id):
             // Agents may give only the start of the id.
             pushThread(model.inbox.first { $0.threadId.hasPrefix(id) }?.threadId ?? id)
-        case .review:
-            model.report(TransportError.server("That review opens on the Mac."))
+        case let .review(id):
+            designReviewShown = DesignReviewTarget(id: id)
         case let .button(id):
             // One partway through a line, drawn as a link (ReplyButtons.trailing
             // only takes the ones at the end). An id the row doesn't carry is

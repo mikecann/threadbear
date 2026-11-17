@@ -1,3 +1,4 @@
+import { phoneReview } from './phone-reviews.ts';
 // The Convex mirror (docs/convex-backend.md, shape A): the runner stays the
 // source of truth and copies the phone's view of each thread, the last few
 // text messages, its projects, schedules and accounts, plus its own
@@ -33,7 +34,7 @@ import { makeFunctionReference } from 'convex/server';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
 import { agentsStillWorking, ARCHIVE_VERDICTS, ErrorCode, isEffortLevel, remoteCreateModeOf } from './protocol.ts';
-import type { Account, ArchiveVerdict, ApprovalDecision, ApprovalOption, AskAnswer, EffortLevel, ImageRef, LabReviewLedger, OpenAsk, PermissionMode, PersistedEvent, Project, Question, ReplyButton, Schedule, ThreadSummary } from './protocol.ts';
+import type { Account, ArchiveVerdict, ApprovalDecision, ApprovalOption, AskAnswer, DesignReview, ReviewDraft, EffortLevel, ImageRef, LabReviewLedger, OpenAsk, PermissionMode, PersistedEvent, Project, Question, ReplyButton, Schedule, ThreadSummary } from './protocol.ts';
 import { REMOTE_ALLOW_REFUSED, remoteCardShowsAll, summaryField } from './tools.ts';
 import type { Notification } from './runner.ts';
 import type { ScheduleBackend, StoredSchedule } from './schedules.ts';
@@ -141,7 +142,7 @@ export type SyncConfig = {
 // lower one means its backend hasn't been deployed since this runner was:
 // said in runner.status, tb status and the log rather than stopping, since
 // the runner only adds to what it sends while the number stays the same.
-export const BACKEND_API_VERSION = 82;
+export const BACKEND_API_VERSION = 83;
 // From this one a message row can be a login's note (role "note"): a thread
 // that moved to another login or is waiting for room says so on another Mac.
 export const LOGIN_NOTES_API_VERSION = 78;
@@ -580,6 +581,9 @@ type Host = {
 // A thread's commands may go on to a draining runner (handover.ts's
 // phoneCommands), so they can answer later; apply() waits for each.
 export type CommandHost = {
+  listReviews?: (threadId: string) => unknown;
+  getReview?: (threadId: string, reviewId: string) => unknown;
+  respondReview?: (threadId: string, reviewId: string, revision: number, draft: ReviewDraft) => unknown;
   // origin: absent for a message Mike sent from the main Mac (a command `from: "mac"`).
   send(threadId: string, text: string, images: ImageRef[], opts: { origin?: 'phone'; answers?: AskAnswer[] }): unknown;
   respondApproval(p: { threadId: string; approvalId: string; decision: ApprovalDecision; message?: string; answers?: Record<string, string>; remote?: boolean }): unknown;
@@ -4591,6 +4595,36 @@ export class ConvexSync {
         // the press is done (its row goes up first, as a create's does).
         const pressed = r?.button?.pressed?.threadId;
         return pressed ? { threadId: pressed } : undefined;
+      }
+      case 'designReviews': {
+        if (!host.listReviews || !host.getReview) throw new Error("Update the thread's runner to read reviews on the phone.");
+        const id = needThread();
+        if (a.reviewId !== undefined) {
+          if (typeof a.reviewId !== 'string' || !/^[a-zA-Z0-9-]{1,200}$/.test(a.reviewId)) throw new Error('Invalid review id.');
+          let reviewId = a.reviewId;
+          if (reviewId.length < 36) {
+            const { reviews } = await host.listReviews(id) as { reviews: DesignReview[] };
+            const matches = reviews.filter(r => r.id.startsWith(reviewId));
+            if (matches.length !== 1) throw new Error('That review link is missing or ambiguous. Open Reviews to choose one.');
+            reviewId = matches[0]!.id;
+          }
+          const { review } = await host.getReview(id, reviewId) as { review: DesignReview };
+          const result = { review: phoneReview(review) };
+          if (Buffer.byteLength(JSON.stringify(result)) > 250 * 1024) throw new Error('This review is too large for the phone. Open it on the Mac.');
+          // The phone may open a review older than the recent-thread scan.
+          // Queue its stills now too; existing uploads are deduplicated.
+          this.replyDue.add(id);
+          this.scheduleFlush();
+          return { result };
+        }
+        const { reviews } = await host.listReviews(id) as { reviews: DesignReview[] };
+        return { result: { reviews: reviews.slice(0, 100).map(r => ({ id: r.id, title: r.title })), truncated: reviews.length > 100 } };
+      }
+      case 'respondReview': {
+        if (!host.respondReview) throw new Error("Update the thread's runner to answer reviews on the phone.");
+        if (typeof a.reviewId !== 'string' || !Number.isSafeInteger(a.revision) || Number(a.revision) < 0) throw new Error('Invalid review or revision.');
+        await host.respondReview(needThread(), a.reviewId, Number(a.revision), a.draft as ReviewDraft);
+        return undefined;
       }
       case 'slashCommands': {
         // The phone's palette (API 62): the thread's list, as the Mac

@@ -946,6 +946,25 @@ patch panels are independent of these review windows. Reviews take
 pictures, videos and pages, with a live `url` per option opened in the
 browser; overlays are deferred.
 
+#### Reviews on the phone
+
+Backend API 83 adds `phone:designReviews(token, threadId, reviewId?)` and
+`phone:respondReview(token, threadId, reviewId, revision, draft)`. Both queue
+commands on the owning runner. Without an id the first returns pending
+review titles; with an id it returns that review's options and current
+revision. `phone:command` carries the result. The runner must be online to
+read or answer a review. Responses use `reviews.respond`, including its
+revision checks and idempotent retry behavior.
+
+The phone's Reviews sheet opens from the pending-review button or a
+`review:<id>` link. It shows reference and recommended options, each shot's
+still preview, multiple picks, none, per-option notes and a reply. Preview
+images use the existing private reply-image storage, with opaque review
+sources instead of local paths. HTML and video originals stay on the Mac;
+the phone labels their still previews. Loading and failed submissions keep
+the user's draft. A stale revision reloads the review and requires another
+deliberate send. Older backends keep the Mac-only explanation.
+
 ### Reply buttons
 
 Standard since 11 Nov 2026 (it was the `replyButtons` experiment). Mike asked on 7 Nov 2026
@@ -3086,8 +3105,9 @@ the thread if a sub-agent stalls, so an ask can't stay hidden for good.
   opens the turn's working in a sheet instead, and picks the step the same
   way from what it has, a step's one line: a command with a description
   comes as only the description, so a quote of the command finds nothing
-  and the sheet opens with no step lit. A `review:` link says it opens on
-  the Mac. The website has the same one-line steps on the page: a work:
+  and the sheet opens with no step lit. A `review:` link opens the phone's
+  Reviews sheet with backend API 83; older backends say it opens on the
+  Mac. The website has the same one-line steps on the page: a work:
   link scrolls to its step, and is only its words if it finds none; so is
   a `review:` link, and a `thread:` link on a shared page, as whoever it's
   shared with can't open the others.

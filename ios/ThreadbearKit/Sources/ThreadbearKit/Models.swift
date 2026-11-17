@@ -1046,11 +1046,22 @@ public struct CommandStatus: Codable, Sendable, Hashable {
     /// A slashCommands command's answer (API 62): phone:command's `result`.
     /// Anything that isn't a list of commands reads as none.
     public var commands: [SlashCommand]?
+    public var designReviews: DesignReviewResult?
     public init(state: CommandState, note: String? = nil, threadId: String? = nil, commands: [SlashCommand]? = nil) {
         self.state = state
         self.note = note
         self.threadId = threadId
         self.commands = commands
+        self.designReviews = nil
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(state, forKey: .state)
+        try c.encodeIfPresent(note, forKey: .note)
+        try c.encodeIfPresent(threadId, forKey: .threadId)
+        if let designReviews { try c.encode(designReviews, forKey: .commands) }
+        else { try c.encodeIfPresent(commands, forKey: .commands) }
     }
 
     private enum CodingKeys: String, CodingKey { case state, note, threadId, commands = "result" }
@@ -1061,6 +1072,7 @@ public struct CommandStatus: Codable, Sendable, Hashable {
         note = try c.decodeIfPresent(String.self, forKey: .note)
         threadId = try c.decodeIfPresent(String.self, forKey: .threadId)
         commands = try? c.decodeIfPresent([SlashCommand].self, forKey: .commands)
+        designReviews = try? c.decodeIfPresent(DesignReviewResult.self, forKey: .commands)
     }
 }
 

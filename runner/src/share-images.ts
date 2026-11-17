@@ -9,6 +9,7 @@ import type { PersistedEvent } from './protocol.ts';
 import { absolute } from './highlights.ts';
 import { sniffImage, sniffVideo } from './media.ts';
 import { isSpace, seeker } from './linear-text.ts';
+import { reviewImageSource } from './phone-reviews.ts';
 
 // A picture bigger than this stays on the Mac.
 export const SHARE_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -275,6 +276,11 @@ export type ReplyImage = {
 export const PIN_TOOL = 'mcp__threadbear__pin';
 
 export function replyImagesInEvent(e: PersistedEvent, cwd: string | undefined, home = os.homedir()): ReplyImage[] {
+  if (e.type === 'review.updated' && e.review.revision === 0) {
+    return e.review.options.flatMap(option => (option.shots ?? [{ image: option.image }]).map(shot => ({
+      seq: e.seq, path: shot.image.path, src: reviewImageSource(e.review.id, shot.image.path),
+    })));
+  }
   if (e.type === 'assistant.text') return markdownImages(e.text, home, replyMediaType).map(({ src, path }) => ({ seq: e.seq, path, src }));
   if (e.type !== 'tool.call' || e.name !== PIN_TOOL || typeof e.input.path !== 'string') return [];
   // The pin tool takes a path relative to the thread's folder.

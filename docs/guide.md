@@ -244,6 +244,16 @@ message, so a go ahead in your reply doesn't set the same job off twice. It work
 without Full access can't make a button that does more than it could
 itself, and that's checked again when you press it.
 
+On the iPhone, tap Reviews in the thread's top bar, or a review link in a
+reply. The sheet shows the options, notes and still previews. Pick any
+options, None of these, or write a reply, then Send answer. Reference
+options are there to compare and cannot be picked. The runner must be
+online to load the review and receive the answer. Pages and videos show
+still previews; open their originals on the Mac. This needs the phone app
+with Reviews and backend API 83 or newer. If the review changes on the Mac,
+your answer stays in the sheet while it reloads, ready for you to check
+and send again.
+
 The comparison window starts on the first option's first picture. An option
 can have several (its overview, how it looks mid-drag, a detail), shown in a
 strip under the picture. Next and back (or the left and right arrow keys)

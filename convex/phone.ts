@@ -460,7 +460,7 @@ export const command = query({
     const c = await ctx.db.get(commandId);
     if (!c) throw new ConvexError({ kind: 'notFound', message: 'no such command' });
     let result: unknown;
-    if (c.kind === 'slashCommands' && c.result) {
+    if ((c.kind === 'slashCommands' || c.kind === 'designReviews') && c.result) {
       try {
         result = JSON.parse(c.result);
       } catch {
@@ -778,6 +778,51 @@ export const slashCommands = mutation({
     await checkPhoneToken(ctx, token);
     const t = await findThread(ctx, threadId);
     return queue(ctx, t.runnerId, 'slashCommands', threadId, {});
+  },
+});
+
+// Reviews use the owning runner's durable revision checks and response queue.
+export const reviewImages = query({
+  args: { token: v.string(), threadId: v.string(), sources: v.array(v.string()) },
+  returns: v.array(phoneImage),
+  handler: async (ctx, { token, threadId, sources }) => {
+    await checkPhoneToken(ctx, token);
+    await findThread(ctx, threadId);
+    if (sources.length > 40 || sources.some(src => !/^review:[a-zA-Z0-9-]{1,200}:[a-f0-9]{64}$/.test(src))) throw new ConvexError('Invalid review pictures.');
+    const out = [];
+    for (const src of new Set(sources)) {
+      const img = await ctx.db.query('replyImages').withIndex('by_thread_src', q => q.eq('threadId', threadId).eq('src', src)).order('desc').first();
+      if (!img) continue;
+      const url = await ctx.storage.getUrl(img.storageId);
+      if (url) out.push({ seq: img.seq, src, url, ...(img.width ? { width: img.width } : {}), ...(img.height ? { height: img.height } : {}) });
+    }
+    return out;
+  },
+});
+
+export const designReviews = mutation({
+  args: { token: v.string(), threadId: v.string(), reviewId: v.optional(v.string()) },
+  returns: v.id('commands'),
+  handler: async (ctx, { token, threadId, reviewId }) => {
+    await checkPhoneToken(ctx, token);
+    if (reviewId !== undefined && !/^[a-zA-Z0-9-]{1,200}$/.test(reviewId)) throw new ConvexError('Invalid review id.');
+    const t = await findThread(ctx, threadId);
+    return queue(ctx, t.runnerId, 'designReviews', threadId, reviewId ? { reviewId } : {});
+  },
+});
+
+export const respondReview = mutation({
+  args: { token: v.string(), threadId: v.string(), reviewId: v.string(), revision: v.number(),
+    draft: v.object({ pickedId: v.optional(v.string()), pickedIds: v.optional(v.array(v.string())),
+      notes: v.record(v.string(), v.string()), reply: v.optional(v.string()), none: v.optional(v.boolean()) }) },
+  returns: v.id('commands'),
+  handler: async (ctx, { token, threadId, reviewId, revision, draft }) => {
+    await checkPhoneToken(ctx, token);
+    if (!/^[a-zA-Z0-9-]{1,200}$/.test(reviewId) || !Number.isSafeInteger(revision) || revision < 0) throw new ConvexError('Invalid review or revision.');
+    if ((draft.pickedIds?.length ?? 0) > 12 || Object.keys(draft.notes).length > 12 ||
+        (draft.reply?.length ?? 0) > 8000 || Object.values(draft.notes).some(n => n.length > 4000)) throw new ConvexError('The review answer is too long.');
+    const t = await findThread(ctx, threadId);
+    return queue(ctx, t.runnerId, 'respondReview', threadId, { reviewId, revision, draft });
   },
 });
 
@@ -1190,7 +1235,7 @@ async function knownRunner(ctx: QueryCtx, runnerId: string): Promise<string> {
 // what the runner's own pendingCommands reads. One that waits too long goes
 // (sync:pruneFiles, COMMAND_KEEP_MS). Its photos are recorded in commandFiles
 // so a delete elsewhere sees they're still on their way (sync.ts storageInUse).
-async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands' | 'interrupt', threadId: string | undefined, args: Record<string, unknown>) {
+async function queue(ctx: MutationCtx, runnerId: string, kind: 'send' | 'respond' | 'update' | 'create' | 'page' | 'share' | 'quickAsk' | 'schedule' | 'picture' | 'press' | 'slashCommands' | 'interrupt' | 'designReviews' | 'respondReview', threadId: string | undefined, args: Record<string, unknown>) {
   let n = 0;
   let bytes = docBytes(args);
   for await (const c of ctx.db.query('commands').withIndex('by_runner_state', (q) => q.eq('runnerId', runnerId).eq('state', 'pending'))) {

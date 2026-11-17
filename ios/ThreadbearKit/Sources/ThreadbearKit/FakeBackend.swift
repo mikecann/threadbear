@@ -651,6 +651,38 @@ public final class FakeBackend: Backend, @unchecked Sendable {
 
     /// A Claude thread's list, as a runner would send it, for the palette
     /// in the simulator and the screenshots.
+    // Synthetic review data for the simulator, never a real conversation.
+    private static var sampleDesignReview: PhoneDesignReview {
+        PhoneDesignReview(id: "sample-review", title: "Choose a layout", note: "Compare the spacing before choosing.", recommended: "A", status: "pending", revision: 0, draft: DesignReviewDraft(), options: [
+            .init(id: "A", title: "Roomier layout", reference: false, shots: [.init(src: "review:sample:a", title: "Overview", kind: "image")]),
+            .init(id: "B", title: "Current layout", reference: true, shots: [.init(src: "review:sample:b", title: nil, kind: "page")])
+        ])
+    }
+
+    public func designReviews(threadId: String, reviewId: String?) async throws -> String {
+        let id = UUID().uuidString
+        var status = CommandStatus(state: .done)
+        status.designReviews = reviewId == nil
+            ? DesignReviewResult(reviews: [.init(id: "sample-review", title: "Choose a layout")])
+            : DesignReviewResult(review: Self.sampleDesignReview)
+        lock.withLock { commands[id] = status }
+        return id
+    }
+
+    public func respondReview(threadId: String, review: PhoneDesignReview, draft: DesignReviewDraft) async throws -> String {
+        let id = UUID().uuidString
+        lock.withLock { commands[id] = CommandStatus(state: answersFail ? .failed : .done, note: answersFail ? "The review changed on the Mac." : nil) }
+        return id
+    }
+
+    public func reviewImages(threadId: String, sources: [String]) -> AsyncThrowingStream<[MessageImage], Error> {
+        let pictures = [
+            MessageImage(seq: 1, src: "review:sample:a", url: Self.samplePicture("review-a", width: 1200, height: 800, hue: 0.33), width: 1200, height: 800),
+            MessageImage(seq: 1, src: "review:sample:b", url: Self.samplePicture("review-b", width: 1200, height: 800, hue: 0.58), width: 1200, height: 800)
+        ]
+        return AsyncThrowingStream { $0.yield(pictures); $0.finish() }
+    }
+
     public func slashCommands(threadId: String) async throws -> String {
         let id = "cmd_" + UUID().uuidString.prefix(8)
         lock.withLock { commands[id] = CommandStatus(state: .done, commands: Self.sampleCommands) }
