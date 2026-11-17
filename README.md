@@ -176,6 +176,8 @@ If you're an agent, start here:
   then [docs/plan.md](docs/plan.md) for how it fits together and
   [docs/protocol.md](docs/protocol.md), the contract between the runner and
   the apps.
+- **Sending Mike a change:** [CONTRIBUTING.md](CONTRIBUTING.md) says what
+  he takes and how, so read it before you start.
 - **The backend, iPhone app and website:**
   [docs/convex-backend.md](docs/convex-backend.md),
   [ios/README.md](ios/README.md) and [docs/website.md](docs/website.md).

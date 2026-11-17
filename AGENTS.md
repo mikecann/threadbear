@@ -264,6 +264,8 @@ since you last looked, as Tyler did for #2 while a thread was writing its own
 fix (6 Nov). Their hand test may know more than you can find out. Merge with
 `gh pr merge --rebase` so it shows as merged and stays theirs, and put anything
 of your own in a commit on top. A comment to them goes past Mike first.
+Work rewritten by hand from their PR or fork gets a `Co-Authored-By:`
+trailer for them, as 434438d9 does for Wayne.
 
 A commit on someone's fork isn't an offer, however good it looks: they haven't
 asked for it to go anywhere. Don't suggest bringing one in, and don't take one,
