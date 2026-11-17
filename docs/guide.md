@@ -675,7 +675,9 @@ that turn. From the row's hover buttons, Threadbear asks first.
 
 You can also ask a thread to do it to itself ("hibernate this until
 Thursday", "archive this when you're done"). It finishes its reply first,
-then goes, with a note in the thread saying when it'll be back. A time
+then goes, with a note in the thread saying when it'll be back. "Until
+needed" has no time at all: it sleeps until something sends it a message
+(you, a schedule or another thread), which suits a bear. A time
 works, or words like "until the phone arrives", read the same way as Wake
 when…. When the words are something to happen ("until the GPUI app
 replaces the Swift app"), the librarian wakes it once another thread shows

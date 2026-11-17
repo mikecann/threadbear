@@ -2746,7 +2746,7 @@ export class Runner {
   snoozeAfterTurn(st: ThreadState, when: string): void {
     const { rec } = st;
     let until: string | undefined;
-    if (when.toLowerCase() === 'restart' || when.toLowerCase() === 'release') until = when.toLowerCase();
+    if (['needed', 'restart', 'release'].includes(when.toLowerCase())) until = when.toLowerCase();
     else {
       try {
         until = parseWhen(when, this.clock.now());
@@ -2763,12 +2763,13 @@ export class Runner {
       });
       return;
     }
-    if (until !== 'restart' && until !== 'release' && Date.parse(until) <= this.clock.now()) {
+    if (until !== 'needed' && until !== 'restart' && until !== 'release' && Date.parse(until) <= this.clock.now()) {
       this.emit(st, { type: 'system.note', text: `Not hibernated: the agent asked to wake at ${when}, which has passed.` });
       return;
     }
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const text = until === 'restart' ? 'Hibernating until the runner next starts, as the agent was asked to.'
+    const text = until === 'needed' ? 'Hibernating until a message comes, as the agent was asked to.'
+      : until === 'restart' ? 'Hibernating until the runner next starts, as the agent was asked to.'
       : until === 'release' ? 'Hibernating until the runner starts on a new release, as the agent was asked to.' : `Hibernating until ${localWhen(Date.parse(until), timeZone)}, as the agent was asked to.`;
     this.emit(st, { type: 'system.note', text });
     this.update({ threadId: rec.id, snoozedUntil: until });
@@ -3048,7 +3049,7 @@ export class Runner {
     model?: string | null;
     effort?: EffortLevel | null;
     permissionMode?: PermissionMode;
-    snoozedUntil?: string | null; // an ISO time, 'restart' for until the runner next starts, or 'release' for until it starts on a new release
+    snoozedUntil?: string | null; // an ISO time, 'needed' for until a message comes, 'restart' for until the runner next starts, or 'release' for until it starts on a new release
     archived?: boolean;
     // Who's archiving it: Mike (the default: the app, the phone, tb), an
     // agent (update_thread, end_turn's archive) or Threadbear itself. With
@@ -3294,7 +3295,11 @@ export class Runner {
       delete rec.wakeWhen;
       delete rec.waitingOn;
       if (params.snoozedUntil === null) delete rec.snoozedUntil;
-      else if (params.snoozedUntil === 'restart' || params.snoozedUntil === 'release') {
+      else if (params.snoozedUntil === 'needed') {
+        // No time: away until a message comes (Mike's, a schedule's, a thread's).
+        rec.snoozedUntil = NO_WAKE_TIME;
+        stop = true;
+      } else if (params.snoozedUntil === 'restart' || params.snoozedUntil === 'release') {
         rec.snoozedUntil = UNTIL_RESTART;
         rec.snoozedUntilRestart = true;
         // Until a start on another release than this one. From a source
@@ -3303,7 +3308,7 @@ export class Runner {
         stop = true;
       } else {
         const t = Date.parse(params.snoozedUntil);
-        if (Number.isNaN(t)) throw new RpcError(ErrorCode.badParams, 'snoozedUntil must be an ISO time, "restart" or "release"');
+        if (Number.isNaN(t)) throw new RpcError(ErrorCode.badParams, 'snoozedUntil must be an ISO time, "needed", "restart" or "release"');
         rec.snoozedUntil = new Date(t).toISOString();
         stop = true;
       }

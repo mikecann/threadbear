@@ -7,6 +7,7 @@ import { checkSequence, checkSummary } from '../helpers/protocol-check.ts';
 import { makePng } from '../helpers/png.ts';
 import { RpcError } from '../../src/protocol.ts';
 import { askedLine, UNTIL_RESTART, WROTE_INSTEAD } from '../../src/runner.ts';
+import { wakeNote } from '../../src/wake-note.ts';
 import { PATIENCE_MS } from '../helpers/patience.ts';
 
 const MIN = 60_000;
@@ -612,6 +613,23 @@ test('hibernating until a restart stops the turn, holds the restart no longer, a
   assert.deepEqual(h2.runner.list().map((x) => x.id), [thread.id]);
 });
 
+test('hibernating until needed has no time: a restart leaves it asleep and a message wakes it', async () => {
+  const h = makeHarness();
+  const { thread } = create(h);
+  const s = h.adapter.last;
+  s.init();
+  s.result('completed');
+  const res = h.runner.update({ threadId: thread.id, snoozedUntil: 'needed' });
+  assert.equal(res.thread.snoozedUntil, UNTIL_RESTART);
+  assert.equal(res.thread.snoozedUntilRestart, undefined);
+  assert.equal(wakeNote(res.thread), 'a message comes');
+  h.clock.advance(365 * 24 * 60 * MIN);
+  const h2 = h.restart();
+  assert.deepEqual(h2.runner.list(['snoozed']).map((t) => t.id), [thread.id], 'a restart is no reason to wake');
+  h2.runner.send(thread.id, 'need you again');
+  assert.equal(h2.runner.get(thread.id).snoozedUntil, undefined);
+});
+
 test('a star stays through hibernating, archiving and a restart, keeps its time, and stops nothing', () => {
   const h = makeHarness();
   const { thread } = create(h);
@@ -645,7 +663,7 @@ test('a dated snooze or a message clears an until-restart snooze', () => {
   h.runner.update({ threadId: thread.id, snoozedUntil: 'restart' });
   h.runner.send(thread.id, 'back to it');
   assert.equal(h.runner.get(thread.id).snoozedUntilRestart, undefined);
-  assert.throws(() => h.runner.update({ threadId: thread.id, snoozedUntil: 'later' }), /ISO time, "restart" or "release"/);
+  assert.throws(() => h.runner.update({ threadId: thread.id, snoozedUntil: 'later' }), /ISO time, "needed", "restart" or "release"/);
 });
 
 test('an archive says who did it, and Mike\'s verdict goes in the thread', () => {

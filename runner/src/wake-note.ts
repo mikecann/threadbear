@@ -7,6 +7,9 @@
 import type { ThreadSummary } from './protocol.ts';
 import { cutSafely } from './safe-cut.ts';
 
+// runner.ts's NO_WAKE_TIME, not imported so the phone sync needn't load the runner.
+const NO_WAKE_TIME = '9999-12-31T00:00:00.000Z';
+
 // Short enough for a row, and to keep a thread's synced row well under the
 // backend's size cap however long the titles and conditions it names.
 export const WAKE_NOTE_MAX = 160;
@@ -32,5 +35,8 @@ function longNote(t: Pick<ThreadSummary, 'waitingOn' | 'wakeWhen' | 'snoozedUnti
   if (t.wakeWhen?.topic) return `you talk about ${t.wakeWhen.topic}`;
   if (t.snoozedUntilRelease) return 'the runner updates';
   if (t.snoozedUntilRestart) return 'the runner restarts';
+  // The far-off time with nothing else (snoozedUntil "needed"): only a
+  // message brings it back. One still being worked out has wakeWhen.
+  if (!t.wakeWhen && t.snoozedUntil === NO_WAKE_TIME) return 'a message comes';
   return undefined;
 }

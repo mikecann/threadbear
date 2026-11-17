@@ -1488,7 +1488,7 @@ export function buildThreadbearTools(
         snooze: z
           .string()
           .optional()
-          .describe('Hibernates this thread once the turn is over, until 2h, 1d, tomorrow, an ISO time with its offset, "restart" (the runner next starting), "release" (it starting on a new release) or words saying when ("when the phone arrives"), with needs "nothing": when the user asked for that, or when the rest waits on a message (one wakes it), until it should have come. It only brings the thread back, it doesn\'t run you: for a step of your own later, use schedule_message. Except words for something to happen ("until X ships"): those wake you with a turn to check. Asked after you called end_turn? Call it again with this.'),
+          .describe('Hibernates this thread once the turn is over, until 2h, 1d, tomorrow, an ISO time with its offset, "needed" (no time: until a message comes), "restart" (the runner next starting), "release" (it starting on a new release) or words saying when ("when the phone arrives"), with needs "nothing": when the user asked for that, or when the rest waits on a message (one wakes it), until it should have come. It only brings the thread back, it doesn\'t run you: for a step of your own later, use schedule_message. Except words for something to happen ("until X ships"): those wake you with a turn to check. Asked after you called end_turn? Call it again with this.'),
         waitFor: waitForArg,
         findings: findingsArg,
       },
@@ -1597,7 +1597,7 @@ export function buildThreadbearTools(
         snooze: z
           .string()
           .optional()
-          .describe('Hibernate this thread once the turn is over, until 30m, 2h, 1d, tomorrow, an ISO time with its offset, "restart" (until the runner next starts), "release" (until it starts on a new release), or words saying when ("when the phone arrives"). Only with needs "nothing": when the user has asked for this thread to be snoozed or hibernated, or when the rest waits on a message (one wakes it), until it should have come. It only brings the thread back, it doesn\'t run you: for a step of your own later, use schedule_message. Except words for something to happen ("until X ships"): those wake you with a turn to check. If they ask after you have called end_turn, call it again with this.'),
+          .describe('Hibernate this thread once the turn is over, until 30m, 2h, 1d, tomorrow, an ISO time with its offset, "needed" (no time: until a message comes), "restart" (until the runner next starts), "release" (until it starts on a new release), or words saying when ("when the phone arrives"). Only with needs "nothing": when the user has asked for this thread to be snoozed or hibernated, or when the rest waits on a message (one wakes it), until it should have come. It only brings the thread back, it doesn\'t run you: for a step of your own later, use schedule_message. Except words for something to happen ("until X ships"): those wake you with a turn to check. If they ask after you have called end_turn, call it again with this.'),
         waitFor: waitForArg,
         findings: findingsArg,
       },
@@ -1968,7 +1968,7 @@ export function buildThreadbearTools(
         effort: effortEnum.nullable().optional().describe("Reasoning effort, or null for the model's own level (ultra is Codex only)."),
         pool: z.string().nullable().optional().describe('Pool id or title to put the thread in (it moves onto one of its logins from the next turn if its current one isn\'t in it), or null or "pin" to pin it to its current login.'),
         permissionMode: z.enum(['full', 'ask', 'auto']).optional(),
-        snooze: z.string().optional().describe('Snooze until: 30m, 2h, 1d, tomorrow, an ISO time, "restart" (until the runner next starts), "release" (until it starts on a new release), or "off" to wake it.'),
+        snooze: z.string().optional().describe('Snooze until: 30m, 2h, 1d, tomorrow, an ISO time, "needed" (no time: until a message comes), "restart" (until the runner next starts), "release" (until it starts on a new release), or "off" to wake it.'),
         archived: z.boolean().optional().describe('true to archive, false to bring back to the inbox.'),
       },
       handle(async ({ threadId, id: alias, title, mikeAsked, model, effort, pool: p, permissionMode, snooze, archived }, extra) => {
@@ -1989,7 +1989,7 @@ export function buildThreadbearTools(
           }
           if (snooze !== undefined) {
             const word = snooze.trim().toLowerCase();
-            if (word === 'release') throw new Error(`${runner} can't be asked to wake it on its next release from here; use a time, or "restart".`);
+            if (word === 'release' || word === 'needed') throw new Error(`${runner} can't be asked to wake it ${word === 'needed' ? 'when a message comes' : 'on its next release'} from here; use a time, or "restart".`);
             change.snoozedUntil = word === 'off' ? null : word === 'restart' ? 'restart' : parseWhen(snooze, now());
           }
           await remote.call(hit.id, 'threads.update', { threadId: hit.id, ...change });
@@ -2010,7 +2010,7 @@ export function buildThreadbearTools(
         if (permissionMode !== undefined) upd.permissionMode = permissionMode;
         if (snooze !== undefined) {
           const word = snooze.trim().toLowerCase();
-          upd.snoozedUntil = word === 'off' ? null : word === 'restart' || word === 'release' ? word : parseWhen(snooze, now());
+          upd.snoozedUntil = word === 'off' ? null : word === 'needed' || word === 'restart' || word === 'release' ? word : parseWhen(snooze, now());
         }
         if (archived !== undefined) upd.archived = archived;
         if (archived === true) upd.archivedBy = 'agent';

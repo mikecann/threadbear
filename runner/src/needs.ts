@@ -469,7 +469,7 @@ const NEXT_ROW =
 
 // Hibernating itself, in every form's description (snoozeFromTool).
 const END_TURN_SNOOZE =
-  'snooze hibernates this thread once the turn is over, with needs "nothing" only, until a time ("2h", "1d", "tomorrow", an ISO time with its offset, "restart", or "release" for a new release) or words saying when ("when the phone arrives"). Use it when the user asks for this thread to be snoozed or hibernated, or when the rest waits on a message (one wakes it), until it should have come; it only brings the thread back, so a step of your own later is a schedule_message, except words for something to happen ("until X ships"), which wake you with a turn to check. waitFor names threads it waits on, which wake it when they finish. ';
+  'snooze hibernates this thread once the turn is over, with needs "nothing" only, until a time ("2h", "1d", "tomorrow", an ISO time with its offset, "needed" for no time, until a message comes, "restart", or "release" for a new release) or words saying when ("when the phone arrives"). Use it when the user asks for this thread to be snoozed or hibernated, or when the rest waits on a message (one wakes it), until it should have come; it only brings the thread back, so a step of your own later is a schedule_message, except words for something to happen ("until X ships"), which wake you with a turn to check. waitFor names threads it waits on, which wake it when they finish. ';
 
 // Handing a step over, in every form's description. This used to say to offer
 // "Can you do it?" when the agent could plausibly do the step itself, which told
