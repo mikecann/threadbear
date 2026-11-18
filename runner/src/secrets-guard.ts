@@ -12,6 +12,8 @@ const REASON = "The runner's secrets aren't readable from a thread without Full 
 
 const GREP_REASON = "This search's folder holds the runner's secrets, which aren't readable from a thread without Full access. Search a folder further in instead.";
 
+const SHARE_REASON = "A network path (\\\\host\\share) can name this PC's own folders, the runner's secrets among them, so a thread without Full access can't use one with Claude's file tools. If it needs files on a share, ask for Full access.";
+
 const PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const;
 
 function expand(p: string): string {
@@ -46,7 +48,9 @@ function plain(p: string): string {
   if (path.sep !== '\\') return p;
   const local = p
     .replace(/^\\\\[?.]\\unc\\/i, '\\\\')
-    .replace(/^\\\\[?.]\\/, '')
+    // Only before a drive: \\?\GLOBALROOT\... and \\.\HarddiskVolume3\...
+    // stay as they are, which no folder of a drive's starts with.
+    .replace(/^\\\\[?.]\\(?=[a-z]:)/i, '')
     .replace(new RegExp(`^\\\\\\\\(?:localhost|127\\.\\d+\\.\\d+\\.\\d+|\\[?::1\\]?|${os.hostname().replace(/[^\w-]/g, '') || 'localhost'})\\\\([a-z])\\$(?=\\\\|$)`, 'i'), '$1:');
   return local
     .split('\\')
@@ -128,8 +132,9 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
     const home2 = os.homedir();
     // The variables every thread is given for the data dir (threadEnv in
     // restart.ts), the old names too, as each shell writes them: bash's $X
-    // and ${X}, PowerShell's $env:X and ${env:X}, and cmd's %X%.
-    const given = ['THREADBEAR_HOME', 'THREADBEAR_RUNNER_HOME', 'THREADBARE_HOME', 'THREADBARE_RUNNER_HOME'].flatMap((v) => [`$${v}`, `\${${v}}`, `$env:${v}`, `\${env:${v}}`, `%${v}%`]);
+    // and ${X}, PowerShell's $env:X, ${env:X} and $($env:X), and cmd's %X%
+    // and !X!.
+    const given = ['THREADBEAR_HOME', 'THREADBEAR_RUNNER_HOME', 'THREADBARE_HOME', 'THREADBARE_RUNNER_HOME'].flatMap((v) => [`$${v}`, `\${${v}}`, `$env:${v}`, `\${env:${v}}`, `$($env:${v})`, `%${v}%`, `!${v}!`]);
     // The data dir as a path, as written: its own spelling, from the home
     // folder (~, $HOME, ${HOME}), and on Windows as Git Bash writes a drive
     // (/c/Users/...).
@@ -142,17 +147,23 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
       'Threadbear/secrets',
     ].map(slashed);
     if (spellings.some((c) => forms.some((f) => c.includes(f)))) return REASON;
+    // Those variables in any other syntax: PowerShell's $($env:X), cmd's
+    // delayed !X!, [Environment]::GetEnvironmentVariable('X'). The name, then
+    // only punctuation, then the folder (Codex's review, 18 Nov 2026).
+    const varThen = /\b(?:threadbear|threadbare)_(?:runner_)?home\W{0,40}?\/(?:secrets\b|\S*[*?[])/;
+    if (spellings.some((c) => varThen.test(c))) return REASON;
     // A name Windows made for a long one (8.3): Threadbear is THREAD~1 and
     // runner-token RUNNER~1, so a command can name `THREAD~1\secrets\RUNNER~1`
-    // without either word. RUNNER~1 on its own is also Git's revision syntax
-    // (git show runner~1), so it counts only beside the data folder: the word
-    // secret, THREAD~1, Threadbear, the data folder's own path, or a command
-    // run from inside the secrets folder (Keith's fork, 10 Nov 2026).
+    // without either word (Keith's fork, 10 Nov 2026). Each counts only
+    // where it would be the data folder's: THREAD~1 in %LOCALAPPDATA% (or
+    // Roaming), and RUNNER~1 in a secrets folder or run from inside one, as
+    // runner~1 is Git's revision syntax too (git diff runner~1 -- secrets.ts
+    // was refused at first, Codex's review, 18 Nov 2026).
+    const short = /(?:(?:^|\/)(?:local|roaming)|(?:localappdata|appdata)\W{0,6})\/thread~\d+\/(?:secrets\b|secret~\d|\S*[*?[])/;
     const inSecrets = cwd !== undefined && inside(resolved(cwd), resolved(secrets));
-    const homeForms = asPaths(home).map(slashed);
-    const nearData = (c: string) => inSecrets || /secret|thread~\d|threadbear/.test(c) || homeForms.some((h) => c.includes(h));
+    const token = inSecrets ? /(?:^|[\s/=])runner~\d/ : /(?:^|[\s/=])(?:secrets|secret~\d+)\/runner~\d/;
+    if (spellings.some((c) => short.test(c) || token.test(c))) return REASON;
     const wild = /[*?[]/.test(command);
-    if (spellings.some((c) => (/runner~\d/.test(c) && nearData(c)) || (/thread~\d/.test(c) && (/secret/.test(c) || wild)))) return REASON;
     // The data dir named with a wildcard after it reaches the same files
     // without those words (secr*/*).
     const dataDir = [...asPaths(home), ...given, 'Application Support/Threadbear', 'AppData/Local/Threadbear', 'AppData/Roaming/Threadbear', '%LOCALAPPDATA%/Threadbear', '$env:LOCALAPPDATA/Threadbear', '%APPDATA%/Threadbear', '$env:APPDATA/Threadbear'].map(slashed);
@@ -162,7 +173,15 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
   const target = resolved(secrets);
   for (const k of PATH_KEYS) {
     const v = input[k];
-    if (typeof v === 'string' && v && (inside(resolved(v, cwd), target) || inside(path.resolve(cwd ?? process.cwd(), expand(v)), secrets))) return REASON;
+    if (typeof v !== 'string' || !v) continue;
+    const [real, written] = [resolved(v, cwd), path.resolve(cwd ?? process.cwd(), expand(v))];
+    if (inside(real, target) || inside(written, secrets)) return REASON;
+    // On Windows, a share (\\host\share\...) can be any folder of this PC's
+    // by a name of its own (C:\Users\me shared as Profile), and a mapped
+    // drive resolves to one: no spelling of the data folder says which. So
+    // without Full access, a file tool doesn't reach through one at all
+    // (Codex's review, 18 Nov 2026).
+    if (path.sep === '\\' && [real, written].some((p) => plain(p).startsWith('\\\\'))) return SHARE_REASON;
   }
   // A Glob or Grep from the data dir itself reaches the folder whatever its
   // pattern says. From further up, a Glob only lists names, so it's refused

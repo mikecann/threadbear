@@ -52,7 +52,7 @@ test('a short name counts only beside the data folder: Git revisions that look l
   // From inside the secrets folder, the short name of the token file is the token file.
   assert.ok(denySecrets('Bash', { command: 'type RUNNER~1' }, home, path.join(home, 'secrets')), 'run from the secrets folder');
   assert.equal(denySecrets('Bash', { command: 'git show runner~1' }, home, os.tmpdir()), undefined, 'the same words from anywhere else');
-  assert.ok(deny(`type ${home}\\RUNNER~1`), "after the data folder's own path");
+  assert.ok(deny(`type ${home}\\secrets\\RUNNER~1`), "in the data folder's own secrets folder");
 });
 
 test('ordinary commands that only look near it are left alone', () => {
@@ -145,4 +145,29 @@ test("a file tool's path is the file Windows would open", { skip: path.sep !== '
   // Not the secrets folder: a neighbour whose name only starts the same.
   assert.equal(denySecrets('Read', { file_path: `${secrets}-old\\notes.txt` }, home), undefined);
   assert.equal(denySecrets('Read', { file_path: path.join(home, 'runner.json') }, home), undefined);
+});
+
+test('the variables in PowerShell\'s $(...) and cmd\'s delayed !X! (Codex\'s review)', () => {
+  for (const command of [
+    `powershell.exe -NoProfile -Command 'Get-Content "$($env:THREADBEAR_HOME)\\secrets\\convex-deploy.env"'`,
+    `MSYS_NO_PATHCONV=1 cmd.exe /V:ON /C 'type "!THREADBEAR_HOME!\\secrets\\convex-deploy.env"'`,
+    `powershell -c "Get-Content ([Environment]::GetEnvironmentVariable('THREADBEAR_HOME') + '\\secrets\\convex-deploy.env')"`,
+    `cmd /V:ON /C "dir !THREADBEAR_RUNNER_HOME!\\s*"`,
+  ]) assert.ok(deny(command), command);
+});
+
+test('short names count only where they would be the data folder\'s (Codex\'s review)', () => {
+  for (const command of ['git diff runner~1 -- src/secrets.ts', 'git log runner~2 -- secrets/', 'ls C:/work/THREAD~1/secrets', 'echo $THREADBEAR_HOME; ls ./secrets']) {
+    assert.equal(deny(command), undefined, command);
+  }
+  for (const command of ['type %LOCALAPPDATA%\\THREAD~1\\secrets\\x.env', 'cat /c/Users/me/AppData/Local/THREAD~1/secrets/x.env', 'type C:\\Users\\me\\AppData\\Local\\THREAD~1\\s*', 'type secrets\\RUNNER~1']) {
+    assert.ok(deny(command), command);
+  }
+});
+
+test('on Windows a file tool doesn\'t reach through a share (Codex\'s review)', { skip: path.sep !== '\\' && 'Windows paths' }, () => {
+  for (const file_path of ['\\\\localhost\\Profile\\AppData\\Local\\Threadbear\\secrets\\x', '\\\\192.168.1.77\\c$\\x', '\\\\?\\UNC\\server\\share\\x', '\\\\?\\GLOBALROOT\\Device\\HarddiskVolume3\\x']) {
+    assert.ok(denySecrets('Read', { file_path }, home), file_path);
+    assert.ok(denySecrets('Grep', { path: file_path, pattern: 'x' }, home), file_path);
+  }
 });
