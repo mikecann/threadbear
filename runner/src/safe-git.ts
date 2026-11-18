@@ -1,4 +1,5 @@
 import { execFile, execFileSync } from 'node:child_process';
+import { noHooksPath } from './platform.ts';
 
 // git in a folder Threadbear hasn't trusted, or whose .git it didn't make.
 // A folder from a zip, a tarball or a shared drive can carry its own
@@ -41,7 +42,7 @@ function protocols(allowed: readonly string[]): string[] {
 }
 const NO_FETCH: readonly string[] = protocols([]);
 const LISTINGS = new Set(['ls-files', 'rev-parse']);
-export const LISTING_GIT_CONFIG: readonly string[] = [...UNTRUSTED_GIT_CONFIG, ...NO_FETCH, '-c', 'core.hooksPath=/dev/null'];
+export const LISTING_GIT_CONFIG: readonly string[] = [...UNTRUSTED_GIT_CONFIG, ...NO_FETCH, '-c', `core.hooksPath=${noHooksPath()}`];
 
 // A git listing in `dir`, read whole: what claude-trust and tracked-packages
 // use to see what a folder holds before it's trusted. Throws as
@@ -134,7 +135,7 @@ function settable(key: string): string {
 
 // The -c settings for `entries` (a repo's config as git reads it): see above.
 export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote'): string[] {
-  const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', 'core.hooksPath=/dev/null', ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
+  const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', `core.hooksPath=${noHooksPath()}`, ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
   const drivers = new Set<string>();
   const allowed = network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [];
   for (const e of entries) {

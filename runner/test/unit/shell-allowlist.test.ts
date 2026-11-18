@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
+import { noHooksPath } from '../../src/platform.ts';
 import { runCommand } from '../../src/patches.ts';
 import { liveCommandProblem, namedPaths, PatchTrust, scanModule } from '../../src/patch-trust.ts';
 import { allowCommand, liveCommandEnv, ownedPathProblem, repoGitConfigProblem } from '../../src/shell-allowlist.ts';
@@ -797,14 +798,14 @@ test("R5: liveCommandEnv's settings beat the repo's own config, so the attacks i
   assert.equal(read('fetch.recurseSubmodules'), 'false');
   assert.equal(read('submodule.recurse'), 'false');
   assert.equal(read('protocol.allow'), 'never');
-  assert.equal(read('core.hooksPath'), '/dev/null');
+  assert.equal(read('core.hooksPath'), noHooksPath());
   // Your own helpers come back after the reset, in order.
   const global2 = path.join(root, 'global2');
   fs.writeFileSync(global2, '[credential "https://github.com"]\n\thelper =\n\thelper = !gh auth git-credential\n');
   const e = liveCommandEnv({ ...env, GIT_CONFIG_GLOBAL: global2 });
   const pairs = Array.from({ length: Number(e.GIT_CONFIG_COUNT) }, (_, i) => `${e[`GIT_CONFIG_KEY_${i}`]}=${e[`GIT_CONFIG_VALUE_${i}`]}`);
   assert.ok(pairs.includes('core.sshCommand=ssh'));
-  assert.ok(pairs.indexOf('credential.helper=') > pairs.indexOf('core.hooksPath=/dev/null'));
+  assert.ok(pairs.indexOf('credential.helper=') > pairs.indexOf(`core.hooksPath=${noHooksPath()}`));
   assert.deepEqual(pairs.slice(-2), ['credential.https://github.com.helper=', 'credential.https://github.com.helper=!gh auth git-credential']);
   // A GIT_CONFIG_COUNT already in the environment is kept, and added to.
   const more = liveCommandEnv({ ...env, GIT_CONFIG_COUNT: '2' });

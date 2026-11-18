@@ -73,6 +73,7 @@ import {
   type ScriptReach,
 } from './script-trust.ts';
 import { inNodeModules, trackedNodeModules } from './tracked-packages.ts';
+import { noHooksPath } from './platform.ts';
 
 export type AllowOptions = FollowOptions & {
   // A live function's command: held to the live list; the runner ends its
@@ -2066,7 +2067,7 @@ function ownGitSettings(env: Record<string, string | undefined>): [string, strin
 export function liveCommandEnv(env: Record<string, string | undefined>): Record<string, string> {
   const pairs: [string, string][] = [
     ['core.fsmonitor', ''],
-    ['core.hooksPath', '/dev/null'],
+    ['core.hooksPath', noHooksPath()],
     ['safe.bareRepository', 'explicit'],
     // A protocol's own setting beats protocol.allow, so the repo's
     // protocol.ext.allow=always would win: each is set here too.

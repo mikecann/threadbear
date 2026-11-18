@@ -85,6 +85,17 @@ export function realPath(p: string, q: RealProbe = {}): string {
   }
 }
 
+// core.hooksPath for git that must run no hook. /dev/null on a Mac and
+// Linux. Not on Windows: Git for Windows reads it as \dev\null on the
+// current drive, and any account on the PC can make C:\dev\null and put a
+// pre-commit in it. There it's a file of Windows' own that only
+// TrustedInstaller can change: a file holds no hooks, so git finds none.
+export function noHooksPath(p: Probe = {}): string {
+  if ((p.platform ?? process.platform) !== 'win32') return '/dev/null';
+  const env = p.env ?? process.env;
+  return path.win32.join(env.SystemRoot || env.windir || 'C:\\Windows', 'System32', 'ntdll.dll');
+}
+
 // A path with forward slashes whatever the platform, for text a person reads
 // (messages name files as ./tools/x.sh) and for words a shell takes. It
 // changes nothing on macOS and Linux, where path.sep is already /.
