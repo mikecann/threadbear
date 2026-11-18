@@ -12,6 +12,7 @@ import { readShareImage } from './share-images.ts';
 import { CallerGate } from './rpc-gate.ts';
 import { threadOfSocket } from './peer.ts';
 import { threadKey as makeThreadKey } from './rpc-auth.ts';
+import { makePrivate } from './win-acl.ts';
 import { loadConfig, ensureHome, readToken, paths, recordListening, defaultHome, DEFAULT_CWD, RUNNER_VERSION, RunnerJsonError, readRunnerJson, writeRunnerJson } from './config.ts';
 import { startHousekeeping } from './housekeeping.ts';
 import { startBorrowSweep } from './runner/worktrees.ts';
@@ -119,6 +120,8 @@ async function main(): Promise<void> {
   // Only the installed runner reports to Sentry (sentry.ts says why).
   const reporting = await startSentry(cfg.home);
   log.info('runner starting', { version: RUNNER_VERSION, home: cfg.home, port: cfg.port, pid: process.pid, sentry: reporting });
+  // chmod 700 does nothing there (win-acl.ts); not waited for.
+  void makePrivate(paths.secrets(cfg.home)).then((why) => why && log.warn('could not make the secrets folder private', { why }));
 
   // The SDK warns when canUseTool is set in bypass mode; it's deliberate
   // (AskUserQuestion still goes through it), so keep it out of the log.

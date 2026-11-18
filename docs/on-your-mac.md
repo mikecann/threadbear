@@ -126,7 +126,10 @@ File references are where to look.
   (`Get-NetTCPConnection`). It also puts each CLI the runner starts in a
   Job Object of its own (`Local\threadbear-job-<random>`), and ends the job
   when the CLI exits, so nothing a thread started outlives it, as a CLI's
-  process group does on a Mac.
+  process group does on a Mac. Each start it runs `whoami /user` and
+  `icacls` (both from System32) on `secrets\`, so the folder stops
+  inheriting from `%LOCALAPPDATA%` and only you and SYSTEM can open it, in
+  place of the Mac's `chmod 700` (`runner/src/win-acl.ts`).
 - **A one-shot update job:** when the runner's LaunchAgent or
   Threadbear Runner.app is behind main (or you press Update it in the
   Updates panel after one failed), the runner
