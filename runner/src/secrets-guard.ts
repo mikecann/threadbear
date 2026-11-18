@@ -15,7 +15,7 @@ const GREP_REASON = "This search's folder holds the runner's secrets, which aren
 const PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const;
 
 function expand(p: string): string {
-  return p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p;
+  return p === '~' || p.startsWith('~/') || (path.sep === '\\' && p.startsWith('~\\')) ? path.join(os.homedir(), p.slice(1)) : p;
 }
 
 // The deepest part of a path that exists, with links followed, and the rest
@@ -36,6 +36,24 @@ function resolved(p: string, cwd?: string): string {
   }
 }
 
+// A path as Windows opens it. A name's stream (secrets::$INDEX_ALLOCATION is
+// the folder itself, runner-token::$DATA the file) and dots or spaces on its
+// end (secrets.) are dropped, a \\?\ or \\.\ prefix names the path after
+// it, and a share of this machine's own drive (\\localhost\c$\...) is
+// that drive. Elsewhere a path is as written: a colon or a dot on the end is
+// part of a Mac or Linux name.
+function plain(p: string): string {
+  if (path.sep !== '\\') return p;
+  const local = p
+    .replace(/^\\\\[?.]\\unc\\/i, '\\\\')
+    .replace(/^\\\\[?.]\\/, '')
+    .replace(new RegExp(`^\\\\\\\\(?:localhost|127\\.\\d+\\.\\d+\\.\\d+|\\[?::1\\]?|${os.hostname().replace(/[^\w-]/g, '') || 'localhost'})\\\\([a-z])\\$(?=\\\\|$)`, 'i'), '$1:');
+  return local
+    .split('\\')
+    .map((s, i) => (i === 0 || s === '.' || s === '..' ? s : s.replace(/:.*$/, '').replace(/[. ]+$/, '') || s))
+    .join('\\');
+}
+
 // Paths and commands are compared without regard to case: APFS as it's usually
 // made (and NTFS) opens the same folder whatever the letters. Where the file
 // system tells them apart, a folder of the same name in other letters is
@@ -43,26 +61,55 @@ function resolved(p: string, cwd?: string): string {
 // Unicode is folded to one form first too: APFS opens "é" whether it's written
 // as one character or as "e" and an accent (cross-lab review, 11 Nov 2026).
 const fold = (s: string) => s.normalize('NFC').toLowerCase();
-const same = (a: string, b: string) => fold(a) === fold(b);
+const same = (a: string, b: string) => fold(plain(a)) === fold(plain(b));
 const inside = (p: string, dir: string) => {
-  const [low, root] = [fold(p), fold(dir)];
+  const [low, root] = [fold(plain(p)), fold(plain(dir))];
   // `/` already ends in the separator: `//` would never match.
   return low === root || low.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
 };
+
+// A path or a command as it's compared: forward slashes, folded (see `fold`).
+const slashed = (s: string) => fold(s.replace(/\\/g, '/'));
+
+// A Windows path as Git Bash writes it: C:\Users\me as /c/Users/me.
+function gitBashForm(p: string): string[] {
+  const m = /^([a-z]):[\\/](.*)$/i.exec(p);
+  return m ? [`/${m[1]}/${m[2]}`] : [];
+}
+
+// The ways one command can be read, for the patterns to look at. A shell
+// drops its quotes and the backslashes before other characters (bash), but on
+// Windows a backslash is the separator (C:\Users\me\secrets), so it's read
+// with them kept and as forward slashes too. PowerShell's escape is a
+// backtick and cmd's a caret, so it's read without those as well. A share of
+// this machine's own drive (\\localhost\c$\...) and a \\?\ or \\.\
+// prefix name the drive's own path (Keith's fork, 10 Nov 2026).
+function commandSpellings(command: string): string[] {
+  const unquoted = command.replace(/["']/g, '');
+  const hosts = ['localhost', '127\\.\\d+\\.\\d+\\.\\d+', '\\[?::1\\]?', os.hostname().replace(/[^\w-]/g, '') || 'localhost'].join('|');
+  const share = new RegExp(`[\\\\/]{2}(?:[?.][\\\\/]unc[\\\\/])?(?:${hosts})[\\\\/]([a-z])\\$[\\\\/]`, 'gi');
+  const local = (s: string) => s.replace(share, '$1:/').replace(/[\\/]{2}[?.][\\/]/g, '');
+  const escapes = unquoted.replace(/[`^]/g, '');
+  // Most commands read the same every way, so each reading is looked at once.
+  return [...new Set([command.replace(/\\(.)/g, '$1').replace(/["']/g, ''), unquoted, escapes, local(escapes)].flatMap((c) => [c, c.replace(/\\/g, '/')]))];
+}
 
 // The reason a call is denied, or undefined if it's fine. `home` is the
 // runner's data dir.
 export function denySecrets(tool: string, input: Record<string, unknown>, home: string, cwd?: string): string | undefined {
   const secrets = path.join(home, 'secrets');
-  if (tool === 'Bash') {
+  // Claude on Windows can have a PowerShell tool as well as Bash; the runner
+  // turns it off (adapter.ts), and if one gets through it's checked the same.
+  if (tool === 'Bash' || tool === 'PowerShell') {
     const command = typeof input.command === 'string' ? input.command : '';
-    // Quotes and backslashes that don't change which path it is.
-    const bare = command.replace(/\\(.)/g, '$1').replace(/["']/g, '');
-    // The token file's name first, before anything below folds a letter:
-    // NFC and lower-casing both turn the Kelvin sign (K, U+212A) into a K,
-    // and `runner-tokenK` (which a shell's ${x%K} cuts back to the file's
-    // name) lost its word boundary that way (cross-lab review, 11 Nov 2026).
-    if (/\brunner-token\b/i.test(bare)) return REASON;
+    const readings = commandSpellings(command);
+    for (const c of readings) {
+      // The token file's name first, before anything below folds a letter:
+      // NFC and lower-casing both turn the Kelvin sign (K, U+212A) into a K,
+      // and `runner-tokenK` (which a shell's ${x%K} cuts back to the file's
+      // name) lost its word boundary that way (cross-lab review, 11 Nov 2026).
+      if (/\brunner-token\b/i.test(c)) return REASON;
+    }
     // Then the ways a shell writes the same folder: `/./` and `//`, an accent
     // as one character or two, and in any letters (see `same`). Checked as
     // written and also with `${X:-y}` or `${X%y}` read as `${X}`, which names
@@ -74,25 +121,42 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
     // can join an accent onto the s of secrets that the shell then cuts off
     // (`${p%<accent>}`, the third pass).
     const tidy = (c: string) => c.replace(/\/(?:\.\/)+/g, '/').replace(/\/{2,}/g, '/');
-    const read = bare.replace(/\$\{(\w+)(?!\w)[^}\n]{0,300}\}/g, '${$1}');
-    const spellings = [bare, read].flatMap((c) => [tidy(c).toLowerCase(), fold(tidy(c))]);
+    const spellings = readings
+      .flatMap((c) => [c, c.replace(/\$\{(\w+)(?!\w)[^}\n]{0,300}\}/g, '${$1}')])
+      .flatMap((c) => [tidy(c).toLowerCase(), fold(tidy(c))])
+      .filter((c, i, all) => all.indexOf(c) === i);
     const home2 = os.homedir();
     // The variables every thread is given for the data dir (threadEnv in
-    // restart.ts), the old names too, as a shell writes them.
-    const given = ['THREADBEAR_HOME', 'THREADBEAR_RUNNER_HOME', 'THREADBARE_HOME', 'THREADBARE_RUNNER_HOME'].flatMap((v) => [`$${v}`, `\${${v}}`]);
+    // restart.ts), the old names too, as each shell writes them: bash's $X
+    // and ${X}, PowerShell's $env:X and ${env:X}, and cmd's %X%.
+    const given = ['THREADBEAR_HOME', 'THREADBEAR_RUNNER_HOME', 'THREADBARE_HOME', 'THREADBARE_RUNNER_HOME'].flatMap((v) => [`$${v}`, `\${${v}}`, `$env:${v}`, `\${env:${v}}`, `%${v}%`]);
+    // The data dir as a path, as written: its own spelling, from the home
+    // folder (~, $HOME, ${HOME}), and on Windows as Git Bash writes a drive
+    // (/c/Users/...).
+    const asPaths = (p: string) => [p, p.replace(home2, '~'), p.replace(home2, '$HOME'), p.replace(home2, '${HOME}'), ...gitBashForm(p)];
     const forms = [
-      secrets,
-      secrets.replace(home2, '~'),
-      secrets.replace(home2, '$HOME'),
-      secrets.replace(home2, '${HOME}'),
+      ...asPaths(secrets),
       ...given.map((v) => `${v}/secrets`),
+      // Its usual name, under any folder: on a Mac, Application Support; on
+      // Windows, %LOCALAPPDATA% (and %APPDATA%, where Keith's fork kept it).
       'Threadbear/secrets',
-    ].map(fold);
-    if (spellings.some((c) => /\brunner-token\b/.test(c) || forms.some((f) => c.includes(f)))) return REASON;
+    ].map(slashed);
+    if (spellings.some((c) => forms.some((f) => c.includes(f)))) return REASON;
+    // A name Windows made for a long one (8.3): Threadbear is THREAD~1 and
+    // runner-token RUNNER~1, so a command can name `THREAD~1\secrets\RUNNER~1`
+    // without either word. RUNNER~1 on its own is also Git's revision syntax
+    // (git show runner~1), so it counts only beside the data folder: the word
+    // secret, THREAD~1, Threadbear, the data folder's own path, or a command
+    // run from inside the secrets folder (Keith's fork, 10 Nov 2026).
+    const inSecrets = cwd !== undefined && inside(resolved(cwd), resolved(secrets));
+    const homeForms = asPaths(home).map(slashed);
+    const nearData = (c: string) => inSecrets || /secret|thread~\d|threadbear/.test(c) || homeForms.some((h) => c.includes(h));
+    const wild = /[*?[]/.test(command);
+    if (spellings.some((c) => (/runner~\d/.test(c) && nearData(c)) || (/thread~\d/.test(c) && (/secret/.test(c) || wild)))) return REASON;
     // The data dir named with a wildcard after it reaches the same files
     // without those words (secr*/*).
-    const dataDir = [home, home.replace(home2, '~'), home.replace(home2, '$HOME'), ...given, 'Application Support/Threadbear'].map(fold);
-    if (spellings.some((c) => dataDir.some((d) => c.includes(d))) && /[*?[]/.test(bare)) return REASON;
+    const dataDir = [...asPaths(home), ...given, 'Application Support/Threadbear', 'AppData/Local/Threadbear', 'AppData/Roaming/Threadbear', '%LOCALAPPDATA%/Threadbear', '$env:LOCALAPPDATA/Threadbear', '%APPDATA%/Threadbear', '$env:APPDATA/Threadbear'].map(slashed);
+    if (wild && spellings.some((c) => dataDir.some((d) => c.includes(d)))) return REASON;
     return undefined;
   }
   const target = resolved(secrets);
