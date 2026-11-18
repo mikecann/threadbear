@@ -107,6 +107,22 @@ export function slashes(p: string): string {
   return path.sep === '/' ? p : p.split(path.sep).join('/');
 }
 
+// Whether the runner may open a path that an agent's text or tool call
+// named (a Markdown picture, a pinned file). Off Windows any path may be. On
+// Windows not one that starts with two separators: `//host/share/x.png`,
+// `\\host\share\x.png`, `\\?\UNC\host\share\x.png` and
+// `file:////host/share/x.png` all make Windows open a connection to a host
+// the text picked, and send the user's NTLM sign-in to it (`\\?\C:\x.png` and
+// `\\.\pipe\x` are device names, which aren't a picture's either). Nor one
+// that names a device in a folder (`C:\x\CON.png` opens the console, and a
+// read of it waits for ever). A drive letter's path, and one rooted on the
+// current drive (`\x\a.png`), are the user's own.
+export function isLocalPath(p: string, windows: boolean = IS_WINDOWS): boolean {
+  if (!windows) return true;
+  if (/^[\\/]{2}/.test(p)) return false;
+  return !p.split(/[\\/]/).some((part) => /^(con|prn|aux|nul|com[0-9]|lpt[0-9]|conin\$|conout\$)(\.|:|$)/i.test(part));
+}
+
 // npm beside a Node: its `npm` link elsewhere, and on Windows its script,
 // npm-cli.js, as the npm.cmd there can't be started without a shell. A
 // caller runs a .js path on Node (runOnNode).

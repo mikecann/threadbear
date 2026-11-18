@@ -11,6 +11,7 @@ import { commitsIn, emptyHighlights, linksIn, missingFileLinks, observe, openTar
 
 const HOME = '/Users/alex';
 const CWD = '/Users/alex/dev/app';
+const P = (p: string) => path.resolve(p);
 const FILES = new Set(['/Users/alex/dev/app/docs/plan.md', '/Users/alex/dev/app/mock.html', '/Users/alex/notes/todo.md']);
 const ctx = { cwd: CWD, home: HOME, exists: (p: string) => FILES.has(p) };
 
@@ -266,4 +267,23 @@ test('git commands count only when they run, not when they are words in a messag
   assert.equal(gitRuns("cat >> t.ts <<'EOF'\n  input: { command: 'git push -q' }\nEOF", 'push'), 0);
   assert.equal(gitRuns('git commit -m "then git push it"', 'push'), 0);
   assert.equal(gitRuns('(cd a && git push) ; git push origin b', 'push'), 2);
+});
+
+// Assistant text such as [x](//evil.example/s/a.png) on Windows is a network
+// path, and looking for the file opens a connection to that host.
+test('links in a reply: a network path is never looked for on Windows', () => {
+  const looked: string[] = [];
+  const isFile = (p: string) => {
+    looked.push(p);
+    return false;
+  };
+  const text = ['[a](//evil.example/s/a.png)', '`//evil.example/s/b.png`', '[c](\\\\evil.example\\s\\c.png)', '[d](file:////evil.example/s/d.png)', '[e](/Users/mike/ok.md)'].join('\n');
+  linksIn(text, { cwd: CWD, home: HOME, isFile });
+  if (process.platform === 'win32') {
+    assert.deepEqual(looked.filter((p) => /evil\.example/.test(p)), [], 'no network path was statted');
+    assert.deepEqual(looked, [P('/Users/mike/ok.md')], 'and an ordinary one still is');
+  } else {
+    assert.ok(looked.includes(P('/Users/mike/ok.md')));
+    assert.ok(looked.includes(P('//evil.example/s/a.png')), 'a Mac or Linux looks as before');
+  }
 });

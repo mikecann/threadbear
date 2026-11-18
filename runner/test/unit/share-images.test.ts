@@ -219,3 +219,47 @@ test("share images: a real picture in a temp folder that isn't the thread's stay
     fs.rmSync(other, { recursive: true });
   }
 });
+
+// The Windows port's review: assistant Markdown such as ![x](//evil.example/s/a.png)
+// would have the runner stat and read an SMB path, which sends the user's
+// NTLM sign-in to a host the text picked.
+const NETWORK = ['//evil.example/s/a.png', '\\\\evil.example\\s\\a.png', '\\\\?\\UNC\\evil.example\\s\\a.png', '//?/UNC/evil.example/s/a.png', 'file:////evil.example/s/a.png', 'file://///evil.example/s/a.png', '\\\\?\\C:\\a.png', '//./C:/a.png'];
+
+test('share images: on Windows a network or device path in Markdown is no picture to read; on a Mac or Linux a path is a path', () => {
+  const home = '/Users/ann';
+  for (const src of NETWORK) {
+    if (process.platform === 'win32') {
+      assert.equal(localImagePath(src, home), undefined, src);
+      assert.deepEqual(markdownImages(`![x](${src})`, home), [], src);
+      assert.deepEqual(imagesInEvent({ seq: 1, ts: '2026-11-06T00:00:00.000Z', type: 'assistant.text', itemId: 'm', text: `![x](${src})` } as never, home), [], src);
+    }
+  }
+  if (process.platform !== 'win32') {
+    // Unchanged: on a Mac or Linux `//evil.example/s/a.png` is just an absolute path.
+    assert.equal(localImagePath('//evil.example/s/a.png', home), '//evil.example/s/a.png');
+    assert.equal(localImagePath('/tmp/a.png', home), '/tmp/a.png');
+    assert.equal(localImagePath('/tmp/CON.png', home), '/tmp/CON.png');
+  }
+  // What a Windows path writes is still read.
+  if (process.platform === 'win32') {
+    assert.equal(localImagePath('C:\\shots\\a.png', home), 'C:\\shots\\a.png');
+    assert.equal(localImagePath('C:/shots/a.png', home), 'C:/shots/a.png');
+    assert.equal(localImagePath('file:///C:/shots/a%20b.png', home), 'C:/shots/a b.png');
+    assert.equal(localImagePath('/w/a.png', home), '/w/a.png', 'rooted on the current drive, as before');
+    assert.equal(localImagePath('C:\\shots\\CON.png', home), undefined, 'a device in a folder would hold the read');
+  }
+});
+
+test("reply images: a pinned network path is no picture, and readReplyImage won't open one", () => {
+  const base = { threadId: 't', turnId: 'u', ts: '2026-11-01T00:00:00.000Z' };
+  const pin = (p: string) => ({ ...base, seq: 4, type: 'tool.call', itemId: 'i', name: PIN_TOOL, kind: 'mcp', title: 'pin', input: { path: p } }) as never;
+  if (process.platform === 'win32') {
+    for (const p of ['//evil.example/s/a.png', '\\\\evil.example\\s\\a.png']) assert.deepEqual(replyImagesInEvent(pin(p), '/w', '/Users/ann'), [], p);
+    // Never statted: the answer is the same whether or not a host answers.
+    assert.deepEqual(readReplyImage('\\\\evil.example\\s\\a.png'), { skip: "it's a network or device path" });
+    assert.deepEqual(readReplyImage('//evil.example/s/a.png'), { skip: "it's a network or device path" });
+    assert.deepEqual(readReplyImage('C:\\x\\NUL.png'), { skip: "it's a network or device path" });
+  } else {
+    assert.deepEqual(readReplyImage('//evil.example/s/a.png'), { skip: 'the file is gone' }, 'a Mac or Linux looks, as before');
+  }
+});
