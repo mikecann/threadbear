@@ -771,6 +771,28 @@ for (const failure of ['stderr', 'timeout', 'closed-pipes', 'empty'] as const) t
   assert.equal(await next.done, 0, next.output);
 });
 
+test('a cleanup whose probe never recovers gives up at its time limit and releases both locks', { skip: process.platform !== 'darwin' }, async (t) => {
+  const h = host(t);
+  const scripts = path.join(h.home, 'helpers');
+  fs.mkdirSync(scripts);
+  for (const name of ['perf-lock.pl', 'hangup-guard.sh']) fs.copyFileSync(path.join(root, 'scripts', name), path.join(scripts, name));
+  const probe = path.join(scripts, 'probe');
+  fs.writeFileSync(probe, `#!/usr/bin/perl
+    if (-e "$ENV{HOME}/blocked-probe") { print STDERR "unavailable\\n"; exit 2; }
+    exec '/usr/sbin/lsof', @ARGV;
+  `, { mode: 0o755 });
+  const source = fs.readFileSync(path.join(root, 'scripts/perf-children.pl'), 'utf8');
+  fs.writeFileSync(path.join(scripts, 'perf-children.pl'), source.replace("'/usr/sbin/lsof'", () => `'${probe}'`));
+  fs.writeFileSync(path.join(h.home, 'blocked-probe'), '');
+  const first = h.run(['sh', '-c', 'exit 0'], { THREADBEAR_PERF_REAP_LIMIT: '2' }, undefined, false, path.join(scripts, 'perf-lock.pl'));
+  assert.notEqual(await first.done, 0, 'a cleanup that gave up reported success');
+  const log = fs.readFileSync(path.join(h.home, '.cache/threadbear-check/perf-cleanup.log'), 'utf8');
+  assert.match(log, /gave up after the cleanup time limit/);
+  const next = h.run(['sh', '-c', 'echo entered-next-lease']);
+  assert.equal(await next.done, 0, next.output);
+  assert.match(next.output, /entered-next-lease/);
+});
+
 test('queued remote copies and targets stay marked in use before the host locks are acquired', async (t) => {
   const h = host(t);
   const source = path.join(h.home, 'src-copy');
