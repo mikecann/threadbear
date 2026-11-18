@@ -1408,7 +1408,8 @@ impl Composer {
         let side = px(style::size::THUMBNAIL);
         let radius = px(8.);
         let edge = style::hairline(cx);
-        let mut row = h_flex().gap(px(8.));
+        // Keep later attachments reachable when the composer is narrow.
+        let mut row = h_flex().flex_wrap().gap(px(STRIP_GAP)).w_full();
         for (index, (_, id)) in chips.iter().enumerate() {
             let chip = self.pictures.get(id);
             let image = chip.and_then(|c| c.image.as_ref());
@@ -1467,7 +1468,7 @@ impl Composer {
             let open = threadbear_core::juice::strip_open(since);
             return Some(div().h(px(style::size::THUMBNAIL * open)).child(row).into_any_element());
         }
-        Some(row.into_any_element())
+        Some(div().id("composer-strip").w_full().max_h(px(strip_max_height())).overflow_y_scroll().child(row).into_any_element())
     }
 
     fn render_send_button(&self, running: bool, creating: bool, cx: &mut Context<Self>) -> AnyElement {
@@ -1912,6 +1913,14 @@ pub(crate) fn picture_chip(path: Option<PathBuf>, number: usize, dimmed: bool, s
                 .child(div().text_size(px(13.)).text_color(label_color).child(format!("Picture {number}"))),
         )
         .into_any_element()
+}
+
+const STRIP_GAP: f32 = 8.;
+const STRIP_ROWS: f32 = 3.;
+
+/// Cap the pictures at three rows so the message stays in view.
+pub(crate) fn strip_max_height() -> f32 {
+    STRIP_ROWS * style::size::THUMBNAIL + (STRIP_ROWS - 1.) * STRIP_GAP
 }
 
 /// The ×'s name for VoiceOver (the Swift one's accessibilityLabel), and for

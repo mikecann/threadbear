@@ -563,7 +563,9 @@ dragged out of the app itself (a picture in the transcript, a Highlights
 file) only goes in when you let go over the box, so a drag out that changes
 its mind doesn't land in your message.
 So "this one [Picture 1] should look like this one [Picture 2]" says which
-is which. The thumbnails show over the text too; the cross on one takes it
+is which. In the new app, thumbnails wrap to the box's width; after three
+rows, their strip scrolls so the words stay in view.
+The thumbnails show over the text too; the cross on one takes it
 and its chip out. Hover a chip to see its picture, in the composer or once
 it's sent. Click a chip or a thumbnail, in the composer or in the thread,
 to open the picture, with the arrows to step through the others.

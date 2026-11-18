@@ -83,6 +83,10 @@ When('I paste the picture into the composer', async function (this: ThreadbearWo
   await this.app.do({ cmd: 'paste-image', path: samplePicture });
 });
 
+When('I paste the picture into the composer {int} times', async function (this: ThreadbearWorld, times: number) {
+  for (let n = 0; n < times; n += 1) await this.app.do({ cmd: 'paste-image', path: samplePicture });
+});
+
 // A point in the thread's transcript on both apps' windows.
 When('I drop the picture on the transcript', async function (this: ThreadbearWorld) {
   await this.app.do({ cmd: 'drop', path: samplePicture, x: 650, y: 300 });
