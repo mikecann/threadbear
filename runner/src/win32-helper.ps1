@@ -24,8 +24,12 @@
 #               looked up share one (peer.ts)
 #
 # The runner doesn't run this file: it reads it once when it starts and
-# passes it to powershell.exe as -EncodedCommand, so changing the file
-# under a running runner changes nothing (Codex's review, 18 Nov 2026).
+# sends it whole as the helper's first line, to a two-line loader passed as
+# -EncodedCommand (win32-helper.ts), so changing the file under a running
+# runner changes nothing (Codex's review, 18 Nov 2026). The script itself
+# grew past what a command line holds (ENAMETOOLONG, 18 Nov).
+# Variables here mustn't be reused as a loop's: PowerShell keeps a loop
+# variable's last value ($sid once held a type, Codex's fourth review).
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -186,12 +190,12 @@ while ($true) {
         # account owns is taken over (Codex's third review). Administrators
         # and SYSTEM may own: they can do anything here anyway.
         $owners = @($me.Value, $system.Value, 'S-1-5-32-544')
-        $sid = [Security.Principal.SecurityIdentifier]
+        $sidType = [Security.Principal.SecurityIdentifier]
         $acl = New-Object Security.AccessControl.DirectorySecurity
         $acl.SetAccessRuleProtection($true, $false)
-        if ($owners -notcontains $dir.GetAccessControl('Owner').GetOwner($sid).Value) { $acl.SetOwner($me) }
-        foreach ($sid in $me, $system) {
-          $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $both, 'None', 'Allow')))
+        if ($owners -notcontains $dir.GetAccessControl('Owner').GetOwner($sidType).Value) { $acl.SetOwner($me) }
+        foreach ($who in $me, $system) {
+          $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($who, 'FullControl', $both, 'None', 'Allow')))
         }
         $dir.SetAccessControl($acl)
         $inside = @($dir.GetFileSystemInfos('*', [IO.SearchOption]::AllDirectories))
@@ -199,16 +203,16 @@ while ($true) {
           if ($item.Attributes -band $link) { throw "$($item.FullName) is a link" }
           $own = if ($item -is [IO.DirectoryInfo]) { New-Object Security.AccessControl.DirectorySecurity } else { New-Object Security.AccessControl.FileSecurity }
           $own.SetAccessRuleProtection($false, $false)
-          if ($owners -notcontains $item.GetAccessControl('Owner').GetOwner($sid).Value) { $own.SetOwner($me) }
+          if ($owners -notcontains $item.GetAccessControl('Owner').GetOwner($sidType).Value) { $own.SetOwner($me) }
           $item.SetAccessControl($own)
         }
         $allowed = @($me.Value, $system.Value)
         foreach ($item in @($dir) + $inside) {
           $item.Refresh()
           $read = $item.GetAccessControl()
-          $owner = $read.GetOwner($sid).Value
+          $owner = $read.GetOwner($sidType).Value
           if ($owners -notcontains $owner) { throw "$($item.FullName) is still owned by $owner" }
-          foreach ($rule in $read.GetAccessRules($true, $true, $sid)) {
+          foreach ($rule in $read.GetAccessRules($true, $true, $sidType)) {
             if ($allowed -notcontains $rule.IdentityReference.Value) { throw "$($item.FullName) still lets $($rule.IdentityReference.Value) in" }
           }
         }

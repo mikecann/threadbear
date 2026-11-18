@@ -17,17 +17,22 @@ import readline from 'node:readline';
 
 export const HELPER_SCRIPT = path.join(import.meta.dirname, 'win32-helper.ps1');
 
-// The script as the runner found it when it started, passed to PowerShell
-// whole (-EncodedCommand is UTF-16LE in base64), never run from the file:
-// a thread that rewrote the file and then stopped the helper would
+// The script as the runner found it when it started, never run from the
+// file: a thread that rewrote the file and then stopped the helper would
 // otherwise get its own script started in its place, answering every
-// question with "nobody" (Codex's review, 18 Nov 2026). PowerShell by its
-// full path, for the same reason: started by name, Windows looks in the
-// runner's own folder first.
-let encoded: string | undefined;
+// question with "nobody" (Codex's review, 18 Nov 2026). It goes whole as
+// the helper's first line on stdin (UTF-8 in base64), to a loader passed as
+// -EncodedCommand (UTF-16LE in base64): the script itself passed that way
+// grew past what a Windows command line holds (spawn ENAMETOOLONG, 18 Nov).
+// PowerShell by its full path, for the same reason as the rest: started by
+// name, Windows looks in the runner's own folder first.
+let script: string | undefined;
+function helperScript(): string {
+  return (script ??= Buffer.from(fs.readFileSync(HELPER_SCRIPT, 'utf8'), 'utf8').toString('base64'));
+}
+const LOADER = "$s = [Console]::In.ReadLine(); . ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s))))";
 function helperArgs(): string[] {
-  encoded ??= Buffer.from(fs.readFileSync(HELPER_SCRIPT, 'utf8'), 'utf16le').toString('base64');
-  return ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded];
+  return ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(LOADER, 'utf16le').toString('base64')];
 }
 
 // THREADBEAR_NO_POWERSHELL=1 makes it a path that isn't there, for tests of
@@ -43,7 +48,7 @@ export function powershellPath(env: NodeJS.ProcessEnv = process.env): string {
 // and imports this before any thread runs).
 if (process.platform === 'win32') {
   try {
-    helperArgs();
+    helperScript();
   } catch {
     // no script: every question fails, and the lookup with it
   }
@@ -79,6 +84,14 @@ export class Win32Helper {
     const args = this.deps.args ?? helperArgs();
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
     this.child = child;
+    // The real helper's script, ahead of any question (a stand-in has its own).
+    if (!this.deps.args) {
+      try {
+        child.stdin!.write(helperScript() + '\n');
+      } catch {
+        // no script: the loader ends, and every question fails with it
+      }
+    }
     this.warm = false;
     readline.createInterface({ input: child.stdout! }).on('line', (line) => this.answer(line));
     // Only the current helper's end fails what's waiting: one stopped for

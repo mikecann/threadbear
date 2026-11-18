@@ -161,7 +161,11 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
     // counts in a secrets folder, or run from inside one, as runner~1 is
     // Git's revision syntax too (git diff runner~1 -- secrets.ts).
     // Windows' rule: spaces and dots dropped, +,;=[] as _, the first six.
-    const stem = path.basename(home).toLowerCase().replace(/[\s.]/g, '').replace(/[+,;=[\]]/g, '_').slice(0, 6);
+    // The stem is from the name before its last dot (D:\\TB.data is
+    // TB~1.DAT, Codex's fourth review).
+    const base = path.basename(home).toLowerCase();
+    const dot = base.lastIndexOf('.');
+    const stem = (dot > 0 ? base.slice(0, dot) : base).replace(/[\s.]/g, '').replace(/[+,;=[\]]/g, '_').slice(0, 6);
     const names = ['thread', ...(stem && stem !== 'thread' ? [stem.replace(/[^\w]/g, '\\$&')] : [])].join('|');
     // With the first three letters after the last dot as its extension
     // (D:\\Threadbear.data is THREAD~1.DAT, Codex's third review).

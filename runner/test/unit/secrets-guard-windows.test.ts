@@ -184,6 +184,9 @@ test("a data folder somewhere else, by its short name (Codex's second review)", 
   const dotted = (command: string) => denySecrets('Bash', { command }, path.join(path.dirname(home), 'Threadbear.data'));
   assert.ok(dotted(`powershell.exe -NoProfile -Command 'Get-Content D:\\THREAD~1.DAT\\secrets\\convex-deploy.env'`));
   assert.ok(dotted('cat /d/THREAD~2.DAT/s*'));
+  // The stem is from the name before its extension: D:\TB.data is TB~1.DAT.
+  const tb = (command: string) => denySecrets('Bash', { command }, path.join(path.dirname(home), 'TB.data'));
+  assert.ok(tb(`powershell.exe -NoProfile -Command 'Get-Content D:/TB~1.DAT/secrets/convex-deploy.env'`));
 });
 
 test("on Windows a Grep with no path from a share is refused (Codex's second review)", { skip: path.sep !== '\\' && 'Windows paths' }, () => {
