@@ -64,6 +64,8 @@ export function cliEnv(account: Account, base: NodeJS.ProcessEnv = process.env, 
   // would pass them unread. Off until they read PowerShell too (the 9 Nov
   // audit, docs/gpui-port/runner-windows.md).
   if (platform === 'win32') env.CLAUDE_CODE_USE_POWERSHELL_TOOL = '0';
+  // And no program run from the folder by name, as cmd.exe would (main.ts).
+  if (platform === 'win32') env.NoDefaultCurrentDirectoryInExePath = '1';
   return env;
 }
 

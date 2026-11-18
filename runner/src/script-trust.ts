@@ -1299,9 +1299,18 @@ class Reach {
   // Codex's reviews of the Windows port, 18 Nov 2026). And on Windows the
   // ones that turn off Git Bash's rewriting of /c/x to C:\x for a Windows
   // program, after which patch trust reads a path as another file.
-  private unfollowableVar(name: string, ctx: Ctx, line: number): boolean {
+  private unfollowableVar(full: string, ctx: Ctx, line: number): boolean {
+    // HOME[0] is HOME, as $HOME is its first element.
+    const name = full.replace(/\[.*$/s, '');
     if (name === 'HOME') {
       this.fail(ctx, line, "sets HOME, so ~ and $HOME name another folder from then on, which patch trust doesn't follow.");
+      return true;
+    }
+    // The runner sets NoDefaultCurrentDirectoryInExePath for everything it
+    // starts on Windows (main.ts), so cmd.exe doesn't run a program from the
+    // folder it's in: a script that changes it gets that back.
+    if (IS_WINDOWS && /^nodefaultcurrentdirectoryinexepath$/i.test(name)) {
+      this.fail(ctx, line, `changes ${name}, which lets cmd.exe run a program from the folder it's in, so patch trust can't tell what a command name runs.`);
       return true;
     }
     if (IS_WINDOWS && /^MSYS2?_(?:ARG_CONV_EXCL|NO_PATHCONV|ENV_CONV_EXCL)$/.test(name)) {
@@ -1313,9 +1322,14 @@ class Reach {
 
   // A declaration's or env's argument that bash takes as an assignment but
   // assignment() doesn't (quoted: 'HOME=x'), checked by its name alone.
+  // Only the literal start counts, as the value can be anything ("HOME=$PWD").
   private quotedAssignment(w: Word, ctx: Ctx, line: number): boolean {
-    const text = litOf(w);
-    const m = text === undefined ? undefined : /^([A-Za-z_]\w*)\+?=/.exec(text);
+    let text = '';
+    for (const p of w.parts) {
+      if (p.k !== 'lit') break;
+      text += p.s;
+    }
+    const m = /^([A-Za-z_]\w*(?:\[[^\]]*\])?)\+?=/.exec(text);
     return m ? this.unfollowableVar(m[1]!, ctx, line) : false;
   }
 
@@ -1486,7 +1500,22 @@ class Reach {
       }
       return;
     }
+    if (name === 'unset') {
+      for (const w of args) {
+        const v = this.str(w, ctx);
+        if (v && !v.startsWith('-') && this.unfollowableVar(v, ctx, line)) return;
+      }
+    }
+    if (name === 'printf') {
+      const at = args.findIndex((w) => litOf(w) === '-v');
+      const v = at >= 0 ? args[at + 1] && this.str(args[at + 1]!, ctx) : undefined;
+      if (at >= 0 && v === undefined) return this.fail(ctx, line, "sets a variable with printf -v whose name patch trust can't read.");
+      if (v && this.unfollowableVar(v, ctx, line)) return;
+    }
     if (name === 'export' || name === 'local' || name === 'declare' || name === 'typeset' || name === 'readonly' || name === 'integer') {
+      // A name reference makes a later assignment to one name write
+      // another (declare -n d=HOME; d=x), which isn't followed.
+      if (name !== 'export' && args.some((w) => /^[-+][a-zA-Z]*n/.test(litOf(w) ?? ''))) return this.fail(ctx, line, `makes a name reference (${name} -n), which patch trust doesn't follow.`);
       for (const w of args) {
         const as = this.assignment(w);
         if (as) this.assign(as.name, as.value, as.append, ctx, line);
@@ -1511,8 +1540,8 @@ class Reach {
     if (name === 'read' || name === 'getopts' || name === 'mapfile' || name === 'readarray') {
       for (const w of args) {
         const v = this.str(w, ctx);
+        if (v && /^[A-Za-z_]\w*(?:\[.*\])?$/s.test(v) && this.unfollowableVar(v, ctx, line)) return;
         if (v && /^[A-Za-z_]\w*$/.test(v)) {
-          if (this.unfollowableVar(v, ctx, line)) return;
           ctx.vars.set(v, undefined);
         }
       }
@@ -1549,7 +1578,6 @@ class Reach {
     }
     if (SHELLS.includes(name)) return this.shellRun(name, args, ctx, line, extra);
     if (JS_RUNNERS.includes(name)) return this.jsRun(name, args, ctx, line, extra);
-    if (['npm', 'pnpm', 'yarn'].includes(name)) return this.pkgRun(name, args, ctx, line);
     // On Windows npm, npx, pnpm and yarn run package scripts and programs
     // with cmd.exe, which looks in the folder for a program before PATH (a
     // node.exe beside package.json runs for `node x.js`) and reads a
@@ -1557,6 +1585,7 @@ class Reach {
     // npm install's lifecycle, npm start's implicit server.js: Codex's
     // reviews, 18 Nov 2026), so none is followed there.
     if (IS_WINDOWS && ['npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'bunx'].includes(name)) return this.fail(ctx, line, `runs ${name}, which on Windows runs package scripts and programs with cmd.exe, so patch trust can't follow it.`);
+    if (['npm', 'pnpm', 'yarn'].includes(name)) return this.pkgRun(name, args, ctx, line);
     if (['npx', 'bunx', 'pnpx'].includes(name)) return this.npx(args, ctx, line);
     if (name === 'make' || name === 'gmake') return this.make(args, ctx, line);
     if (name === 'awk' || name === 'gawk' || name === 'nawk' || name === 'mawk') return this.awk(args, ctx, line);
@@ -1661,8 +1690,15 @@ class Reach {
             return { words: [], extra: false };
           }
           if (s === '-u' || s === '--unset') {
+            const v = args[i + 1] && this.str(args[i + 1]!, ctx);
+            if (v && this.unfollowableVar(v, ctx, line)) return { words: [], extra: false };
             i++;
             continue;
+          }
+          // A cleared environment loses NoDefaultCurrentDirectoryInExePath.
+          if (IS_WINDOWS && (s === '-i' || s === '--ignore-environment' || s === '-')) {
+            this.fail(ctx, line, `runs \`env ${s}\`, which on Windows lets cmd.exe run a program from the folder it's in, so patch trust doesn't follow it.`);
+            return { words: [], extra: false };
           }
           if (s.startsWith('-')) continue;
           const as = this.assignment(args[i]!);

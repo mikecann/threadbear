@@ -109,6 +109,11 @@ export const REPORTS_LISTENING = true;
 const SAVE_HOLDS_SPAWNS = "this box's save holds it, so nothing starts until the backend says it may run again.";
 
 async function main(): Promise<void> {
+  // Windows: nothing the runner starts (a CLI, a patch's command, a hook,
+  // npm's cmd.exe) runs a program from the folder it's in by name, as cmd.exe
+  // otherwise does before PATH (a node.exe beside a package.json would run
+  // for `node x.js`, unseen by patch trust: Codex's reviews, 18 Nov 2026).
+  if (process.platform === 'win32') process.env.NoDefaultCurrentDirectoryInExePath = '1';
   // How long each part of a start takes, said once listening ('started in'),
   // so a slow restart shows where the time went.
   const bootSince = performance.now();

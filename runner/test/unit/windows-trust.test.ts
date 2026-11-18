@@ -277,7 +277,6 @@ test('a Windows program name is the program: what node.exe, npm.cmd and the othe
   const names = (files: string[]) => files.filter((f) => fs.existsSync(f)).map((f) => path.relative(folder, f).replace(/\\/g, '/')).sort();
   // Followed: the same files as the plain name reaches.
   for (const [command, files] of [
-    ['bun.exe run build', ['package.json', 'scripts/lib.sh', 'scripts/main.sh']],
     ['node.exe ./scripts/main.js', ['scripts/helper.js', 'scripts/main.js']],
     ['bash.exe ./scripts/main.sh', ['scripts/lib.sh', 'scripts/main.sh']],
     ['sh.exe ./scripts/main.sh', ['scripts/lib.sh', 'scripts/main.sh']],
@@ -292,7 +291,7 @@ test('a Windows program name is the program: what node.exe, npm.cmd and the othe
   }
   // npm, pnpm and yarn by any name run scripts with cmd.exe on Windows, so
   // they aren't followed (Codex's reviews of the port, 18 Nov 2026).
-  for (const command of ['npm.cmd run build', 'NPM.CMD run build', 'pnpm.exe run build', 'yarn.cmd build', 'npx -c "node main.js"', 'npm']) {
+  for (const command of ['npm.cmd run build', 'NPM.CMD run build', 'pnpm.exe run build', 'yarn.cmd build', 'bun.exe run build', 'npx -c "node main.js"', 'npm', "npm exec --call='node main.js'", 'npm start']) {
     assert.match(commandFiles(command, folder).problem ?? '', /cmd\.exe/, command);
   }
   // Refused, as a language patch trust can't follow: the file it is given is named, but what it loads isn't known.
@@ -421,7 +420,14 @@ test('a script that sets HOME, in any form, fails closed, on every platform', ()
     "env 'HOME=.' bash ~/payload.sh",
     'read HOME < x; cd; bash payload.sh',
     'for HOME in .; do bash ~/payload.sh; done',
-  ]) assert.match(commandFiles(command, folder).problem ?? '', /sets HOME/, command);
+    'export "HOME=$PWD"; bash "$HOME/payload.sh"',
+    'printf -v HOME %s "$PWD"; bash "$HOME/payload.sh"',
+    "declare 'HOME[0]=0'; bash \"$HOME/payload.sh\"",
+    "read -r 'HOME[0]' < home.txt; bash \"$HOME/payload.sh\"",
+    'unset HOME; bash ~/payload.sh',
+  ]) assert.match(commandFiles(command, folder).problem ?? '', /sets HOME|printf -v/, command);
+  // A name reference can write HOME by another name.
+  assert.match(commandFiles('declare -n d=HOME; d="$PWD"; bash "$HOME/payload.sh"', folder).problem ?? '', /name reference/);
 });
 
 test('a folder of the repo put on PATH in a Git Bash spelling is still the repo\'s', ONLY_WINDOWS, () => {
@@ -447,7 +453,7 @@ test("a package script isn't followed on Windows: npm runs it with cmd.exe", ONL
 test("turning off Git Bash's path conversion fails closed", ONLY_WINDOWS, () => {
   const folder = project({ 'payload.js': '1;\n' });
   for (const name of ['MSYS2_ARG_CONV_EXCL', 'MSYS_NO_PATHCONV']) {
-    for (const form of [`${name}='*' node /c/repo/payload.js`, `export '${name}=*'; node /c/repo/payload.js`, `declare -x '${name}=*'; node /c/repo/payload.js`, `env '${name}=*' node /c/repo/payload.js`]) {
+    for (const form of [`${name}='*' node /c/repo/payload.js`, `export '${name}=*'; node /c/repo/payload.js`, `declare -x '${name}=*'; node /c/repo/payload.js`, `env '${name}=*' node /c/repo/payload.js`, `skip='*'; export "${name}=$skip"; node /c/repo/payload.js`, `printf -v ${name} %s 1; export ${name}; node /c/repo/payload.js`]) {
       assert.match(commandFiles(form, folder).problem ?? '', new RegExp(name), form);
     }
   }
@@ -456,4 +462,11 @@ test("turning off Git Bash's path conversion fails closed", ONLY_WINDOWS, () => 
 test('off Windows a backslash in a PATH entry is part of a name, not a package bin folder', { skip: IS_WINDOWS && 'a backslash is a separator there' }, () => {
   const folder = project({ 'bin\\node_modules\\.bin/payload': 'echo one\n' });
   assert.ok(commandFiles('PATH="$PWD/bin\\node_modules\\.bin:$PATH"; payload', folder).problem);
+});
+
+test("nothing a patch runs can let cmd.exe run a program from the folder again (Codex's third review)", ONLY_WINDOWS, () => {
+  const folder = project({ 'main.js': '1;\n' });
+  for (const command of ['unset NoDefaultCurrentDirectoryInExePath; node main.js', 'env -u NoDefaultCurrentDirectoryInExePath node main.js', 'env -i node main.js', 'NoDefaultCurrentDirectoryInExePath= node main.js']) {
+    assert.match(commandFiles(command, folder).problem ?? '', /NoDefaultCurrentDirectoryInExePath|env -i/, command);
+  }
 });
