@@ -115,13 +115,17 @@ async function main(): Promise<void> {
   // groups a copied run/ names, which are the live runner's.
   const copyOfReal = realCopy(cfg.home);
   if (copyOfReal) cfg.sync.enabled = false;
+  // On Windows, the secrets folder is made private before the token is
+  // written into it (win-acl.ts); chmod does that on a Mac. If it can't be,
+  // the runner still starts, with a warning: %LOCALAPPDATA% is already this
+  // user's alone as Windows makes it.
+  const secretsAclProblem = await makePrivate(paths.secrets(cfg.home));
   ensureHome(cfg.home);
   const log = createLogger(cfg.logFile, { echo: process.env.THREADBEAR_LOG_STDERR === '1', debug: process.env.THREADBEAR_DEBUG === '1', onError: reportLoggedError, onWarn: reportLoggedWarning });
   // Only the installed runner reports to Sentry (sentry.ts says why).
   const reporting = await startSentry(cfg.home);
   log.info('runner starting', { version: RUNNER_VERSION, home: cfg.home, port: cfg.port, pid: process.pid, sentry: reporting });
-  // chmod 700 does nothing there (win-acl.ts); not waited for.
-  void makePrivate(paths.secrets(cfg.home)).then((why) => why && log.warn('could not make the secrets folder private', { why }));
+  if (secretsAclProblem) log.warn('could not make the secrets folder private', { why: secretsAclProblem });
 
   // The SDK warns when canUseTool is set in bypass mode; it's deliberate
   // (AskUserQuestion still goes through it), so keep it out of the log.

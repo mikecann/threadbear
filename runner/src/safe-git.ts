@@ -137,6 +137,7 @@ function settable(key: string): string {
 export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote'): string[] {
   const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', `core.hooksPath=${noHooksPath()}`, ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
   const drivers = new Set<string>();
+  const hooks = new Set<string>();
   const allowed = network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [];
   for (const e of entries) {
     // A protocol the repo names beats protocol.allow too (ftp, a helper's
@@ -147,7 +148,13 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     if (f) drivers.add(`filter.${f[1]}`);
     const d = /^diff\.(.+)\.(command|textconv)$/.exec(e.key);
     if (d) out.push('-c', `${settable(`diff.${d[1]}.${d[2]}`)}=`);
+    // A hook named in config (git 2.54's hook.<name>.command and .event)
+    // runs whatever core.hooksPath says: update-ref ran a repo's
+    // reference-transaction one (Codex's review, 18 Nov 2026).
+    const h = /^hook\.(.+)\.[^.]+$/.exec(e.key);
+    if (h) hooks.add(h[1]!);
   }
+  for (const h of hooks) out.push('-c', `${settable(`hook.${h}.enabled`)}=false`);
   for (const d of drivers) out.push('-c', `${settable(`${d}.clean`)}=`, '-c', `${d}.smudge=`, '-c', `${d}.process=`, '-c', `${d}.required=false`);
   if (network === 'remote') {
     const fromRepo = (match: (k: string) => boolean) => entries.some((e) => match(e.key) && !TRUSTED_SCOPES.has(e.scope));

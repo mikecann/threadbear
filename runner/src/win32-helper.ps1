@@ -16,6 +16,8 @@
 #               answer when that process started (a FILETIME)
 #   jobForget   let go of the job called name without ending it
 #   jobEnd      end every process still in the job called name
+#   privateDir  make the folder at path this user's and SYSTEM's only,
+#               and answer this user's SID
 #   snapshot    for port: every established connection to it, with the
 #               pid holding the client's end, and every process (below),
 #               in one answer, so any number of connections waiting to be
@@ -167,6 +169,40 @@ while ($true) {
         $jobs.Remove($name)
         if ($job) { [void]$K::CloseHandle($job) }
         $result = 'ok'
+      }
+      'privateDir' {
+        # The secrets folder made this user's and SYSTEM's only (win-acl.ts):
+        # its access list replaced whole, inheriting nothing, so no grant
+        # anyone added before survives; everything already in it made to
+        # take only what the folder passes on; then read back to check.
+        $dir = New-Object IO.DirectoryInfo ([string]$req.path)
+        if (-not $dir.Exists) { throw "no folder at $($dir.FullName)" }
+        $link = [IO.FileAttributes]::ReparsePoint
+        if ($dir.Attributes -band $link) { throw "$($dir.FullName) is a link, so its target isn't changed" }
+        $me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $system = New-Object Security.Principal.SecurityIdentifier 'S-1-5-18'
+        $both = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+        $acl = New-Object Security.AccessControl.DirectorySecurity
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($sid in $me, $system) {
+          $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $both, 'None', 'Allow')))
+        }
+        $dir.SetAccessControl($acl)
+        $inside = @($dir.GetFileSystemInfos('*', [IO.SearchOption]::AllDirectories))
+        foreach ($item in $inside) {
+          if ($item.Attributes -band $link) { throw "$($item.FullName) is a link" }
+          $own = if ($item -is [IO.DirectoryInfo]) { New-Object Security.AccessControl.DirectorySecurity } else { New-Object Security.AccessControl.FileSecurity }
+          $own.SetAccessRuleProtection($false, $false)
+          $item.SetAccessControl($own)
+        }
+        $allowed = @($me.Value, $system.Value)
+        foreach ($item in @($dir) + $inside) {
+          $item.Refresh()
+          foreach ($rule in $item.GetAccessControl().GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+            if ($allowed -notcontains $rule.IdentityReference.Value) { throw "$($item.FullName) still lets $($rule.IdentityReference.Value) in" }
+          }
+        }
+        $result = $me.Value
       }
       default { throw "unknown op: $($req.op)" }
     }

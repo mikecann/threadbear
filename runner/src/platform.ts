@@ -86,10 +86,14 @@ export function realPath(p: string, q: RealProbe = {}): string {
 }
 
 // core.hooksPath for git that must run no hook. /dev/null on a Mac and
-// Linux. Not on Windows: Git for Windows reads it as \dev\null on the
-// current drive, and any account on the PC can make C:\dev\null and put a
-// pre-commit in it. There it's a file of Windows' own that only
-// TrustedInstaller can change: a file holds no hooks, so git finds none.
+// Linux. Windows has no /dev/null folder, and what Git for Windows makes of
+// /dev/null/<hook> is down to its own path handling (the 9 Nov audit feared
+// C:\dev\null, which any account on the PC can make; a hook planted there
+// didn't run on GitHub's Windows machines, 18 Nov 2026). So rather than rely
+// on that, it's a file of Windows' own that only TrustedInstaller can
+// change: git looks for <file>\<hook> and <hook>.exe, which can't exist.
+// Hooks named in config (hook.<name>.command) are a separate matter:
+// safe-git.ts turns those off by name.
 export function noHooksPath(p: Probe = {}): string {
   if ((p.platform ?? process.platform) !== 'win32') return '/dev/null';
   const env = p.env ?? process.env;

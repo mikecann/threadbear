@@ -157,7 +157,7 @@ test('the variables in PowerShell\'s $(...) and cmd\'s delayed !X! (Codex\'s rev
 });
 
 test('short names count only where they would be the data folder\'s (Codex\'s review)', () => {
-  for (const command of ['git diff runner~1 -- src/secrets.ts', 'git log runner~2 -- secrets/', 'ls C:/work/THREAD~1/secrets', 'echo $THREADBEAR_HOME; ls ./secrets']) {
+  for (const command of ['git diff runner~1 -- src/secrets.ts', 'git log runner~2 -- secrets/', 'echo $THREADBEAR_HOME; ls ./secrets', 'type C:\\work\\THREAD~1\\notes.txt']) {
     assert.equal(deny(command), undefined, command);
   }
   for (const command of ['type %LOCALAPPDATA%\\THREAD~1\\secrets\\x.env', 'cat /c/Users/me/AppData/Local/THREAD~1/secrets/x.env', 'type C:\\Users\\me\\AppData\\Local\\THREAD~1\\s*', 'type secrets\\RUNNER~1']) {
@@ -170,4 +170,20 @@ test('on Windows a file tool doesn\'t reach through a share (Codex\'s review)', 
     assert.ok(denySecrets('Read', { file_path }, home), file_path);
     assert.ok(denySecrets('Grep', { path: file_path, pattern: 'x' }, home), file_path);
   }
+});
+
+test("a data folder somewhere else, by its short name (Codex's second review)", () => {
+  // D:\TB Data is TBDATA~1 to Windows, and THREAD~1 counts wherever it is.
+  const moved = path.join(path.dirname(home), 'TB Data');
+  const g = (command: string) => denySecrets('Bash', { command }, moved);
+  assert.ok(g(`powershell.exe -NoProfile -Command 'Get-Content D:\\TBDATA~1\\secrets\\convex-deploy.env'`));
+  assert.ok(g('cat /d/TBDATA~2/sec*'));
+  assert.ok(g('type D:\\THREAD~1\\secrets\\x.env'));
+  assert.equal(g('type D:\\TBDATA~1\\notes.txt'), undefined);
+});
+
+test("on Windows a Grep with no path from a share is refused (Codex's second review)", { skip: path.sep !== '\\' && 'Windows paths' }, () => {
+  const cwd = '\\\\localhost\\Profile\\AppData\\Local\\Threadbear\\secrets';
+  assert.ok(denySecrets('Grep', { pattern: '.', output_mode: 'content' }, home, cwd));
+  assert.ok(denySecrets('Glob', { pattern: '*' }, home, cwd));
 });

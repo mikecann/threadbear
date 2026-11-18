@@ -60,6 +60,11 @@ function plant(repo: string, prog: (name: string, body?: string) => string) {
   set('credential.helper', `!${prog('credential', 'exit 1')}`);
   set('core.alternateRefsCommand', prog('alternate-refs', 'exit 0'));
   set('submodule.recurse', 'true');
+  // Hooks named in config (git 2.54), which core.hooksPath doesn't reach.
+  for (const h of ['reference-transaction', 'post-index-change', 'post-checkout']) {
+    set(`hook.cfg-${h}.event`, h);
+    set(`hook.cfg-${h}.command`, prog(`config-hook-${h}`, 'cat >/dev/null; exit 0'));
+  }
 }
 
 // origin, S's checkout and T's, each with programs planted in its config.

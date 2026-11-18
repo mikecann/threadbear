@@ -1,64 +1,72 @@
-// The secrets folder's ACL on Windows (src/win-acl.ts). The commands are
-// checked here on any system; the last test runs them for real on Windows.
-import { test } from 'node:test';
+// The secrets folder's access list on Windows (src/win-acl.ts, and
+// privateDir in src/win32-helper.ps1). The last two tests run it for real on
+// Windows, through the runner's own helper.
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { aclArgs, makePrivate, sidFrom } from '../../src/win-acl.ts';
+import { makePrivate } from '../../src/win-acl.ts';
+import { win32Helper } from '../../src/win32-helper.ts';
 
-test("whoami's line gives the SID", () => {
-  assert.equal(sidFrom('"dell-xps\\\\mikec","S-1-5-21-1111-2222-3333-1001"\r\n'), 'S-1-5-21-1111-2222-3333-1001');
-  assert.equal(sidFrom('USER INFORMATION\n'), undefined);
-});
-
-test('the folder inherits nothing, and only this user and SYSTEM get in', () => {
-  assert.deepEqual(aclArgs('C:\\x\\secrets', 'S-1-5-21-1-2-3-1001'), ['C:\\x\\secrets', '/inheritance:r', '/grant:r', '*S-1-5-21-1-2-3-1001:(OI)(CI)F', '*S-1-5-18:(OI)(CI)F', '/q']);
+const windows = process.platform === 'win32';
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-acl-'));
+after(() => {
+  if (windows) win32Helper().stop();
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('off Windows it does nothing', async () => {
-  const calls: string[] = [];
-  assert.equal(await makePrivate('/x/secrets', { platform: 'darwin', run: async (f) => (calls.push(f), '') }), undefined);
-  assert.deepEqual(calls, []);
+  const asked: string[] = [];
+  assert.equal(await makePrivate(path.join(root, 'mac'), { platform: 'darwin', ask: async (op) => (asked.push(op), '') }), undefined);
+  assert.deepEqual(asked, []);
+  assert.equal(fs.existsSync(path.join(root, 'mac')), false);
 });
 
-test('on Windows: whoami, then icacls, both from System32', async () => {
-  const calls: [string, string[]][] = [];
-  const why = await makePrivate('C:\\x\\secrets', {
-    platform: 'win32',
-    env: { SystemRoot: 'C:\\Windows' },
-    run: async (f, a) => (calls.push([f, a]), f.endsWith('whoami.exe') ? '"pc\\me","S-1-5-21-9-9-9-1001"\r\n' : 'Successfully processed 1 files'),
-  });
-  assert.equal(why, undefined);
-  assert.deepEqual(calls.map(([f]) => f), ['C:\\Windows\\System32\\whoami.exe', 'C:\\Windows\\System32\\icacls.exe']);
-  assert.deepEqual(calls[1]![1], aclArgs('C:\\x\\secrets', 'S-1-5-21-9-9-9-1001'));
+test('on Windows it makes the folder, asks the helper, and says why when that fails', async () => {
+  const asked: [string, Record<string, string>][] = [];
+  const dir = path.join(root, 'stub', 'secrets');
+  assert.equal(await makePrivate(dir, { platform: 'win32', ask: async (op, p) => (asked.push([op, p]), 'S-1-5-21-1-2-3-1001') }), undefined);
+  assert.deepEqual(asked, [['privateDir', { path: dir }]]);
+  assert.ok(fs.existsSync(dir));
+  const why = await makePrivate(dir, { platform: 'win32', ask: async () => { throw new Error('the helper said: C:\\x still lets S-1-1-0 in'); } });
+  assert.match(why ?? '', /still lets S-1-1-0 in/);
 });
 
-test('a failure is said, not thrown', async () => {
-  const why = await makePrivate('C:\\x\\secrets', { platform: 'win32', env: {}, run: async () => { throw new Error('icacls.exe failed: Access is denied.'); } });
-  assert.match(why ?? '', /Access is denied/);
-  assert.match((await makePrivate('C:\\x', { platform: 'win32', env: {}, run: async () => 'nothing useful' })) ?? '', /SID/);
-});
+const icacls = (...args: string[]) => execFileSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'icacls.exe'), args, { encoding: 'utf8', windowsHide: true });
+// The entries icacls lists for a path, one a line ("NAME:(OI)(CI)(F)").
+const entries = (p: string) => icacls(p).split(/\r?\n/).map((l) => l.replace(p, '').trim()).filter((l) => /:\(/.test(l));
 
-test('for real: a new file in the folder is readable by this user, and the folder lists only this user and SYSTEM', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-acl-'));
-  try {
-    const secrets = path.join(dir, 'secrets');
-    fs.mkdirSync(secrets);
-    assert.equal(await makePrivate(secrets), undefined);
-    fs.writeFileSync(path.join(secrets, 'key'), 'k');
-    assert.equal(fs.readFileSync(path.join(secrets, 'key'), 'utf8'), 'k');
-    const icacls = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'icacls.exe');
-    for (const target of [secrets, path.join(secrets, 'key')]) {
-      const lines = execFileSync(icacls, [target], { encoding: 'utf8', windowsHide: true }).split(/\r?\n/).map((l) => l.replace(target, '').trim()).filter((l) => l.includes(':('));
-      assert.equal(lines.length, 2, lines.join(' | '));
-      assert.ok(lines.some((l) => /^NT AUTHORITY\\SYSTEM:/i.test(l)), lines.join(' | '));
-      assert.ok(lines.every((l) => !/Users|Everyone|Authenticated|Administrators/i.test(l)), lines.join(' | '));
-    }
-    // Running it again changes nothing.
-    assert.equal(await makePrivate(secrets), undefined);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+test('for real: grants made before are gone, from the folder and what was in it', { skip: !windows && 'Windows only' }, async () => {
+  const secrets = path.join(root, 'real', 'secrets');
+  fs.mkdirSync(secrets, { recursive: true });
+  const key = path.join(secrets, 'key');
+  fs.writeFileSync(key, 'k');
+  const me = /"(S-1-[\d-]+)"/.exec(execFileSync('whoami', ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8', windowsHide: true }))![1]!;
+  // Everyone may read the folder, and the file has a list of its own that
+  // inherits nothing, with Everyone on it too (Codex's review, 18 Nov 2026).
+  icacls(secrets, '/grant', '*S-1-1-0:(OI)(CI)R');
+  icacls(key, '/inheritance:r', '/grant', `*${me}:F`, '/grant', '*S-1-1-0:R');
+  assert.ok(entries(key).some((l) => /^Everyone:/i.test(l)), entries(key).join(' | '));
+
+  assert.equal(await makePrivate(secrets), undefined);
+  fs.writeFileSync(path.join(secrets, 'new'), 'n');
+  for (const p of [secrets, key, path.join(secrets, 'new')]) {
+    const list = entries(p);
+    assert.equal(list.length, 2, `${p}: ${list.join(' | ')}`);
+    assert.ok(list.some((l) => /^NT AUTHORITY\\SYSTEM:/i.test(l)), list.join(' | '));
+    assert.ok(list.every((l) => !/Everyone|Users|Authenticated|Administrators/i.test(l)), list.join(' | '));
   }
+  assert.equal(fs.readFileSync(key, 'utf8'), 'k');
+  // Again changes nothing.
+  assert.equal(await makePrivate(secrets), undefined);
+});
+
+test('for real: a folder that is a link is left alone, and said', { skip: !windows && 'Windows only' }, async () => {
+  const elsewhere = path.join(root, 'elsewhere');
+  fs.mkdirSync(elsewhere);
+  const linked = path.join(root, 'linked-secrets');
+  fs.symlinkSync(elsewhere, linked, 'junction');
+  assert.match((await makePrivate(linked)) ?? '', /is a link/);
 });

@@ -255,7 +255,7 @@ test("a box key takes its own thread's commands and its runner's, never another 
 });
 
 test("docs/protocol.md lists what a box key may call", () => {
-  const doc = fs.readFileSync(path.join(import.meta.dirname, '../../../docs/protocol.md'), 'utf8');
+  const doc = fs.readFileSync(path.join(import.meta.dirname, '../../../docs/protocol.md'), 'utf8').replace(/\r\n/g, '\n');
   const listed = /<!-- box-calls -->\n([\s\S]*?)\n<!-- \/box-calls -->/.exec(doc)?.[1];
   assert.ok(listed, 'docs/protocol.md has the box-calls list');
   assert.deepEqual([...listed.matchAll(/`(\w+)`/g)].map((m) => m[1]).sort(), [...BOX_CALLS].sort());

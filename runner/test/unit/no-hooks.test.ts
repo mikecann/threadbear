@@ -50,21 +50,3 @@ test('git commits with it, says nothing about hooks, and runs none', () => {
   assert.doesNotMatch(r.stderr, /hook/i);
   assert.ok(!fs.existsSync(mark), 'no hook ran');
 });
-
-// What it's for: on GitHub's Windows machines only, as it makes \dev\null
-// on the drive. Git for Windows runs a hook planted there under
-// core.hooksPath=/dev/null, and not under noHooksPath().
-const planted = process.platform === 'win32' && process.env.GITHUB_ACTIONS === 'true';
-test('on Windows, /dev/null is a folder anyone can plant a hook in', { skip: !planted && 'GitHub\'s Windows machines only' }, (t) => {
-  const { dir, mark } = repo('planted');
-  const devNull = path.join(path.parse(dir).root, 'dev', 'null');
-  const made = !fs.existsSync(path.dirname(devNull));
-  writeHook(devNull, mark);
-  t.after(() => fs.rmSync(made ? path.dirname(devNull) : devNull, { recursive: true, force: true }));
-  assert.equal(commit(dir, '/dev/null').status, 0);
-  assert.ok(fs.existsSync(mark), `a hook in ${devNull} ran under /dev/null`);
-  fs.rmSync(mark);
-  const r = commit(dir, noHooksPath());
-  assert.equal(r.status, 0, r.stderr);
-  assert.ok(!fs.existsSync(mark), 'no hook ran');
-});

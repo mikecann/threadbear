@@ -154,12 +154,16 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
     if (spellings.some((c) => varThen.test(c))) return REASON;
     // A name Windows made for a long one (8.3): Threadbear is THREAD~1 and
     // runner-token RUNNER~1, so a command can name `THREAD~1\secrets\RUNNER~1`
-    // without either word (Keith's fork, 10 Nov 2026). Each counts only
-    // where it would be the data folder's: THREAD~1 in %LOCALAPPDATA% (or
-    // Roaming), and RUNNER~1 in a secrets folder or run from inside one, as
-    // runner~1 is Git's revision syntax too (git diff runner~1 -- secrets.ts
-    // was refused at first, Codex's review, 18 Nov 2026).
-    const short = /(?:(?:^|\/)(?:local|roaming)|(?:localappdata|appdata)\W{0,6})\/thread~\d+\/(?:secrets\b|secret~\d|\S*[*?[])/;
+    // without either word (Keith's fork, 10 Nov 2026). A data folder's short
+    // name counts before its secrets folder (or a wildcard) wherever it is:
+    // THREAD~1, or the short form of the data folder's own name when it's
+    // somewhere else (D:\TB-Data is TBDATA~1; Codex's review). RUNNER~1
+    // counts in a secrets folder, or run from inside one, as runner~1 is
+    // Git's revision syntax too (git diff runner~1 -- secrets.ts).
+    // Windows' rule: spaces and dots dropped, +,;=[] as _, the first six.
+    const stem = path.basename(home).toLowerCase().replace(/[\s.]/g, '').replace(/[+,;=[\]]/g, '_').slice(0, 6);
+    const names = ['thread', ...(stem && stem !== 'thread' ? [stem.replace(/[^\w]/g, '\\$&')] : [])].join('|');
+    const short = new RegExp(`(?:^|/)(?:${names})~\\d+/(?:secrets\\b|secret~\\d|\\S*[*?[])`);
     const inSecrets = cwd !== undefined && inside(resolved(cwd), resolved(secrets));
     const token = inSecrets ? /(?:^|[\s/=])runner~\d/ : /(?:^|[\s/=])(?:secrets|secret~\d+)\/runner~\d/;
     if (spellings.some((c) => short.test(c) || token.test(c))) return REASON;
@@ -192,6 +196,9 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
   if (tool === 'Glob' || tool === 'Grep') {
     const base = typeof input.path === 'string' && input.path ? input.path : (cwd ?? '.');
     const dir = resolved(base, cwd);
+    // The folder it searches whether or not it was named: with no path,
+    // it's the thread's own, which can be a share too (Codex's review).
+    if (path.sep === '\\' && [dir, path.resolve(cwd ?? process.cwd(), base)].some((p) => plain(p).startsWith('\\\\'))) return SHARE_REASON;
     const pattern = typeof input.pattern === 'string' ? input.pattern : '';
     if (same(dir, resolved(home))) return REASON;
     if (inside(target, dir) && (tool === 'Grep' || /\bsecrets\b|runner-token/i.test(pattern))) return GREP_REASON;
