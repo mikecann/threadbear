@@ -277,10 +277,6 @@ test('a Windows program name is the program: what node.exe, npm.cmd and the othe
   const names = (files: string[]) => files.filter((f) => fs.existsSync(f)).map((f) => path.relative(folder, f).replace(/\\/g, '/')).sort();
   // Followed: the same files as the plain name reaches.
   for (const [command, files] of [
-    ['npm.cmd run build', ['package.json', 'scripts/lib.sh', 'scripts/main.sh']],
-    ['NPM.CMD run build', ['package.json', 'scripts/lib.sh', 'scripts/main.sh']],
-    ['pnpm.exe run build', ['package.json', 'scripts/lib.sh', 'scripts/main.sh']],
-    ['yarn.cmd build', ['package.json', 'scripts/lib.sh', 'scripts/main.sh']],
     ['bun.exe run build', ['package.json', 'scripts/lib.sh', 'scripts/main.sh']],
     ['node.exe ./scripts/main.js', ['scripts/helper.js', 'scripts/main.js']],
     ['bash.exe ./scripts/main.sh', ['scripts/lib.sh', 'scripts/main.sh']],
@@ -293,6 +289,11 @@ test('a Windows program name is the program: what node.exe, npm.cmd and the othe
     const reach = commandFiles(command, folder);
     assert.equal(reach.problem, undefined, command);
     assert.deepEqual(names(reach.files), files, command);
+  }
+  // npm, pnpm and yarn by any name run scripts with cmd.exe on Windows, so
+  // they aren't followed (Codex's reviews of the port, 18 Nov 2026).
+  for (const command of ['npm.cmd run build', 'NPM.CMD run build', 'pnpm.exe run build', 'yarn.cmd build', 'npx -c "node main.js"', 'npm']) {
+    assert.match(commandFiles(command, folder).problem ?? '', /cmd\.exe/, command);
   }
   // Refused, as a language patch trust can't follow: the file it is given is named, but what it loads isn't known.
   for (const [command, program] of [
@@ -410,15 +411,17 @@ test('an edit at the same size with every time put back (ChangeTime too) still a
 
 // Codex's review of the port onto main (18 Nov 2026).
 
-test('a HOME the script sets is the one $HOME and ~ name after it, on every platform', () => {
+test('a script that sets HOME, in any form, fails closed, on every platform', () => {
   const folder = project({ 'payload.sh': 'echo one\n' });
-  for (const command of ['HOME="$PWD"; bash "$HOME/payload.sh"', 'HOME="$PWD"; bash ~/payload.sh']) {
-    const r = commandFiles(command, folder);
-    assert.ok(r.files.some((f) => /payload\.sh$/.test(f)), `${command}: ${JSON.stringify(r)}`);
-  }
-  // A HOME it can't read fails closed rather than meaning the real one.
-  const lost = commandFiles('HOME="$(cat somewhere)"; bash "$HOME/payload.sh"', folder);
-  assert.ok(lost.problem || lost.files.some((f) => /payload\.sh$/.test(f)), JSON.stringify(lost));
+  for (const command of [
+    'HOME="$PWD"; bash "$HOME/payload.sh"',
+    'HOME=/outside bash "$HOME/payload.sh"',
+    'export HOME="$PWD"; bash -c \'bash "$HOME/payload.sh"\'',
+    "export 'HOME=.'; bash ~/payload.sh",
+    "env 'HOME=.' bash ~/payload.sh",
+    'read HOME < x; cd; bash payload.sh',
+    'for HOME in .; do bash ~/payload.sh; done',
+  ]) assert.match(commandFiles(command, folder).problem ?? '', /sets HOME/, command);
 });
 
 test('a folder of the repo put on PATH in a Git Bash spelling is still the repo\'s', ONLY_WINDOWS, () => {
@@ -437,12 +440,20 @@ test('a program named by a backslash path is followed as the file it is', ONLY_W
 test("a package script isn't followed on Windows: npm runs it with cmd.exe", ONLY_WINDOWS, () => {
   const folder = project({ 'package.json': '{"scripts":{"build":"node ./main.js"}}', 'main.js': '1;\n' });
   assert.match(commandFiles('npm run build', folder).problem ?? '', /cmd\.exe/);
-  assert.match(liveCommandProblem('npm run build', folder, []) ?? '', /cmd\.exe|short list/);
+  assert.match(liveCommandProblem('npm run build', folder, []) ?? '', /cmd\.exe/);
+  assert.match(liveCommandProblem('npx convex data', folder, []) ?? '', /cmd\.exe/);
 });
 
 test("turning off Git Bash's path conversion fails closed", ONLY_WINDOWS, () => {
   const folder = project({ 'payload.js': '1;\n' });
   for (const name of ['MSYS2_ARG_CONV_EXCL', 'MSYS_NO_PATHCONV']) {
-    assert.match(commandFiles(`${name}='*' node /c/repo/payload.js`, folder).problem ?? '', new RegExp(name), name);
+    for (const form of [`${name}='*' node /c/repo/payload.js`, `export '${name}=*'; node /c/repo/payload.js`, `declare -x '${name}=*'; node /c/repo/payload.js`, `env '${name}=*' node /c/repo/payload.js`]) {
+      assert.match(commandFiles(form, folder).problem ?? '', new RegExp(name), form);
+    }
   }
+});
+
+test('off Windows a backslash in a PATH entry is part of a name, not a package bin folder', { skip: IS_WINDOWS && 'a backslash is a separator there' }, () => {
+  const folder = project({ 'bin\\node_modules\\.bin/payload': 'echo one\n' });
+  assert.ok(commandFiles('PATH="$PWD/bin\\node_modules\\.bin:$PATH"; payload', folder).problem);
 });
