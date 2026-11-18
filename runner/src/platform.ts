@@ -12,6 +12,24 @@ type Probe = { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; home?: strin
 
 export const IS_WINDOWS = process.platform === 'win32';
 
+// Windows, for now: a project's patch trusted by its hash, and a folder's
+// Claude Code settings, run nothing by themselves (hooks, worktree setup
+// and teardown, a live function's commands, Claude's hooks). Only a
+// patch's buttons run, when they're clicked. Following a script there
+// still has gaps a repo written to get round it could use: each of four
+// reviews found about six more ways to run a program the hash didn't
+// cover (Mike, 19 Nov 2026). THREADBEAR_CLICKS_ONLY=1 turns it on
+// anywhere, and =0 off, both for tests: the unit tests turn it off
+// (test/helpers/clean-env.ts), as most check what the follow lets run once
+// this goes, and clicks-only.test.ts turns it on. The runner's own
+// variables are set by its Scheduled Task, which no thread can change.
+export function clicksOnly(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  const set = env.THREADBEAR_CLICKS_ONLY;
+  return set === '1' || (platform === 'win32' && set !== '0');
+}
+
+export const CLICKS_ONLY_NOTE = "On Windows, a project's hooks, setup and live commands don't run by themselves for now. Its buttons still run when you click them.";
+
 // %LOCALAPPDATA%, or where Windows puts it when the variable is missing. A
 // home other than this user's (a test's temp folder) gets its own, so a
 // test can never reach the real data dir through the variable.

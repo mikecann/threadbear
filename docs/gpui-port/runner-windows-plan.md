@@ -90,6 +90,13 @@ fresh PC), which is what you want gone.
    the helper, before the token is written) and hooks off `/dev/null`
    (plus hooks named in a repo's config, on every platform) are in, after
    five rounds of Codex's review. Keith's trust fixes are what's left.*
+   *19 Nov: Keith's trust fixes are in, with four rounds of Codex's
+   review. Each round still found about six ways round following a script
+   on Windows, so there, for now, a project's patch and a folder's Claude
+   Code settings run nothing by themselves: buttons run when clicked, and
+   hooks, worktree setup and teardown, live functions' commands and
+   Claude's hooks don't run (`clicksOnly` in `runner/src/platform.ts`).
+   Idle time and keep-awake are still to do.*
 6. **Polish.** Codex on Windows, pictures, stuck-job detection, a Windows
    check host, client path display (`C:\Users\...` shown as `~`).
 
@@ -100,8 +107,9 @@ Slices 1 to 4 replace WSL on the Dell. 5 is where it's as safe as the Mac.
 Screen tools (`mac-screen`), the `swiftc` secret check, BrowserBear and
 ComputerCub, `taskpolicy`, frozen-CLI detection (it watches for macOS
 privacy prompts), and the repo's own dev scripts (`check.sh`,
-`dev-runner.sh`), which run under Git Bash at best. Patch trust stays
-closed on Windows (patches run only when clicked) until slice 5 ports it.
+`dev-runner.sh`), which run under Git Bash at best. On Windows, patches
+and a folder's Claude Code settings run only what's clicked until following
+a script there has no known gaps (slice 5's note).
 
 ## Things only Mike can do
 

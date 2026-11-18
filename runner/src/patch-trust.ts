@@ -59,7 +59,7 @@ import { claudeCommands, type ClaudeOptions } from './claude-trust.ts';
 import { isBinary, looksRunnable, MAX_READ_BYTES, reachOf, reachOfCommand, Reads, type FollowOptions, type ScriptReach } from './script-trust.ts';
 import { bareImport } from './tracked-packages.ts';
 import { allowCommand } from './shell-allowlist.ts';
-import { realPath, realPathSync, slashes } from './platform.ts';
+import { clicksOnly, realPath, realPathSync, slashes } from './platform.ts';
 
 export type TrustVerdict =
   // `files`: the local files its hash covered, real paths. Absent when the
@@ -446,6 +446,9 @@ export class PatchTrust implements PatchTrustStore {
     const base = { hash: found.hash, files: found.files, named: found.named, read: found.read, ...(found.grants ? { grants: found.grants } : {}) };
     // Before the stored hashes: a yes can't vouch for code the hash didn't see.
     if (found.incomplete) return { trusted: false, reason: 'unchecked', problem: found.incomplete, ...base };
+    // Windows, for now (platform.ts, clicksOnly): they'd run by themselves,
+    // so they stay off whatever was trusted.
+    if (clicksOnly()) return { trusted: false, reason: 'unchecked', problem: "on Windows, a folder's Claude Code hooks and settings that run commands stay off for now.", ...base };
     if (known.includes(CLAUDE_PREFIX + found.hash)) {
       // Kept apart by kind: bytes trusted for what they run (Full) haven't
       // been trusted for the permission rules in them, so an edit can't

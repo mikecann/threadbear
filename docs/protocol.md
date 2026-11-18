@@ -4404,6 +4404,13 @@ Code and Claude Code ask before running a folder's code. Until then it's
 in `patches` with `untrusted` and `hash`, and gives nothing: no actions,
 panels or hooks, no live functions, and no worktree for new threads.
 
+- On Windows, for now, a trusted patch runs nothing by itself: its
+  actions run when clicked, but its hooks, worktree `setup` and `teardown`
+  are dropped as it loads, and a live function's `sh` refuses every
+  command. The patch's `liveError` says so. Following a script there still
+  has gaps a repo written against it could use (`clicksOnly` in
+  `src/platform.ts`). Home patches and Threadbear's own, which load
+  without a hash, are as on a Mac.
 - Trust is kept per folder (the one holding `.threadbear/`) as the
   SHA-256 hashes of the patch files trusted there, in `patch-trust.json`
   in the data dir. `untrusted` is `"new"` when nothing from that folder
@@ -4968,6 +4975,10 @@ there. Claude Code in a terminal asks before trusting a folder; the SDK
 never does, so the runner asks instead (`src/claude-trust.ts`), with
 patch trust's store and rules.
 
+- On Windows, for now, a folder whose settings have any of those starts
+  Claude without them whatever's been trusted, as one that can't be
+  checked does, with nothing to trust (`clicksOnly` in `src/platform.ts`;
+  "Trusting a folder's patches" says why).
 - A folder whose settings have none of those (a model, plugins switched
   on, deny rules; allow rules in a Full thread) asks nothing, and nothing
   changes. Nor does home, whose `.claude/settings.json` is the user's own;

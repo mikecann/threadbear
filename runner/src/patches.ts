@@ -53,7 +53,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { loginShell } from './system-tools.ts';
-import { IS_WINDOWS, realPathSync } from './platform.ts';
+import { CLICKS_ONLY_NOTE, clicksOnly, IS_WINDOWS, realPathSync } from './platform.ts';
 import type { Action, Hook, ImageRef, Panel, PanelItem, PatchInfo } from './protocol.ts';
 import { LIMITS } from './protocol.ts';
 import { imageRefFor } from './media.ts';
@@ -597,8 +597,13 @@ function bindAutomatic(loaded: LoadedPatch, file: string, files: string[], block
   // function's sh refuses everything (liveSh).
   liveBindings.set(file, { folder: realPathSync(folder), files: [file, realPathSync(file), ...files], ...(blocked ? { blocked } : {}), hash: hash ?? '', tool: loaded.appliesTo !== undefined });
   const refuse = (what: string, problem: string): LoadedPatch => ({ info: { ...loaded.info, error: `Not run: its ${what} ${problem}` }, panels: [], actions: [], hooks: [] });
+  // Windows, for now (platform.ts, clicksOnly): nothing of a patch trusted
+  // by its hash runs by itself. Its hooks, setup and teardown go, not just
+  // their bound form: one without it runs as written (runner/patches.ts).
+  const quiet = Boolean(hash) && clicksOnly();
+  const skipped = quiet && (loaded.hooks.length > 0 || Boolean(loaded.worktree?.setup || loaded.worktree?.teardown));
   const hooks: Hook[] = [];
-  for (const hook of loaded.hooks) {
+  for (const hook of quiet ? [] : loaded.hooks) {
     const bound = automaticCommand(hook.command, folder, files, blocked);
     if ('problem' in bound) return refuse(`hook "${hook.title}"`, bound.problem);
     hooks.push({ ...hook, exec: note(bound.run) });
@@ -616,6 +621,10 @@ function bindAutomatic(loaded: LoadedPatch, file: string, files: string[], block
     } else actions.push(action);
   }
   let worktree = loaded.worktree;
+  if (quiet && worktree) {
+    const { setup: _setup, teardown: _teardown, ...rest } = worktree;
+    worktree = rest;
+  }
   if (worktree?.setup) {
     const bound = automaticCommand(worktree.setup, folder, files, blocked);
     if ('problem' in bound) return refuse('worktree setup', bound.problem);
@@ -627,7 +636,7 @@ function bindAutomatic(loaded: LoadedPatch, file: string, files: string[], block
     if ('problem' in bound) return refuse('worktree teardown', bound.problem);
     worktree = { ...worktree, teardownRun: note(bound.run) };
   }
-  return { ...loaded, actions, hooks, ...(worktree ? { worktree } : {}) };
+  return { ...loaded, ...(skipped ? { info: { ...loaded.info, liveError: CLICKS_ONLY_NOTE } } : {}), actions, hooks, ...(worktree ? { worktree } : {}) };
 }
 
 // Turns a patch module's default export into actions and panels, with ids
@@ -1118,6 +1127,7 @@ function liveSh(file: string | undefined, cwd: string, ctx: LiveContext): LiveSh
     close,
     run: async (command) => {
       if (closed) return refuse('its function had already finished or timed out.');
+      if (bound.hash && clicksOnly()) return refuse(CLICKS_ONLY_NOTE);
       if (!bound.hash || !(ctx.verify?.(file!, bound.hash) ?? false)) return refuse('its patch, or a file it runs, changed since it was trusted.');
       // A tool patch runs in the folder it applies in, but its own repo's
       // files are bound by the hash too: checked from both, so an absolute

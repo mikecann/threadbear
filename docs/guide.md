@@ -332,6 +332,11 @@ Files on ordinary disk and CD/DVD volumes work; third-party virtual drives
 such as VeraCrypt and RAM disks are refused until the app can verify them.
 An open Terminal shell holds off an automatic update restart on Windows:
 the app cannot yet tell whether PowerShell is waiting or running a command.
+On Windows, for now, a project's patches only run what you click: their
+buttons work, but their hooks, worktree setup and teardown, and the commands
+their panels and badges run don't run, even once you've trusted the patch.
+A folder's Claude Code hooks and the settings that run commands stay off
+too. Patches says so beside each patch it affects.
 
 The Browser panel, the globe on a thread's right-hand rail, lists the pages a
 thread's agents have open through [BrowserBear](https://github.com/mikecann/browserbear):
