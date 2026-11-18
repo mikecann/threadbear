@@ -116,10 +116,16 @@ async function main(): Promise<void> {
   const copyOfReal = realCopy(cfg.home);
   if (copyOfReal) cfg.sync.enabled = false;
   // On Windows, the secrets folder is made private before the token is
-  // written into it (win-acl.ts); chmod does that on a Mac. If it can't be,
-  // the runner still starts, with a warning: %LOCALAPPDATA% is already this
-  // user's alone as Windows makes it.
+  // written into it (win-acl.ts); chmod does that on a Mac. If Windows
+  // refused (someone else's folder, a list this user can't change), the
+  // runner doesn't start: its keys would go where others can read them
+  // (Codex's third review). If PowerShell couldn't run at all, it starts
+  // with a warning, as %LOCALAPPDATA% is this user's alone as Windows makes
+  // it, and a runner that can't start can't say why in the app.
   const secretsAclProblem = await makePrivate(paths.secrets(cfg.home));
+  if (secretsAclProblem?.startsWith('the helper said:')) {
+    throw new Error(`The secrets folder (${paths.secrets(cfg.home)}) couldn't be made yours alone, so the runner won't keep its keys there: ${secretsAclProblem}`);
+  }
   ensureHome(cfg.home);
   const log = createLogger(cfg.logFile, { echo: process.env.THREADBEAR_LOG_STDERR === '1', debug: process.env.THREADBEAR_DEBUG === '1', onError: reportLoggedError, onWarn: reportLoggedWarning });
   // Only the installed runner reports to Sentry (sentry.ts says why).

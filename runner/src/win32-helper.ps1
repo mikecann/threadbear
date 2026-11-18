@@ -182,8 +182,14 @@ while ($true) {
         $me = [Security.Principal.WindowsIdentity]::GetCurrent().User
         $system = New-Object Security.Principal.SecurityIdentifier 'S-1-5-18'
         $both = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+        # An owner can always change the list again, so anything another
+        # account owns is taken over (Codex's third review). Administrators
+        # and SYSTEM may own: they can do anything here anyway.
+        $owners = @($me.Value, $system.Value, 'S-1-5-32-544')
+        $sid = [Security.Principal.SecurityIdentifier]
         $acl = New-Object Security.AccessControl.DirectorySecurity
         $acl.SetAccessRuleProtection($true, $false)
+        if ($owners -notcontains $dir.GetAccessControl('Owner').GetOwner($sid).Value) { $acl.SetOwner($me) }
         foreach ($sid in $me, $system) {
           $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, 'FullControl', $both, 'None', 'Allow')))
         }
@@ -193,12 +199,16 @@ while ($true) {
           if ($item.Attributes -band $link) { throw "$($item.FullName) is a link" }
           $own = if ($item -is [IO.DirectoryInfo]) { New-Object Security.AccessControl.DirectorySecurity } else { New-Object Security.AccessControl.FileSecurity }
           $own.SetAccessRuleProtection($false, $false)
+          if ($owners -notcontains $item.GetAccessControl('Owner').GetOwner($sid).Value) { $own.SetOwner($me) }
           $item.SetAccessControl($own)
         }
         $allowed = @($me.Value, $system.Value)
         foreach ($item in @($dir) + $inside) {
           $item.Refresh()
-          foreach ($rule in $item.GetAccessControl().GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+          $read = $item.GetAccessControl()
+          $owner = $read.GetOwner($sid).Value
+          if ($owners -notcontains $owner) { throw "$($item.FullName) is still owned by $owner" }
+          foreach ($rule in $read.GetAccessRules($true, $true, $sid)) {
             if ($allowed -notcontains $rule.IdentityReference.Value) { throw "$($item.FullName) still lets $($rule.IdentityReference.Value) in" }
           }
         }

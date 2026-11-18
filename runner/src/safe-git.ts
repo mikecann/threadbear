@@ -151,7 +151,9 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     // A hook named in config (git 2.54's hook.<name>.command and .event)
     // runs whatever core.hooksPath says: update-ref ran a repo's
     // reference-transaction one (Codex's review, 18 Nov 2026).
-    const h = /^hook\.(.+)\.[^.]+$/.exec(e.key);
+    // Any name: empty ([hook ""]) and with line separators too, which `.`
+    // skips (Codex's third review). One -c can't carry fails closed (settable).
+    const h = /^hook\.([\s\S]*)\.[^.]+$/.exec(e.key);
     if (h) hooks.add(h[1]!);
   }
   for (const h of hooks) out.push('-c', `${settable(`hook.${h}.enabled`)}=false`);

@@ -180,6 +180,10 @@ test("a data folder somewhere else, by its short name (Codex's second review)", 
   assert.ok(g('cat /d/TBDATA~2/sec*'));
   assert.ok(g('type D:\\THREAD~1\\secrets\\x.env'));
   assert.equal(g('type D:\\TBDATA~1\\notes.txt'), undefined);
+  // A short name keeps three letters of its extension (Codex's third review).
+  const dotted = (command: string) => denySecrets('Bash', { command }, path.join(path.dirname(home), 'Threadbear.data'));
+  assert.ok(dotted(`powershell.exe -NoProfile -Command 'Get-Content D:\\THREAD~1.DAT\\secrets\\convex-deploy.env'`));
+  assert.ok(dotted('cat /d/THREAD~2.DAT/s*'));
 });
 
 test("on Windows a Grep with no path from a share is refused (Codex's second review)", { skip: path.sep !== '\\' && 'Windows paths' }, () => {

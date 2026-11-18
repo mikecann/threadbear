@@ -163,7 +163,9 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
     // Windows' rule: spaces and dots dropped, +,;=[] as _, the first six.
     const stem = path.basename(home).toLowerCase().replace(/[\s.]/g, '').replace(/[+,;=[\]]/g, '_').slice(0, 6);
     const names = ['thread', ...(stem && stem !== 'thread' ? [stem.replace(/[^\w]/g, '\\$&')] : [])].join('|');
-    const short = new RegExp(`(?:^|/)(?:${names})~\\d+/(?:secrets\\b|secret~\\d|\\S*[*?[])`);
+    // With the first three letters after the last dot as its extension
+    // (D:\\Threadbear.data is THREAD~1.DAT, Codex's third review).
+    const short = new RegExp(`(?:^|/)(?:${names})~\\d+(?:\\.[^/\\s.]{1,3})?/(?:secrets\\b|secret~\\d|\\S*[*?[])`);
     const inSecrets = cwd !== undefined && inside(resolved(cwd), resolved(secrets));
     const token = inSecrets ? /(?:^|[\s/=])runner~\d/ : /(?:^|[\s/=])(?:secrets|secret~\d+)\/runner~\d/;
     if (spellings.some((c) => short.test(c) || token.test(c))) return REASON;
@@ -178,7 +180,11 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
   for (const k of PATH_KEYS) {
     const v = input[k];
     if (typeof v !== 'string' || !v) continue;
-    const [real, written] = [resolved(v, cwd), path.resolve(cwd ?? process.cwd(), expand(v))];
+    const written = path.resolve(cwd ?? process.cwd(), expand(v));
+    // A share as written is refused before anything looks it up: resolving
+    // \\\\192.168.1.77\\... waited on the network for seconds (CI, 18 Nov).
+    if (path.sep === '\\' && plain(written).startsWith('\\\\')) return SHARE_REASON;
+    const real = resolved(v, cwd);
     if (inside(real, target) || inside(written, secrets)) return REASON;
     // On Windows, a share (\\host\share\...) can be any folder of this PC's
     // by a name of its own (C:\Users\me shared as Profile), and a mapped
@@ -195,10 +201,11 @@ export function denySecrets(tool: string, input: Record<string, unknown>, home: 
   // review, 11 Nov 2026), so it's refused whenever the folder is under it.
   if (tool === 'Glob' || tool === 'Grep') {
     const base = typeof input.path === 'string' && input.path ? input.path : (cwd ?? '.');
-    const dir = resolved(base, cwd);
     // The folder it searches whether or not it was named: with no path,
     // it's the thread's own, which can be a share too (Codex's review).
-    if (path.sep === '\\' && [dir, path.resolve(cwd ?? process.cwd(), base)].some((p) => plain(p).startsWith('\\\\'))) return SHARE_REASON;
+    if (path.sep === '\\' && plain(path.resolve(cwd ?? process.cwd(), base)).startsWith('\\\\')) return SHARE_REASON;
+    const dir = resolved(base, cwd);
+    if (path.sep === '\\' && plain(dir).startsWith('\\\\')) return SHARE_REASON;
     const pattern = typeof input.pattern === 'string' ? input.pattern : '';
     if (same(dir, resolved(home))) return REASON;
     if (inside(target, dir) && (tool === 'Grep' || /\bsecrets\b|runner-token/i.test(pattern))) return GREP_REASON;

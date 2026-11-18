@@ -65,6 +65,12 @@ function plant(repo: string, prog: (name: string, body?: string) => string) {
     set(`hook.cfg-${h}.event`, h);
     set(`hook.cfg-${h}.command`, prog(`config-hook-${h}`, 'cat >/dev/null; exit 0'));
   }
+  // One with no name at all, and one with a line separator in it, which a
+  // regex's . skips (Codex's third review).
+  set('hook..event', 'reference-transaction');
+  set('hook..command', prog('config-hook-unnamed', 'cat >/dev/null; exit 0'));
+  set('hook.a\u2028b.event', 'reference-transaction');
+  set('hook.a\u2028b.command', prog('config-hook-separator', 'cat >/dev/null; exit 0'));
 }
 
 // origin, S's checkout and T's, each with programs planted in its config.
