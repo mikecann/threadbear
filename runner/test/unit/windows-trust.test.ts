@@ -397,8 +397,9 @@ test('an edit at the same size with every time put back (ChangeTime too) still a
 
   const before = fs.statSync(script);
   const print = fingerprint(script);
-  await new Promise((r) => setTimeout(r, 1100));
   fs.writeFileSync(script, '#!/bin/sh\necho EVIL\n');
+  // A later modified time, so a plain edit shows whatever the clock's grain.
+  fs.utimesSync(script, before.atime, new Date(before.mtimeMs + 2000));
   assert.equal(fs.statSync(script).size, before.size, 'the same size');
   assert.notEqual(fingerprint(script), print, 'a plain edit shows in the fingerprint');
   if (!putTimesBack(script, before) || fingerprint(script) !== print) return t.skip("this machine wouldn't put the times back, so the stat can't be made to match");
