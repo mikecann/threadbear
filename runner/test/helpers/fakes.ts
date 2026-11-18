@@ -152,7 +152,6 @@ process.on('exit', () => {
   for (const d of made) fs.rmSync(d, { recursive: true, force: true });
 });
 
-// A temp folder that's removed when the test process exits.
 // Whether dir is inside a folder tmpDir() made in this process: what the
 // worktree tests' commit() checks before it runs git there (worktrees-harness.ts).
 export function isMadeTmp(dir: string): boolean {
@@ -163,8 +162,15 @@ export function isMadeTmp(dir: string): boolean {
   });
 }
 
+// A temp folder that's removed when the test process exits. On Windows it is
+// given by its real name: GitHub's runners spell TEMP in 8.3 short form
+// (C:\Users\RUNNER~1) while git and the product compare by the long one, so
+// a test building an expectation from the short form would differ from what
+// it checks for no reason of its own. Elsewhere the path is left as it is
+// (/var/folders is a link on macOS, and tests rely on that).
 export function tmpDir(prefix = 'tb-test-'): string {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const created = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const d = process.platform === 'win32' ? fs.realpathSync.native(created) : created;
   made.push(d);
   return d;
 }

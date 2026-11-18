@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultHome, runnerUrl, type Config } from './config.ts';
 import { newTbClient } from './tb-connect.ts';
+import { realPathSync } from './platform.ts';
 import { RunnerClient, RpcClientError } from './client.ts';
 import { ErrorCode, type Account, type ImageRef, type PersistedEvent, type RunnerDefaults, type ThreadSummary } from './protocol.ts';
 import { providerName } from './providers.ts';
@@ -887,7 +888,7 @@ function fallbackLog(cfg: Config): string {
 function sameDir(a: string, b: string): boolean {
   const real = (p: string) => {
     try {
-      return fs.realpathSync(p);
+      return realPathSync(p);
     } catch {
       return path.resolve(p);
     }

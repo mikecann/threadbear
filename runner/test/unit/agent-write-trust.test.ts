@@ -1009,3 +1009,8 @@ test("worktree setup doesn't run the main checkout's uncommitted package.json", 
   const broken = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
   assert.ok(!broken.includes(`${main} install`), broken);
 });
+
+test("a write to a named stream asks on Windows, whatever the file's called (Codex's review, 18 Nov 2026)", { skip: process.platform !== 'win32' && 'Windows streams' }, () => {
+  assert.equal(runsAsCodeByName('C:\\work\\proj\\container.dat:task.js'), true);
+  assert.equal(runsAsCodeByName('C:\\work\\proj\\notes.txt'), false);
+});

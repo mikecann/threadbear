@@ -1139,7 +1139,7 @@ class Reach {
         // ~ at the start, alone or before a /, is home.
         const next = w.parts[1];
         const tilde = n === 0 && !p.q && p.s === '~' && (!next || (next.k === 'lit' && next.s.startsWith('/')));
-        vals = [tilde ? this.home : p.s];
+        vals = tilde ? (ctx.vars.has('HOME') ? ctx.vars.get('HOME') : [this.home]) : [p.s];
       } else if (p.k === 'var') vals = this.varValues(p.name, p.op, ctx);
       else if (p.k === 'sub') vals = this.subValues(p.src, ctx, p.line);
       if (!vals) return undefined;
@@ -1153,7 +1153,9 @@ class Reach {
     if (name === '' && /^\(%\):-%[xN]$/.test(op)) return [ctx.file];
     if (name === '0') vals = ctx.argv0.length ? ctx.argv0 : undefined;
     else if (name === 'BASH_SOURCE' || name === 'BASH_SOURCE[0]') vals = [ctx.file];
-    else if (name === 'HOME') vals = [this.home];
+    // A HOME the script set is the one ~ and $HOME name from then on
+    // (Codex's review of the Windows port, 18 Nov 2026).
+    else if (name === 'HOME') vals = ctx.vars.has('HOME') ? ctx.vars.get('HOME') : [this.home];
     else if (name === 'PWD') vals = ctx.lost ? undefined : [...ctx.dirs];
     else if (name === 'PATH' && !ctx.vars.has('PATH')) vals = [PATH_SENTINEL];
     else vals = ctx.vars.get(name);
@@ -1256,18 +1258,28 @@ class Reach {
   private assign(name: string, value: Word | undefined, append: boolean, ctx: Ctx, line: number): void {
     const vals = value ? this.values(value, ctx) : [''];
     if (RISKY_ENV.has(name)) return this.fail(ctx, line, `sets ${name}, which makes other code load, so patch trust can't follow what runs.`);
+    // Git Bash rewrites /c/x arguments to C:\x for a Windows program; these
+    // turn that off, so the program reads /c/x as \c\x on its own drive and
+    // patch trust's reading of the path is wrong (Codex's review, 18 Nov).
+    if (IS_WINDOWS && /^MSYS2?_(?:ARG_CONV_EXCL|NO_PATHCONV|ENV_CONV_EXCL)$/.test(name)) return this.fail(ctx, line, `sets ${name}, which changes how Git Bash hands paths to programs, so patch trust can't tell which file one names.`);
     if (name === 'NODE_OPTIONS' && (!vals || vals.some((v) => LOADING_FLAG.test(v)))) return this.fail(ctx, line, 'sets NODE_OPTIONS to load other code, which patch trust can\'t follow.');
     if (name === 'PATH' || name === 'path') {
       // An empty entry is the current folder (a leading or trailing `:`, or
       // `::`), so it's left in to be refused, as `.` is (Codex's review, 7 Nov).
-      const entries = vals?.flatMap((v) => (name === 'PATH' ? v.split(':') : v.split(' ')));
-      const ok = entries?.every((e) => e === PATH_SENTINEL || /\/node_modules\/\.bin\/?$/.test(e) || (path.isAbsolute(e) && !this.inRepo(e)));
+      // On Windows each as Git Bash reads it (/c/repo/bin is C:\repo\bin);
+      // a network or device one can't be vouched for (Codex's review).
+      const entries = vals?.flatMap((v) => (name === 'PATH' ? v.split(':') : v.split(' '))).map((e) => {
+        if (!IS_WINDOWS || e === PATH_SENTINEL) return e;
+        const w = windowsSpelling(e);
+        return 'path' in w ? w.path : '';
+      });
+      const ok = entries?.every((e) => e === PATH_SENTINEL || /[\\/]node_modules[\\/]\.bin[\\/]?$/.test(e) || (path.isAbsolute(e) && !this.inRepo(e)));
       if (!ok || append) return this.fail(ctx, line, "puts a folder on PATH that patch trust can't vouch for, so it can't tell what a command name runs.");
       // A package's bin folder, as a package script has first on PATH:
       // a name after this may be a program of the repo's, committed or a
       // workspace's, not an installed one (Codex's review, 7 Nov).
       for (const e of entries ?? []) {
-        if (e === PATH_SENTINEL || !/\/node_modules\/\.bin\/?$/.test(e)) continue;
+        if (e === PATH_SENTINEL || !/[\\/]node_modules[\\/]\.bin[\\/]?$/.test(e)) continue;
         const bins = this.abs(e, ctx);
         if (!bins) return this.fail(ctx, line, "puts a package's bin folder on PATH after a cd patch trust couldn't follow, so it can't tell what a command name runs.");
         for (const bin of bins) {
@@ -1389,7 +1401,9 @@ class Reach {
     if (this.problem) return;
     // A path: the repo's file runs (followed), or a program outside it,
     // treated by its name (/bin/sh is sh).
-    if (name.includes('/')) {
+    // On Windows a backslash names a folder too: a quoted 'C:\repo\x.exe'
+    // keeps them, and bash runs it as a path (Codex's review).
+    if (name.includes('/') || (IS_WINDOWS && name.includes('\\'))) {
       const targets = this.abs(name, ctx);
       if (!targets) return this.fail(ctx, line, `runs ${name} after a cd patch trust couldn't follow (${ctx.lost}), so it can't tell which file that is.`);
       const inRepo = targets.filter((t) => this.inRepo(t));
@@ -1893,6 +1907,11 @@ class Reach {
       const key = `script ${dir} ${n}`;
       if (typeof text !== 'string' || this.visits.has(key)) continue;
       this.visits.add(key);
+      // On Windows npm runs a script with cmd.exe, which looks for a
+      // program in the package's own folder before PATH (a node.exe beside
+      // package.json runs for `node x.js`), and reads the text by its own
+      // rules: none of that is what's followed here (Codex's review).
+      if (IS_WINDOWS) return this.fail(ctx, undefined, `runs ${this.rel(path.join(dir, 'package.json'))}'s "${n}" script, which npm runs with cmd.exe on Windows, so patch trust can't follow it.`);
       // A package script runs through sh in the package's folder, with its
       // node_modules/.bin (and those of the folders above) first on PATH.
       const outer = this.binDirs;

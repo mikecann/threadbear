@@ -207,7 +207,9 @@ test("a network or device path is refused, wherever it comes up: a live command,
   const patch = path.join(folder, '.threadbear', 'patches', 'p.ts');
   for (const spelled of ['//otherhost/share/x.sh', '\\\\otherhost\\share\\x.sh', '//?/UNC/otherhost/share/x.sh', '//localhost/share/x.sh', '//?/GLOBALROOT/Device/x.sh']) {
     for (const form of [`bash '${spelled}'`, `'${spelled}'`, `cd '${spelled}' && ./x.sh`, `source '${spelled}'`]) {
-      assert.match(liveCommandProblem(form, folder, []) ?? '', /network or device path/, form);
+      // Refused, whichever rule says so first: main's short list refuses
+      // bash, a path it can't place and source before it looks at the path.
+      assert.ok(liveCommandProblem(form, folder, []), form);
     }
     fs.writeFileSync(patch, `export default { actions: [{ title: 'Go', run: ${JSON.stringify(`bash '${spelled}'`)} }] };\n`);
     const hashed = patchHash(patch);
@@ -404,4 +406,43 @@ test('an edit at the same size with every time put back (ChangeTime too) still a
   const verdict = await trust.check(patch, 0);
   assert.equal(verdict.trusted, false, 'the cached hash is not trusted over the changed bytes');
   assert.equal(!verdict.trusted && verdict.reason, 'changed');
+});
+
+// Codex's review of the port onto main (18 Nov 2026).
+
+test('a HOME the script sets is the one $HOME and ~ name after it, on every platform', () => {
+  const folder = project({ 'payload.sh': 'echo one\n' });
+  for (const command of ['HOME="$PWD"; bash "$HOME/payload.sh"', 'HOME="$PWD"; bash ~/payload.sh']) {
+    const r = commandFiles(command, folder);
+    assert.ok(r.files.some((f) => /payload\.sh$/.test(f)), `${command}: ${JSON.stringify(r)}`);
+  }
+  // A HOME it can't read fails closed rather than meaning the real one.
+  const lost = commandFiles('HOME="$(cat somewhere)"; bash "$HOME/payload.sh"', folder);
+  assert.ok(lost.problem || lost.files.some((f) => /payload\.sh$/.test(f)), JSON.stringify(lost));
+});
+
+test('a folder of the repo put on PATH in a Git Bash spelling is still the repo\'s', ONLY_WINDOWS, () => {
+  const folder = project({ 'bin/payload.exe': 'MZ' });
+  const bash = '/' + folder[0]!.toLowerCase() + folder.slice(2).replace(/\\/g, '/');
+  assert.ok(commandFiles(`PATH=${bash}/bin:$PATH; payload.exe`, folder).problem, bash);
+});
+
+test('a program named by a backslash path is followed as the file it is', ONLY_WINDOWS, () => {
+  const folder = project({ 'payload.sh': 'echo one\n' });
+  const r = commandFiles(`'${path.join(folder, 'payload.sh')}'`, folder);
+  assert.ok(r.files.some((f) => /payload\.sh$/.test(f)), JSON.stringify(r));
+  assert.match(commandFiles("'\\\\otherhost\\share\\x.sh'", folder).problem ?? '', /network or device path/);
+});
+
+test("a package script isn't followed on Windows: npm runs it with cmd.exe", ONLY_WINDOWS, () => {
+  const folder = project({ 'package.json': '{"scripts":{"build":"node ./main.js"}}', 'main.js': '1;\n' });
+  assert.match(commandFiles('npm run build', folder).problem ?? '', /cmd\.exe/);
+  assert.match(liveCommandProblem('npm run build', folder, []) ?? '', /cmd\.exe|short list/);
+});
+
+test("turning off Git Bash's path conversion fails closed", ONLY_WINDOWS, () => {
+  const folder = project({ 'payload.js': '1;\n' });
+  for (const name of ['MSYS2_ARG_CONV_EXCL', 'MSYS_NO_PATHCONV']) {
+    assert.match(commandFiles(`${name}='*' node /c/repo/payload.js`, folder).problem ?? '', new RegExp(name), name);
+  }
 });

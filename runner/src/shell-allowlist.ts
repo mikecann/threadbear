@@ -1583,6 +1583,10 @@ class Allow {
       const text = scripts[n];
       if (typeof text !== 'string') continue;
       const label = `${this.rel(f)}'s "${n}" script`;
+      // npm runs it with cmd.exe on Windows, which finds a program in the
+      // package's folder before PATH and reads the text by its own rules
+      // (Codex's review of the Windows port, 18 Nov 2026).
+      if (process.platform === 'win32') throw new Refused(`${label} runs with cmd.exe on Windows, which this short list can't read.`);
       let l: List;
       try {
         l = parse(text, true);

@@ -328,8 +328,10 @@ export function missingFileLinks(text: string, ctx: { cwd: string; home: string;
     const p = decodeURIComponentSafe(bare.startsWith('file://') ? bare.slice('file://'.length).replace(/^localhost(?=\/)/, '') : bare).replace(/:\d+(:\d+)?$/, '');
     if (!(p.startsWith('/') || p.startsWith('~/')) || p.startsWith('//') || out.includes(target)) return;
     const full = absolute(p, ctx.cwd, ctx.home);
-    // A network share can hang a look, and this runs on the event loop.
-    if (/^\/(Volumes|Network|net)\//.test(full)) return;
+    // A network share can hang a look, and this runs on the event loop. On
+    // Windows /\host\x resolves to \\host\x, and looking sends the user's
+    // sign-in to that host (isLocalPath; Codex's review, 18 Nov 2026).
+    if (/^\/(Volumes|Network|net)\//.test(full) || !isLocalPath(full)) return;
     if (!ctx.exists(full)) out.push(target);
   };
   const prose = markdownProse(text)

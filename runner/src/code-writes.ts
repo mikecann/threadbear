@@ -46,6 +46,11 @@ export function runsAsCodeByName(file: string, home: string = os.homedir()): boo
   // The runner adds what such a link points at (writeRunsAsCode).
   const homeDir = path.join(path.resolve(home), '.threadbear');
   const homes = [homeDir.toLowerCase(), canonicalPath(homeDir).toLowerCase()];
+  // A named stream (x.dat:task.js) on Windows: a patch can run one, and the
+  // name it's checked by below drops the stream, so a write to one asks
+  // whatever it's called (Codex's review, 18 Nov 2026). The default stream
+  // (x.ts::$DATA) is the file itself, and is checked as that.
+  if (IS_WINDOWS && hasNamedStream(file)) return true;
   // On Windows also the name as the file system reads it (windowsFileName).
   const asked = IS_WINDOWS ? [file, windowsFileName(file)] : [file];
   return asked.flatMap((f) => [path.resolve(f), canonicalPath(f)]).some((p) => {
@@ -76,6 +81,15 @@ export function windowsFileName(file: string): string {
       return drive + (name === '.' || name === '..' ? name : name.replace(/[. ]+$/, ''));
     })
     .join('\\');
+}
+
+// Whether a Windows path names a stream other than a file's own data: a
+// colon in a name after the drive, other than ::$DATA at the end. Pure.
+export function hasNamedStream(file: string): boolean {
+  return file.split(/[\\/]/).some((part, i) => {
+    const name = i === 0 || /^[A-Za-z]:$/.test(part) ? part.replace(/^[A-Za-z]:/, '') : part;
+    return name.includes(':') && !/^[^:]*::\$DATA$/i.test(name);
+  });
 }
 
 // `file` with the symlinks on its way resolved and each name as the disk

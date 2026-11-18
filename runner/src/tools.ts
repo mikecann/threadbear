@@ -5,6 +5,7 @@ import { MAYBE_RUNS_AS_CODE, RUNS_AS_CODE, type CodeWrite } from './code-writes.
 import { LIMITS } from './protocol.ts';
 import { applyReplace, diffLines } from './diff.ts';
 import { firstLineSafely, safeEnd } from './safe-cut.ts';
+import { realPathSync } from './platform.ts';
 
 const KINDS: Record<string, ToolKind> = {
   Bash: 'command',
@@ -81,7 +82,7 @@ function realCwd(cwd: string): string {
   let r = realpaths.get(cwd);
   if (r === undefined) {
     try {
-      r = fs.realpathSync(cwd);
+      r = realPathSync(cwd);
     } catch {
       r = cwd;
     }

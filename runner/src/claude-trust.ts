@@ -303,10 +303,13 @@ function mcpFiles(dir: string, home: string): string[] {
 
 // The folder and each one above it, below home (or up to the root, for a
 // folder outside home), as Claude looks for a project's files.
+// Home is compared by its real path, as the folder can be written another
+// way (on Windows C:\Users\RUNNER~1 is C:\Users\runneradmin, in any case).
 function upToHome(dir: string, home: string): string[] {
-  const stop = path.resolve(home);
+  const key = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
+  const stop = key(realPath(path.resolve(home)));
   const out: string[] = [];
-  for (let d = dir; d !== stop && d !== path.dirname(d); d = path.dirname(d)) out.push(d);
+  for (let d = dir; d !== path.dirname(d) && d !== path.resolve(home) && key(realPath(d)) !== stop; d = path.dirname(d)) out.push(d);
   return out;
 }
 
