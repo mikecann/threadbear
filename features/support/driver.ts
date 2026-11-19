@@ -189,6 +189,12 @@ export type Dump = {
     /** The GPUI app's: the screen as lines, rows the text wrapped over joined. */
     lines?: string[] | null;
     shells: string[];
+    tabs?: { title: string; current: boolean }[];
+    renaming?: string | null;
+    hoveredLink?: string | null;
+    find?: { text: string; count: string } | null;
+    selection?: string | null;
+    rang?: number | null;
   } | null;
 };
 
