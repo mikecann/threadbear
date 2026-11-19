@@ -158,6 +158,59 @@ test("a workflow that only runs in Mike's repo holds only there, not in a fork",
   assert.equal(holdingWorkflows(workflows({ 'desktop.yml': WORKFLOW }))[0].onlyIn, undefined);
 });
 
+test("a fork that sets the workflow's variable holds on its own runs, and one that doesn't never asks for them", async () => {
+  const guarded = WORKFLOW.replace('# tb land: hold while red\n', '# tb land: hold while red\n# tb land: a fork holds too once it sets DESKTOP_CI_SYSTEMS\n').replace(
+    'on:\n',
+    "jobs:\n  systems:\n    if: github.repository == 'mikecann/threadbear' || vars.DESKTOP_CI_SYSTEMS != ''\n\non:\n",
+  );
+  const root = workflows({ 'desktop.yml': guarded });
+  assert.equal(holdingWorkflows(root)[0].forkVariable, 'DESKTOP_CI_SYSTEMS');
+  sh(root, 'git init -q && git remote add origin git@github.com:Someone/threadbear.git && git remote add upstream https://github.com/mikecann/threadbear.git');
+  // gh with the fork's variable (or none), and its own red Mac run.
+  const forkGh = (variable: { ok: boolean; stdout?: string; stderr?: string }) => {
+    const runs = fakeGh([run(9, 'failure', 'a')], { 9: [{ name: 'Mac', conclusion: 'failure', steps: [{ name: 'Behaviour specs', conclusion: 'failure' }] }] });
+    const calls: string[][] = [];
+    const fn: Gh = async (args, cwd) => {
+      calls.push(args);
+      if (args[0] === 'variable') return { ok: variable.ok, stdout: variable.stdout ?? '', stderr: variable.stderr ?? '' };
+      return runs(args, cwd);
+    };
+    return Object.assign(fn, { calls });
+  };
+  // Opted in: held on the fork's own run, asked of the fork, not upstream.
+  const mac = forkGh({ ok: true, stdout: 'mac\n' });
+  const held = await landHold(root, ['desktop/a'], () => {}, mac);
+  assert.ok(held);
+  assert.match(held, /Failed: Mac \(Behaviour specs\)/);
+  assert.deepEqual(mac.calls[0], ['variable', 'get', 'DESKTOP_CI_SYSTEMS', '--repo', 'someone/threadbear']);
+  assert.deepEqual(mac.calls[1].slice(-2), ['--repo', 'someone/threadbear']);
+  assert.deepEqual(mac.calls[2].slice(-2), ['--repo', 'someone/threadbear']);
+  // Not set (or set to off): lands, and no runs are asked for, as an old red one from before it was off would hold.
+  for (const variable of [{ ok: false, stderr: 'variable DESKTOP_CI_SYSTEMS was not found' }, { ok: true, stdout: 'off\n' }, { ok: true, stdout: '\n' }]) {
+    const off = forkGh(variable);
+    const notes: string[] = [];
+    assert.equal(await landHold(root, ['desktop/a'], (l) => notes.push(l), off), undefined);
+    assert.equal(off.calls.length, 1);
+    assert.deepEqual(notes, []);
+  }
+  // GitHub out of reach: lands, saying so.
+  const notes: string[] = [];
+  assert.equal(await landHold(root, ['desktop/a'], (l) => notes.push(l), forkGh({ ok: false, stderr: 'error connecting to api.github.com' })), undefined);
+  assert.match(notes.join('\n'), /Couldn't ask GitHub whether someone\/threadbear runs Desktop app \(desktop\.yml\) \(error connecting to api\.github\.com\), so this lands without that check/);
+  // Files it doesn't check don't ask about the variable either.
+  const quiet = forkGh({ ok: true, stdout: 'mac' });
+  assert.equal(await landHold(root, ['docs/x.md'], () => {}, quiet), undefined);
+  assert.deepEqual(quiet.calls, []);
+  // Mike's own copy never asks about the variable, and asks for runs as before.
+  sh(root, 'git remote remove upstream && git remote set-url origin https://github.com/mikecann/threadbear.git');
+  const mike = forkGh({ ok: true, stdout: 'mac' });
+  assert.ok(await landHold(root, ['desktop/a'], () => {}, mike));
+  assert.equal(mike.calls[0][0], 'run');
+  assert.ok(!mike.calls.flat().includes('--repo'));
+  // This repo's own Desktop app workflow has the mark.
+  assert.equal(holdingWorkflows(repoRoot).find((w) => w.file === 'desktop.yml')?.forkVariable, 'DESKTOP_CI_SYSTEMS');
+});
+
 test("GitHub's answer is shared for a minute, and an old red one still holds when GitHub won't answer", async () => {
   const root = workflows({ 'desktop.yml': WORKFLOW });
   let now = 1_000_000;

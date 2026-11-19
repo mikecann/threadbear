@@ -210,6 +210,27 @@ red. A marked workflow whose `if:` names one repo (`github.repository ==
 `upstream` remote's runs first, so before this Mike's red Windows build held
 landings that only had to work on a Mac.
 
+A fork can turn the Desktop app workflow back on for the systems it builds
+for: `scripts/ci-systems.sh auto` sets the repository variable
+`DESKTOP_CI_SYSTEMS` on origin's GitHub repo to this machine's system (or
+give it `mac`, `linux`, `windows`, a list like `mac,linux`, or `all`;
+`off` deletes it). `desktop.yml`'s first job, `systems`, turns that into the
+build job's rows, Linux's two halves together, and skips the build when it
+names none. In Mike's repo it's unset, which there means all three, and a
+run started by hand runs all three unless the variable names fewer. Unset in
+a fork, its pushes run nothing, as before. The workflow has a second line,
+
+```yaml
+# tb land: a fork holds too once it sets DESKTOP_CI_SYSTEMS
+```
+
+so in a fork the gate asks GitHub for that variable (`gh variable get
+--repo <origin>`) when a landing changes what the workflow checks. Set, and
+not `off`, it holds on the fork's own last run on main, asked of origin with
+`--repo` so upstream's runs never count, and that run only has the fork's
+systems' jobs. Unset, it lands without asking for runs, as one left red
+from before 19 Nov would otherwise hold every landing.
+
 ### Landing together
 
 A check takes 5 to 9 minutes on the check hosts, and on 12 Nov a dozen

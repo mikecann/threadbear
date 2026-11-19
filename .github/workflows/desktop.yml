@@ -10,12 +10,19 @@
 # for two days of GPUI landings (10 to 12 Nov) over what only GitHub's Macs,
 # Linux and Windows see, which tb land's quick check on Tinker Desk can't.
 #
+# Which systems it runs on: all three in Mike's repo. A fork runs nothing on
+# its pushes until it sets the repository variable DESKTOP_CI_SYSTEMS to a
+# comma list of mac, linux and windows, or all (scripts/ci-systems.sh sets
+# it, `auto` picking the system you're on). Started by hand, it runs all
+# three, or the ones that variable names. The systems job below works it out.
+#
 # The paths are everything the app builds and tests from, the files outside
 # desktop/ included (the Swift app's pictures and pele.js, the shared inbox
 # fixture, the runner files the mock runner imports):
 # runner/test/unit/desktop-ci-paths.test.ts finds those in the code and fails
 # when one's missing here, as a change to only them ran no desktop CI.
 # tb land: hold while red
+# tb land: a fork holds too once it sets DESKTOP_CI_SYSTEMS
 name: Desktop app
 
 on:
@@ -74,10 +81,59 @@ concurrency:
 # owner only builds and checks for their own system (./check.sh does that
 # before tb land), and most of those runs went red for reasons that were
 # never theirs (Wayne, 19 Nov 2026; 9 forks had Actions on). PRs to Mike's
-# repo still run, as they run in his repo.
+# repo still run, as they run in his repo. A fork that wants a check on
+# GitHub for its own system says which in DESKTOP_CI_SYSTEMS (above).
 jobs:
+  # The build job's rows, as JSON, for the systems DESKTOP_CI_SYSTEMS names
+  # (all three when it's unset). Linux's behaviour specs are split in two
+  # (TB_SHARD, features/cucumber.mjs): run whole they took 28 to 31 minutes
+  # and then passed the 45 (17 Nov), about 620 scenarios at three seconds
+  # each. The second row only builds the app and runs its half, so a share is
+  # about 16 minutes. Split further, with a third row, rather than raising the
+  # limit. runner/test/unit/desktop-ci-systems.test.ts runs this step's script.
+  systems:
+    if: github.repository == 'mikecann/threadbear' || github.event_name == 'workflow_dispatch' || vars.DESKTOP_CI_SYSTEMS != ''
+    name: Pick systems
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      any: ${{ steps.pick.outputs.any }}
+    steps:
+      - name: Pick systems
+        id: pick
+        shell: bash
+        env:
+          SYSTEMS: ${{ vars.DESKTOP_CI_SYSTEMS }}
+        run: |
+          set -euo pipefail
+          linux=false mac=false windows=false
+          IFS=', ' read -r -a words <<< "$(printf '%s' "${SYSTEMS:-all}" | tr '[:upper:]' '[:lower:]')"
+          for w in ${words[@]+"${words[@]}"}; do
+            case "$w" in
+              '' | off | none) ;;
+              all) linux=true mac=true windows=true ;;
+              linux) linux=true ;;
+              mac) mac=true ;;
+              windows) windows=true ;;
+              *) echo "::error::DESKTOP_CI_SYSTEMS has \"$w\": use mac, linux, windows or all, separated by commas"; exit 1 ;;
+            esac
+          done
+          rows=()
+          if $linux; then
+            rows+=('{"name":"Linux","os":"ubuntu-24.04","shard":"1/2"}')
+            rows+=('{"name":"Linux specs 2 of 2","os":"ubuntu-24.04","shard":"2/2","specsOnly":true}')
+          fi
+          if $mac; then rows+=('{"name":"Mac","os":"macos-26"}'); fi
+          if $windows; then rows+=('{"name":"Windows","os":"windows-latest"}'); fi
+          joined=$(IFS=,; echo "${rows[*]-}")
+          echo "matrix={\"include\":[$joined]}" >> "$GITHUB_OUTPUT"
+          if [ ${#rows[@]} -gt 0 ]; then echo "any=true" >> "$GITHUB_OUTPUT"; else echo "any=false" >> "$GITHUB_OUTPUT"; fi
+          echo "Systems: linux=$linux mac=$mac windows=$windows"
+
   build:
-    if: github.repository == 'mikecann/threadbear' || github.event_name == 'workflow_dispatch'
+    needs: systems
+    if: needs.systems.outputs.any == 'true'
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     # Windows needs time for its release build after the behaviour specs, and
@@ -87,17 +143,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        # Linux's behaviour specs are split in two (TB_SHARD, features/cucumber.mjs):
-        # run whole they took 28 to 31 minutes and then passed the 45 (17 Nov),
-        # about 620 scenarios at three seconds each. The second job only builds
-        # the app and runs its half, so a share is about 16 minutes. Split
-        # further, with a third job, rather than raising the limit.
-        include:
-          - { name: Linux, os: ubuntu-24.04, shard: 1/2 }
-          - { name: Linux specs 2 of 2, os: ubuntu-24.04, shard: 2/2, specsOnly: true }
-          - { name: Mac, os: macos-26 }
-          - { name: Windows, os: windows-latest }
+      matrix: ${{ fromJSON(needs.systems.outputs.matrix) }}
     defaults:
       run:
         shell: bash

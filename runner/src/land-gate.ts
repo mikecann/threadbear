@@ -25,18 +25,32 @@
 // in a checkout whose origin is that repo. In a fork, gh reads the
 // `upstream` remote's runs before origin's, so Mike's red Windows build held
 // a fork's landing that only had to work on its owner's Mac.
+//
+// A fork can still run such a workflow on its own pushes, for the systems
+// it builds for (desktop.yml's DESKTOP_CI_SYSTEMS repository variable). A
+// workflow that says so in a second line,
+//
+//   # tb land: a fork holds too once it sets DESKTOP_CI_SYSTEMS
+//
+// holds in a fork whose GitHub repo has that variable set (and not `off`),
+// on the fork's own runs: gh is pointed at origin with --repo, so upstream's
+// red never holds it, and the run's failed jobs are only the fork's systems.
+// Without the variable it never asks for runs, as an old red one from before
+// 19 Nov would hold every landing.
 import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { repoKey } from './upstream.ts';
 
 export const HOLD_MARK = /^\s*#\s*tb land:\s*hold while red\s*$/m;
+const FORK_MARK = /^\s*#\s*tb land:\s*a fork holds too once it sets ([A-Za-z_][A-Za-z0-9_]*)\s*$/m;
 
 export type HeldWorkflow = {
   file: string; // its file name, as gh's --workflow takes it
   name: string; // its `name:`, or the file name
   paths?: string[]; // its push paths; undefined when every push runs it
   onlyIn?: string; // the one repo its jobs run in (owner/name), if it names one
+  forkVariable?: string; // the repository variable that has a fork run it too
 };
 
 // The workflows in `root` that hold landings while red.
@@ -59,7 +73,8 @@ export function holdingWorkflows(root: string): HeldWorkflow[] {
     if (!HOLD_MARK.test(text)) continue;
     const name = /^name:\s*(.+?)\s*$/m.exec(text)?.[1]?.replace(/^(['"])(.*)\1$/, '$2') ?? file;
     const onlyIn = /github\.repository\s*==\s*'([\w.-]+\/[\w.-]+)'/.exec(text)?.[1];
-    out.push({ file, name, paths: pushPaths(text), ...(onlyIn ? { onlyIn } : {}) });
+    const forkVariable = FORK_MARK.exec(text)?.[1];
+    out.push({ file, name, paths: pushPaths(text), ...(onlyIn ? { onlyIn } : {}), ...(forkVariable ? { forkVariable } : {}) });
   }
   return out;
 }
@@ -177,9 +192,11 @@ export type Verdict =
   | { state: 'red'; run: Run; failedJobs: string[]; newer?: Run }
   | { state: 'unknown'; why: string };
 
-// The workflow's last finished run on main, from pushes.
-export async function lastVerdict(root: string, file: string, run: Gh = gh): Promise<Verdict> {
-  const r = await run(['run', 'list', '--workflow', file, '--branch', 'main', '--event', 'push', '--limit', String(RUNS_LOOKED_AT), '--json', 'databaseId,status,conclusion,headSha,url,createdAt,displayTitle'], root);
+// The workflow's last finished run on main, from pushes: in `repo`
+// (owner/name) when given, or the repo gh picks for `root`.
+export async function lastVerdict(root: string, file: string, run: Gh = gh, repo?: string): Promise<Verdict> {
+  const at = repo ? ['--repo', repo] : [];
+  const r = await run(['run', 'list', '--workflow', file, '--branch', 'main', '--event', 'push', '--limit', String(RUNS_LOOKED_AT), '--json', 'databaseId,status,conclusion,headSha,url,createdAt,displayTitle', ...at], root);
   if (!r.ok) return { state: 'unknown', why: firstLine(r.stderr) || 'gh failed' };
   let runs: Run[];
   try {
@@ -194,7 +211,7 @@ export async function lastVerdict(root: string, file: string, run: Gh = gh): Pro
   // One still going, for a newer push: it may be the fix.
   const newer = runs.find((x) => x.status !== 'completed' && x.createdAt > finished.createdAt);
   let failedJobs: string[] = [];
-  const jobs = await run(['run', 'view', String(finished.databaseId), '--json', 'jobs'], root);
+  const jobs = await run(['run', 'view', String(finished.databaseId), '--json', 'jobs', ...at], root);
   if (jobs.ok) {
     try {
       const parsed = JSON.parse(jobs.stdout) as { jobs?: { name: string; conclusion: string; steps?: { name: string; conclusion: string }[] }[] };
@@ -223,6 +240,18 @@ function originRepo(root: string): string | undefined {
 
 const firstLine = (s: string): string => s.trim().split('\n')[0] ?? '';
 
+// Whether the fork `repo` has set `variable` to run a workflow on its pushes.
+// GitHub out of reach counts as no, with a note, as the gate does elsewhere.
+async function forkRunsIt(root: string, repo: string, variable: string, w: HeldWorkflow, run: Gh, note: (line: string) => void): Promise<boolean> {
+  const r = await run(['variable', 'get', variable, '--repo', repo], root);
+  if (!r.ok) {
+    if (!/not found|HTTP 404/i.test(r.stderr)) note(`Couldn't ask GitHub whether ${repo} runs ${w.name} (${w.file}) (${firstLine(r.stderr) || 'gh failed'}), so this lands without that check.`);
+    return false;
+  }
+  const value = r.stdout.trim().toLowerCase();
+  return value !== '' && value !== 'off' && value !== 'none';
+}
+
 // Every landing asks GitHub before its check and again before main moves,
 // and a dozen threads landing at once (each with gh run watch of its own)
 // ran the shared API allowance out on 13 Nov: gh answered 403, and a gate
@@ -247,10 +276,10 @@ export function gateCacheDir(root: string): string | undefined {
 }
 
 // lastVerdict through the kept answer, and a line to say when it's an old one.
-export async function keptVerdict(root: string, file: string, run: Gh, cache: GateCache | undefined): Promise<{ verdict: Verdict; note?: string }> {
-  if (!cache) return { verdict: await lastVerdict(root, file, run) };
+export async function keptVerdict(root: string, file: string, run: Gh, cache: GateCache | undefined, repo?: string): Promise<{ verdict: Verdict; note?: string }> {
+  if (!cache) return { verdict: await lastVerdict(root, file, run, repo) };
   const now = (cache.now ?? Date.now)();
-  const at = path.join(cache.dir, `${file}.json`);
+  const at = path.join(cache.dir, repo ? `${file}@${repo.replace('/', '_')}.json` : `${file}.json`);
   let kept: Kept | undefined;
   try {
     kept = JSON.parse(fs.readFileSync(at, 'utf8')) as Kept;
@@ -259,7 +288,7 @@ export async function keptVerdict(root: string, file: string, run: Gh, cache: Ga
   }
   const age = kept ? now - kept.at : Infinity;
   if (kept && age >= 0 && age < FRESH_MS) return { verdict: kept.verdict };
-  const verdict = await lastVerdict(root, file, run);
+  const verdict = await lastVerdict(root, file, run, repo);
   if (verdict.state !== 'unknown') {
     try {
       fs.mkdirSync(cache.dir, { recursive: true });
@@ -282,13 +311,18 @@ export async function keptVerdict(root: string, file: string, run: Gh, cache: Ga
 export async function landHold(root: string, files: string[], note: (line: string) => void, run: Gh = gh, cache?: GateCache): Promise<string | undefined> {
   let origin: string | undefined | null = null;
   for (const w of holdingWorkflows(root)) {
+    let fork: string | undefined; // origin, when it's a fork that runs it too
     if (w.onlyIn) {
       if (origin === null) origin = originRepo(root);
-      if (origin?.toLowerCase() !== `github.com/${w.onlyIn}`.toLowerCase()) continue;
+      if (origin?.toLowerCase() !== `github.com/${w.onlyIn}`.toLowerCase()) {
+        fork = origin?.startsWith('github.com/') ? origin.slice('github.com/'.length) : undefined;
+        if (!w.forkVariable || !fork) continue;
+      }
     }
     const hits = filesThatRunIt(w.paths, files);
     if (!hits.length) continue;
-    const kept = await keptVerdict(root, w.file, run, cache);
+    if (fork && !(await forkRunsIt(root, fork, w.forkVariable!, w, run, note))) continue;
+    const kept = await keptVerdict(root, w.file, run, cache, fork);
     const v = kept.verdict;
     if (kept.note) note(kept.note);
     if (v.state === 'unknown') {
