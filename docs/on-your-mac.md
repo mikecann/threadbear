@@ -296,6 +296,19 @@ File references are where to look.
   stopping the `tb` can't stop a check partway: it writes its output to a
   `tb-land-*` folder under `$TMPDIR`, deleted once the `tb` you ran has
   shown it (left for macOS to clear if that `tb` was stopped first).
+- **Live patching** (`desktop/scripts/hotpatch.sh`, only after you run
+  `hotpatch.sh start`): a launch agent, `com.threadbear.hotpatch` in
+  `~/Library/LaunchAgents`, runs a copy of the script from
+  `~/Library/Caches/Threadbear/hotpatch/bin`. Every 30 seconds it runs `git
+  fetch` of Mike's main, and keeps two checkouts of this repo
+  (`~/Library/Caches/Threadbear/hotpatch/src` and `src-b`, each with a
+  build folder of about 8 GB) where `dx serve` (the Dioxus CLI, which you
+  install) builds the GPUI app and patches it as code changes. dx listens
+  on 127.0.0.1 ports 8080 and 8081 for the app it started. It quits the
+  installed GPUI app while it runs, shows macOS notifications for what it
+  takes in, and logs to `~/Library/Logs/Threadbear/hotpatch`. `hotpatch.sh
+  stop` removes the agent and opens the installed app again; the caches
+  can then be deleted.
 - **Borrowed worktrees** (`runner/src/borrows.ts`): `borrow-worktree.sh`
   writes a small `threadbear-borrow` file in the borrowed worktree's git
   folder (the borrowing thread's id, a process id for a script's borrow,

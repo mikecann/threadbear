@@ -90,6 +90,16 @@ scripts/install-app.sh --build-on <host>    # builds on another Mac and copies i
 That puts `Threadbear GPUI.app` in `~/Applications`, beside the Swift app, using
 the same runner.
 
+## Patching it live
+
+`scripts/hotpatch.sh start` runs a debug build of the app under `dx serve
+--hot-patch` (`cargo install dioxus-cli@0.7.10`) and follows Mike's main:
+a change to function bodies is patched into the running app in under a
+minute, with no restart, and every change is also built in full in a second
+checkout and swapped in once the Mac is idle. The script's header says how,
+and what can't be patched (a struct's fields, a trait, a Cargo file, the
+vendored crates). `scripts/hotpatch.sh stop` goes back to the installed app.
+
 ## Tests
 
 ```bash

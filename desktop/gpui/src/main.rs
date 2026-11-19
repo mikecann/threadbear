@@ -11,6 +11,7 @@
 // what it prints.
 #![cfg_attr(all(windows, not(debug_assertions), not(feature = "automation")), windows_subsystem = "windows")]
 mod a11y;
+mod hot;
 mod activity;
 mod activity_panels;
 mod agent_browser;

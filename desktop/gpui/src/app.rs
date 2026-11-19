@@ -346,7 +346,10 @@ impl Threadbear {
         RT.spawn(client.clone().run());
         let events = cx.spawn(async move |this, cx| {
             while let Some(seen) = rx.recv().await {
-                if this.update(cx, |this, cx| this.on_seen(seen, cx)).is_err() {
+                // Through the patch table, so a patch to how events are taken in
+                // reaches this loop, started once at launch (hot.rs).
+                let mut seen = Some(seen);
+                if this.update(cx, |this, cx| crate::hot::call(|| if let Some(seen) = seen.take() { this.on_seen(seen, cx) })).is_err() {
                     break;
                 }
             }

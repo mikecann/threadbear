@@ -1,0 +1,12 @@
+# For dx (the Dioxus CLI) only: desktop/scripts/hotpatch.sh runs this crate
+# under `dx serve --hot-patch`, which builds the app as a bundle and patches
+# the running copy as its code changes. Nothing else reads this file.
+[application]
+name = "Threadbear GPUI"
+# Relative to where dx runs: hotpatch.sh starts it in this folder.
+macos_info_plist = "hotpatch/Info.plist"
+
+[bundle]
+# The installed app's own id (desktop/scripts/make-bundle.sh), so
+# threadbear:// links reach this copy while it runs in its place.
+identifier = "com.mikerosoft.threadbear.desktop"

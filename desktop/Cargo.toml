@@ -1,5 +1,3 @@
-# The desktop app's Rust: the runner connection and the GPUI app, built
-# together with one lock file and one target folder.
 [workspace]
 resolver = "2"
 members = ["client", "core", "gpui", "dock", "dock/layout", "web"]
@@ -55,3 +53,18 @@ gpui-pre = { path = "vendor/gpui-pre" }
 opt-level = 3
 [profile.dev.package.crc32fast]
 opt-level = 3
+
+# The live-patched app (desktop/scripts/hotpatch.sh): a debug build, as GPUI
+# only takes patches in one, with every dependency optimised so the window
+# draws at speed. The app's own crates get the light optimisation only:
+# unoptimised, the app felt slow (Seth, 18 Nov), and a patch to them still
+# compiles in seconds.
+[profile.hotpatch]
+inherits = "dev"
+debug = "line-tables-only"
+opt-level = 1
+# Not Cranelift (nightly only): it built patches in 5 to 6 seconds, but
+# dx's patches of its code never ran in the app (18 Nov).
+
+[profile.hotpatch.package."*"]
+opt-level = 2
