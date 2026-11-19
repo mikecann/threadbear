@@ -875,7 +875,8 @@ The icons down the right edge of the window open and close the thread's
 own panels: Highlights at the top, one for each panel its patches add,
 and Patches at the foot. To open a thread in a panel of its own, beside
 the one you're reading, right-click it in the list and pick Open in New
-Panel.
+Panel. The × at the end of its title bar closes it, and Move to Main
+Panel, on the same right-click menu, brings it back to the main panel.
 
 A patch's panel follows the thread you pick, and steps aside for a thread
 that doesn't have it. To keep one in view while you work in another
