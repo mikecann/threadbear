@@ -149,97 +149,120 @@ pub(crate) struct Panels {
     pub(crate) app: WeakEntity<Threadbear>,
 }
 
+// Each through the patch table: the dock holds this from launch (hot.rs).
 impl DockContent for Panels {
     fn title(&self, panel: &str, cx: &App) -> SharedString {
-        self.app.upgrade().map(|a| SharedString::from(a.read(cx).panel_title(panel))).unwrap_or_default()
+        crate::hot::call(|| {
+            self.app.upgrade().map(|a| SharedString::from(a.read(cx).panel_title(panel))).unwrap_or_default()
+        })
     }
 
     fn icon(&self, panel: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let color = cx.theme().muted_foreground;
-        if let Some(symbol) = panel_symbol(panel) {
-            return Some(icons::symbol(symbol).with_size(px(13.)).text_color(color).into_any_element());
-        }
-        // A patch's panel: its own picture or symbol, as on the rail.
-        let (found, thread) = self.patch_panel(panel, cx)?;
-        let symbol = threadbear_core::highlights::panel_symbol(&found).to_owned();
-        let icon = crate::patch_icons::patch_icon(found.icon_file.as_deref(), &symbol, 13., Some(color), thread.is_remote());
-        // A pinned one has a pin before it (pinned_panels.rs).
-        Some(if crate::pinned_panels::pinned(panel).is_some() { crate::pinned_panels::tab_icon(icon, cx) } else { icon })
+        crate::hot::call(|| {
+            let color = cx.theme().muted_foreground;
+            if let Some(symbol) = panel_symbol(panel) {
+                return Some(icons::symbol(symbol).with_size(px(13.)).text_color(color).into_any_element());
+            }
+            // A patch's panel: its own picture or symbol, as on the rail.
+            let (found, thread) = self.patch_panel(panel, cx)?;
+            let symbol = threadbear_core::highlights::panel_symbol(&found).to_owned();
+            let icon = crate::patch_icons::patch_icon(found.icon_file.as_deref(), &symbol, 13., Some(color), thread.is_remote());
+            // A pinned one has a pin before it (pinned_panels.rs).
+            Some(if crate::pinned_panels::pinned(panel).is_some() { crate::pinned_panels::tab_icon(icon, cx) } else { icon })
+        })
     }
 
     fn badge(&self, panel: &str, _window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        // Where a patch's panel came from, over its icon's corner, smaller
-        // than the rail's (`PanelOriginBadge(side: 11)` on a tab).
-        let (found, thread) = self.patch_panel(panel, cx)?;
-        let origin = threadbear_core::highlights::PanelOrigin::of_panel(&found, &thread.patches());
-        let icons = self.app.upgrade()?.read(cx).sidebar.project_icons.clone();
-        crate::patch_icons::origin_badge(&origin, crate::patch_icons::project_mark(&origin, &thread, &icons), 10., cx)
+        crate::hot::call(|| {
+            // Where a patch's panel came from, over its icon's corner, smaller
+            // than the rail's (`PanelOriginBadge(side: 11)` on a tab).
+            let (found, thread) = self.patch_panel(panel, cx)?;
+            let origin = threadbear_core::highlights::PanelOrigin::of_panel(&found, &thread.patches());
+            let icons = self.app.upgrade()?.read(cx).sidebar.project_icons.clone();
+            crate::patch_icons::origin_badge(&origin, crate::patch_icons::project_mark(&origin, &thread, &icons), 10., cx)
+        })
     }
 
     fn view(&self, panel: &str, ghost: bool, window: &mut Window, cx: &mut App) -> AnyElement {
-        match self.app.upgrade() {
-            Some(app) => app.update(cx, |t, cx| t.panel_view(panel, ghost, window, cx)),
-            None => div().into_any_element(),
-        }
+        crate::hot::call(|| {
+            match self.app.upgrade() {
+                Some(app) => app.update(cx, |t, cx| t.panel_view(panel, ghost, window, cx)),
+                None => div().into_any_element(),
+            }
+        })
     }
 
     fn header(&self, panel: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let app = self.app.upgrade()?;
-        // A thread in a panel of its own has its title line too (thread_panels.rs).
-        if crate::thread_panels::pinned_thread(panel).is_some() {
-            return app.update(cx, |t, cx| t.thread_panel_header(panel, cx));
-        }
-        if panel != MAIN {
-            return None;
-        }
-        Some(app.update(cx, |t, cx| t.render_header_title(window, cx)))
+        crate::hot::call(|| {
+            let app = self.app.upgrade()?;
+            // A thread in a panel of its own has its title line too (thread_panels.rs).
+            if crate::thread_panels::pinned_thread(panel).is_some() {
+                return app.update(cx, |t, cx| t.thread_panel_header(panel, cx));
+            }
+            if panel != MAIN {
+                return None;
+            }
+            Some(app.update(cx, |t, cx| t.render_header_title(window, cx)))
+        })
     }
 
     fn header_fills(&self, panel: &str, cx: &App) -> bool {
-        let Some(app) = self.app.upgrade() else { return false };
-        app.read(cx).header_is_renaming(panel)
+        crate::hot::call(|| {
+            let Some(app) = self.app.upgrade() else { return false };
+            app.read(cx).header_is_renaming(panel)
+        })
     }
 
     fn accessory(&self, panel: &str, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
-        let app = self.app.upgrade()?;
-        // A thread in a panel of its own: its Share and ... menu (thread_panels.rs).
-        if crate::thread_panels::pinned_thread(panel).is_some() {
-            return app.update(cx, |t, cx| t.thread_panel_buttons(panel, cx));
-        }
-        if panel != MAIN {
-            // A web panel's Back, Reload and Open in browser (web_panels.rs).
-            return app.update(cx, |t, cx| crate::web_panels::bar_buttons(t, panel, cx));
-        }
-        Some(app.update(cx, |t, cx| t.render_header_buttons(window, cx)))
+        crate::hot::call(|| {
+            let app = self.app.upgrade()?;
+            // A thread in a panel of its own: its Share and ... menu (thread_panels.rs).
+            if crate::thread_panels::pinned_thread(panel).is_some() {
+                return app.update(cx, |t, cx| t.thread_panel_buttons(panel, cx));
+            }
+            if panel != MAIN {
+                // A web panel's Back, Reload and Open in browser (web_panels.rs).
+                return app.update(cx, |t, cx| crate::web_panels::bar_buttons(t, panel, cx));
+            }
+            Some(app.update(cx, |t, cx| t.render_header_buttons(window, cx)))
+        })
     }
 
     fn closable(&self, panel: &str, _cx: &App) -> bool {
-        panel != MAIN
+        crate::hot::call(|| {
+            panel != MAIN
+        })
     }
 
     fn available(&self, panel: &str, cx: &App) -> bool {
-        let Some(app) = self.app.upgrade() else { return true };
-        app.read(cx).panel_available(panel, cx)
+        crate::hot::call(|| {
+            let Some(app) = self.app.upgrade() else { return true };
+            app.read(cx).panel_available(panel, cx)
+        })
     }
 
     /// Pin on a thread's patch panel, Unpin on a pinned one (pinned_panels.rs).
     fn menu_items(&self, panel: &str, cx: &App) -> Vec<threadbear_dock::DockMenuItem> {
-        let Some(app) = self.app.upgrade() else { return vec![] };
-        let Some(label) = app.read(cx).pin_menu_label(panel) else { return vec![] };
-        let icon = if label == "Unpin" { gpui_kit::assets::IconName::PinOff } else { gpui_kit::assets::IconName::Pin };
-        let (weak, panel) = (self.app.clone(), panel.to_owned());
-        vec![threadbear_dock::DockMenuItem {
-            label: label.into(),
-            icon: Some(icon),
-            on_click: std::rc::Rc::new(move |_, cx| {
-                weak.update(cx, |t, cx| t.choose_pin_menu(&panel, cx)).ok();
-            }),
-        }]
+        crate::hot::call(|| {
+            let Some(app) = self.app.upgrade() else { return vec![] };
+            let Some(label) = app.read(cx).pin_menu_label(panel) else { return vec![] };
+            let icon = if label == "Unpin" { gpui_kit::assets::IconName::PinOff } else { gpui_kit::assets::IconName::Pin };
+            let (weak, panel) = (self.app.clone(), panel.to_owned());
+            vec![threadbear_dock::DockMenuItem {
+                label: label.into(),
+                icon: Some(icon),
+                on_click: std::rc::Rc::new(move |_, cx| {
+                    weak.update(cx, |t, cx| t.choose_pin_menu(&panel, cx)).ok();
+                }),
+            }]
+        })
     }
 
     /// A pinned panel's tab says whose it is.
     fn tip(&self, panel: &str, cx: &App) -> Option<SharedString> {
-        self.app.upgrade()?.read(cx).pinned_tip(panel).map(SharedString::from)
+        crate::hot::call(|| {
+            self.app.upgrade()?.read(cx).pinned_tip(panel).map(SharedString::from)
+        })
     }
 }
 
