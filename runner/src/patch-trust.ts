@@ -196,7 +196,7 @@ export interface PatchTrustStore extends PatchGate {
   // a card's approval, from a thread that asks first, which throws unless
   // that's what's there now and it can all be followed.
   approveCheck(command: string, cwd: string, card?: CheckCard): void;
-  checkApproved(command: string, cwd: string): { approved: boolean; hash: string };
+  checkApproved(command: string, cwd: string): { approved: boolean; hash: string; why?: string };
   save(): void;
 }
 
@@ -508,6 +508,7 @@ export class PatchTrust implements PatchTrustStore {
   }
 
   approveCheck(command: string, cwd: string, card?: CheckCard): void {
+    if (this.checksHeld(cwd)) throw new Error(WINDOWS_CHECK);
     if (card) {
       const now = checkDigest(command, cwd);
       if (now.problem) throw new Error(`A schedule's check runs by itself, so what it runs must be something Threadbear can hash, and it can't follow this: ${now.problem} Nothing changed. Put it in a shell script or JavaScript it can follow.`);
@@ -519,10 +520,22 @@ export class PatchTrust implements PatchTrustStore {
 
   // A stored approval only ever comes from approveCheck, on this runner, so
   // a row the backend (or another runner) wrote finds nothing here.
-  checkApproved(command: string, cwd: string): { approved: boolean; hash: string } {
+  checkApproved(command: string, cwd: string): { approved: boolean; hash: string; why?: string } {
     this.load();
     const { hash } = this.digestOf(command, cwd);
+    if (this.checksHeld(cwd)) return { approved: false, hash, why: WINDOWS_CHECK };
     return { approved: (this.folders.get(folderKeyOfDir(cwd)) ?? []).includes(CHECK_PREFIX + hash), hash };
+  }
+
+  // Windows, for now (platform.ts, clicksOnly): a check runs by itself, so
+  // one in a repo's folder doesn't run at all, whatever was approved. One
+  // in Threadbear's own checkout, or in a folder no repo holds (home, say),
+  // nothing pulled can change under it, and still runs.
+  private checksHeld(cwd: string): boolean {
+    if (!clicksOnly()) return false;
+    if (this.alwaysFor(folderKeyOfDir(cwd), cwd)) return false;
+    const real = realpath(path.resolve(cwd));
+    return fs.existsSync(path.join(repoTop(real), '.git'));
   }
 
   // Threadbear's own checkout runs whatever it holds, so there only the
@@ -1392,6 +1405,8 @@ function repoTop(dir: string): string {
     if (path.dirname(d) === d) return dir;
   }
 }
+
+const WINDOWS_CHECK = "On Windows, for now, a schedule's check doesn't run in a repo's folder, as it would run by itself: following what it runs there still has gaps. Give the schedule a folder outside any repo, or no check.";
 
 const PICTURES = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.icns', '.pdf', '.heic'];
 

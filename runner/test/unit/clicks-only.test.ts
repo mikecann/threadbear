@@ -3,7 +3,8 @@
 // themselves there for now, only the buttons that are clicked. The unit
 // tests turn it off (test/helpers/clean-env.ts); this file turns it on, so
 // it runs the same on a Mac as on Windows.
-import { test, before, after } from 'node:test';
+import '../helpers/clicks-only-on.ts';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,16 +13,6 @@ import { applyLive, findWorktreePatch, loadPatchSet, renderListPanel } from '../
 import { PatchTrust } from '../../src/patch-trust.ts';
 import { clicksOnly, CLICKS_ONLY_NOTE } from '../../src/platform.ts';
 
-let saved: string | undefined;
-before(() => {
-  saved = process.env.THREADBEAR_CLICKS_ONLY;
-  process.env.THREADBEAR_CLICKS_ONLY = '1';
-});
-after(() => {
-  if (saved === undefined) delete process.env.THREADBEAR_CLICKS_ONLY;
-  else process.env.THREADBEAR_CLICKS_ONLY = saved;
-});
-
 function write(folder: string, files: Record<string, string>): void {
   for (const [name, body] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
@@ -29,7 +20,11 @@ function write(folder: string, files: Record<string, string>): void {
   }
 }
 
-test('on Windows it is on, and only the test value 0 turns it off; elsewhere only 1 turns it on', () => {
+test('on Windows it is on, and only the test value 0 turns it off; elsewhere only 1 turns it on; read once, as it loads', () => {
+  assert.equal(clicksOnly(), true);
+  process.env.THREADBEAR_CLICKS_ONLY = '0';
+  assert.equal(clicksOnly(), true, 'a later change to process.env does nothing');
+  process.env.THREADBEAR_CLICKS_ONLY = '1';
   assert.equal(clicksOnly({}, 'win32'), true);
   assert.equal(clicksOnly({ THREADBEAR_CLICKS_ONLY: '' }, 'win32'), true);
   assert.equal(clicksOnly({ THREADBEAR_CLICKS_ONLY: 'false' }, 'win32'), true);
@@ -61,6 +56,7 @@ test("a trusted project patch keeps its buttons and panels, but its hooks, setup
   const w = await findWorktreePatch(folder, root, new Map(), undefined, trust);
   assert.ok(w, 'its worktree settings still load');
   assert.equal(w.setup, undefined, 'no setup, or it would run as written');
+  assert.equal(w.heldSetup, './scripts/setup.sh', 'kept aside, to say it did not run');
   assert.equal(w.setupRun, undefined);
   assert.equal(w.teardown, undefined);
   assert.equal(w.teardownRun, undefined);
@@ -126,4 +122,19 @@ test("a folder's Claude Code hooks stay off, even once trusted", () => {
   assert.ok(!v.trusted && v.reason === 'unchecked' && /on Windows/.test(v.problem ?? ''), JSON.stringify(v));
   if (!v.trusted && v.hash) trust.trustClaude(dir, v.hash);
   assert.equal(trust.checkClaude(dir).trusted, false, 'a stored yes changes nothing');
+});
+
+test("a schedule's check in a repo's folder is held, whatever was approved; one outside any repo isn't", () => {
+  const root = tmpDir();
+  const repo = path.join(root, 'repo');
+  write(repo, { '.git/HEAD': 'ref: refs/heads/main\n', 'check.sh': 'echo hi\n' });
+  const loose = path.join(root, 'loose');
+  write(loose, { 'check.sh': 'echo hi\n' });
+  const trust = new PatchTrust({ file: path.join(root, 'trust.json') });
+  assert.throws(() => trust.approveCheck('./check.sh', repo), /On Windows/);
+  const held = trust.checkApproved('./check.sh', repo);
+  assert.equal(held.approved, false);
+  assert.match(held.why ?? '', /On Windows/);
+  trust.approveCheck('./check.sh', loose);
+  assert.equal(trust.checkApproved('./check.sh', loose).approved, true);
 });

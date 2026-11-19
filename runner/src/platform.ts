@@ -23,8 +23,12 @@ export const IS_WINDOWS = process.platform === 'win32';
 // (test/helpers/clean-env.ts), as most check what the follow lets run once
 // this goes, and clicks-only.test.ts turns it on. The runner's own
 // variables are set by its Scheduled Task, which no thread can change.
-export function clicksOnly(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
-  const set = env.THREADBEAR_CLICKS_ONLY;
+// Read once, as this loads, before any patch's code runs in the runner's
+// process: one that set process.env later would otherwise turn the rule
+// off (Codex's review, 19 Nov).
+const CLICKS_ONLY_SET = process.env.THREADBEAR_CLICKS_ONLY;
+export function clicksOnly(env?: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): boolean {
+  const set = env ? env.THREADBEAR_CLICKS_ONLY : CLICKS_ONLY_SET;
   return set === '1' || (platform === 'win32' && set !== '0');
 }
 

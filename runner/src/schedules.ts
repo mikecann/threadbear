@@ -1441,15 +1441,17 @@ export class Scheduler {
   // that's gone counts, as the check would run somewhere else (runCheck).
   private heldCheck(command: string, cwd: string, id: string): { skip: string } | Carried | undefined {
     let hash: string;
+    let why: string | undefined;
     try {
       const v = this.runner.patchTrust.checkApproved(command, cwd);
       if (v.approved && fs.existsSync(cwd)) return undefined;
       hash = v.hash;
+      why = v.why;
     } catch (e) {
       hash = `unreadable: ${String(e)}`;
     }
-    if (heldToldAbout(this.home, id) === hash) return { skip: HELD_SKIP };
-    return { extra: HELD_EXTRA, held: hash };
+    if (heldToldAbout(this.home, id) === hash) return { skip: why ?? HELD_SKIP };
+    return { extra: why ? `\n\nIts check wasn't run: ${why}` : HELD_EXTRA, held: hash };
   }
 
   // Run now doesn't run the check, but sends what it kept and no thread

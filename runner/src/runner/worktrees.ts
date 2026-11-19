@@ -9,6 +9,7 @@ import type { ThreadRecord } from '../store.ts';
 import { BIN_DIR, threadEnv } from '../restart.ts';
 import { cleanUpWorktree, clearBuildCaches, makeWorktree, readPlainFile, realpath, sameSubfolder, stillCheckedOut, worktreeFolderNow, worktreeGone, type WorktreeRecord } from '../worktrees.ts';
 import { isDirectory } from '../fsutil.ts';
+import { CLICKS_ONLY_NOTE } from '../platform.ts';
 import { sweepBorrows } from '../borrows.ts';
 import type { Logger } from '../log.ts';
 import { automaticTrust, findWorktreePatch, isInside, readWorktreePatch, runCommand, type PatchSet, type WorktreePatch, worktreePatchFiles } from '../patches.ts';
@@ -101,6 +102,10 @@ export const worktreesPart = {
   // Whether the setup ran and passed: undefined when it didn't run.
   async setUpWorktree(this: Runner, st: ThreadState, made: { worktree: WorktreeRecord; patchFile: string }, patch: WorktreePatch, turnId?: string): Promise<boolean | undefined> {
     const { rec, rt } = st;
+    if (patch.heldSetup && !patch.setup) {
+      this.emit(st, { type: 'system.note', text: `Didn't run the worktree's setup (${patch.heldSetup}): ${CLICKS_ONLY_NOTE}` }, turnId);
+      return;
+    }
     if (!patch.setup) return;
     const copy = await this.worktreeCopy(made.patchFile, patch.patch, 'setup');
     if (rt.deleted) return;

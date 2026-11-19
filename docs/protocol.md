@@ -4410,7 +4410,10 @@ panels or hooks, no live functions, and no worktree for new threads.
   command. The patch's `liveError` says so. Following a script there still
   has gaps a repo written against it could use (`clicksOnly` in
   `src/platform.ts`). Home patches and Threadbear's own, which load
-  without a hash, are as on a Mac.
+  without a hash, are as on a Mac. A schedule's check in a repo's folder
+  (outside Threadbear's own checkout) doesn't run there either, approved
+  or not: the run goes ahead without it and says why. The rule is read
+  once as the runner starts.
 - Trust is kept per folder (the one holding `.threadbear/`) as the
   SHA-256 hashes of the patch files trusted there, in `patch-trust.json`
   in the data dir. `untrusted` is `"new"` when nothing from that folder

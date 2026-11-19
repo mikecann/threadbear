@@ -97,7 +97,7 @@ type LoadedPatch = { info: PatchInfo; panels: Panel[]; actions: Action[]; hooks:
 // branch landed by a squashed PR never counts as merged here.
 // `setupRun` and `teardownRun` are `setup` and `teardown` as they run, for
 // a patch trusted by its hash (bindAutomatic); absent, they run as written.
-export type WorktreeConfig = { setup?: string; check?: string; teardown?: string; keep?: string[]; setupRun?: string; teardownRun?: string };
+export type WorktreeConfig = { setup?: string; check?: string; teardown?: string; keep?: string[]; setupRun?: string; teardownRun?: string; heldSetup?: string };
 
 // A folder of one of the thread's projects.
 export type ProjectFolder = { folder: string; projectId: string };
@@ -622,8 +622,9 @@ function bindAutomatic(loaded: LoadedPatch, file: string, files: string[], block
   }
   let worktree = loaded.worktree;
   if (quiet && worktree) {
-    const { setup: _setup, teardown: _teardown, ...rest } = worktree;
-    worktree = rest;
+    // `heldSetup`, so a new worktree's thread is told its setup didn't run.
+    const { setup, teardown: _teardown, ...rest } = worktree;
+    worktree = { ...rest, ...(setup ? { heldSetup: setup } : {}) };
   }
   if (worktree?.setup) {
     const bound = automaticCommand(worktree.setup, folder, files, blocked);

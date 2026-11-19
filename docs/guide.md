@@ -336,7 +336,9 @@ On Windows, for now, a project's patches only run what you click: their
 buttons work, but their hooks, worktree setup and teardown, and the commands
 their panels and badges run don't run, even once you've trusted the patch.
 A folder's Claude Code hooks and the settings that run commands stay off
-too. Patches says so beside each patch it affects.
+too. Patches says so beside each patch it affects, and a new worktree's
+thread says when its setup didn't run. A schedule's check doesn't run in a
+repo's folder either.
 
 The Browser panel, the globe on a thread's right-hand rail, lists the pages a
 thread's agents have open through [BrowserBear](https://github.com/mikecann/browserbear):
