@@ -349,6 +349,9 @@ case "${1:-}" in
 </plist>
 PLIST
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
+    # bootout returns before the old agent has gone, and bootstrap fails
+    # with an I/O error while it's there.
+    for _ in $(seq 1 50); do launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break; sleep 0.2; done
     launchctl bootstrap "gui/$(id -u)" "$AGENT" && echo "Started. The live app opens once dx has built it; follow it in $LOGS/follow.log." ;;
   stop)
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
