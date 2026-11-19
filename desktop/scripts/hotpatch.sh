@@ -237,6 +237,9 @@ swap() {
   SHOWN="$new"
   stop_dx "$old_pid" "$old_slot"
   rm -f "$HOME_DIR/ready"
+  # The build that made it is done; left set, the next look took it for a
+  # failed build of the other checkout.
+  BUILD_PID=""
   record_live
   say "swapped to the full build in $(basename "$LIVE") at $(gl rev-parse --short HEAD)"
   notify "Threadbear is on a full build of $(gl log -1 --no-merges --format=%s)"
