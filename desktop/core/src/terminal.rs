@@ -209,7 +209,7 @@ const ESC: u8 = 0x1b;
 /// The bytes a terminal sends for `key`, the way xterm and Terminal do.
 pub fn encode_key(key: &Key, modes: Modes) -> KeyAction {
     if key.command {
-        return KeyAction::Pass;
+        return command_key(key, modes);
     }
     let meta = key.alt && modes.option_is_meta;
     // xterm's modifier parameter: 1 plus shift 1, alt 2, control 4.
@@ -311,6 +311,34 @@ pub fn encode_key(key: &Key, modes: Modes) -> KeyAction {
     };
     KeyAction::Send(action)
 }
+
+/// A ⌘ key the terminal keeps, as the Mac's text fields have them (and VS
+/// Code's, Ghostty's and iTerm2's Natural Text Editing terminals): ⌘⌫ deletes
+/// back to the start of the line (^U), ⌘← and ⌘→ go to its start and end
+/// (^A, ^E). A full-screen program gets Home and End for ⌘← and ⌘→, as ^A
+/// there is vim's "add one to the number" and ^U its "scroll up", and ⌘⌫
+/// passes. Every other ⌘ key is the app's (⌘J, ⌘K, ⌘N...).
+fn command_key(key: &Key, modes: Modes) -> KeyAction {
+    if key.shift || key.control || key.alt {
+        return KeyAction::Pass;
+    }
+    let app_cursor_end = |letter: char| -> Vec<u8> {
+        let lead = if modes.app_cursor { 'O' } else { '[' };
+        format!("\x1b{lead}{letter}").into_bytes()
+    };
+    match (key.key, modes.alt_screen) {
+        ("backspace", false) => KeyAction::Send(vec![0x15]),
+        ("left", false) => KeyAction::Send(vec![0x01]),
+        ("right", false) => KeyAction::Send(vec![0x05]),
+        ("left", true) => KeyAction::Send(app_cursor_end('H')),
+        ("right", true) => KeyAction::Send(app_cursor_end('F')),
+        _ => KeyAction::Pass,
+    }
+}
+
+/// Whether a ⌘ key is one the terminal sends to the shell (`command_key`),
+/// for the key bindings that keep it from the app's own commands.
+pub const COMMAND_KEYS: [&str; 3] = ["backspace", "left", "right"];
 
 /// Control and a key, as the C0 code a terminal sends: ^A is 1, ^[ is ESC,
 /// ^@ and ^Space are NUL, and the number row stands for the symbols on it as
@@ -641,7 +669,9 @@ pub fn step(block: &ShellBlock, shell_in_front: bool, bracketed_paste: bool, sta
 /// `key` being GPUI's name for it. Return (on its own) and ^C leave an empty
 /// prompt; ⌘ keys aren't input (⌘V arrives as a paste); anything else edits it.
 pub fn line_after_key(line: &Line, key: &str, control: bool, alt: bool, shift: bool, command: bool) -> Line {
-    if command {
+    // ⌘⌫, ⌘← and ⌘→ are line editing keys (^U, ^A, ^E), which a shell can
+    // bind to anything, so what's on the prompt is no longer known.
+    if command && !(COMMAND_KEYS.contains(&key) && !control && !alt && !shift) {
         return line.clone();
     }
     if key == "enter" && !control && !alt && !shift {
@@ -794,6 +824,12 @@ pub fn local_file_url(link: &str, hostname: &str) -> Option<String> {
 /// The printed address/path under a terminal cell. OSC 8 links use their
 /// explicit URI instead; this is for ordinary build output and shell text.
 pub fn link_word(chars: &[char], at: usize) -> Option<String> {
+    link_word_span(chars, at).map(|span| chars[span].iter().collect())
+}
+
+/// Where `link_word` finds its word: the characters it covers, so the
+/// Terminal can underline the link under the pointer.
+pub fn link_word_span(chars: &[char], at: usize) -> Option<std::ops::Range<usize>> {
     let boundary = |c: char| c.is_whitespace() || "\"'<>`".contains(c) || c.is_control();
     if at >= chars.len() || boundary(chars[at]) { return None; }
     let mut first = at;
@@ -806,7 +842,37 @@ pub fn link_word(chars: &[char], at: usize) -> Option<String> {
         let unmatched = [(')', '('), (']', '['), ('}', '{')].iter().any(|(close, open)| tail == *close && chars[first..last].iter().filter(|c| **c == *close).count() > chars[first..last].iter().filter(|c| **c == *open).count());
         if first < last && (".,;!".contains(tail) || unmatched) { last -= 1; } else { break; }
     }
-    (first <= at && at < last && last - first <= 4096).then(|| chars[first..last].iter().collect())
+    (first <= at && at < last && last - first <= 4096).then_some(first..last)
+}
+
+/// Whether the pointer over a link underlines it: a web address, as only
+/// those are what the underline promises (TerminalPanel.swift's `webLink`).
+/// Paths and other links still open with ⌘-click, through the open gate.
+pub fn underlines(link: &str) -> bool {
+    ["http://", "https://"].iter().any(|scheme| link.get(..scheme.len()).is_some_and(|s| s.eq_ignore_ascii_case(scheme)) && link.len() > scheme.len())
+}
+
+/// A Terminal tab's title (`TerminalTab.title`): the name you gave it, or
+/// the one the shell gave itself, or "Terminal 2" by its number.
+pub fn tab_title(name: Option<&str>, shell_title: &str, number: usize) -> String {
+    if let Some(name) = name {
+        return name.to_owned();
+    }
+    let own = shell_title.trim();
+    if own.is_empty() { format!("Terminal {number}") } else { own.to_owned() }
+}
+
+/// A name typed for a tab: trimmed and at most 60 characters, and none at
+/// all when it's empty, which goes back to the shell's own.
+pub fn tab_name(typed: &str) -> Option<String> {
+    let name = typed.trim();
+    (!name.is_empty()).then(|| name.chars().take(60).collect())
+}
+
+/// The number for a new tab: the lowest one no open tab has, as
+/// Terminal.app numbers its windows.
+pub fn next_tab_number(taken: &[usize]) -> usize {
+    (1..).find(|n| !taken.contains(n)).unwrap_or(1)
 }
 
 pub fn link_target(link: &str, folder: &str, home: &str, exists: impl Fn(&str) -> bool) -> Option<Link> {
@@ -842,6 +908,214 @@ fn without_line_number(path: &str) -> Option<&str> {
         }
     }
     (rest.len() < path.len()).then_some(rest)
+}
+
+// ---------------------------------------------------------------- Terminal.app's comforts
+
+/// `text` as a shell would read it back as one word, as Terminal.app types a
+/// file dropped on it and Paste Escaped Text: plain words as they are, the
+/// rest with a backslash before each special character, and anything with a
+/// line break in it in single quotes (a backslash before a line break would
+/// join the lines rather than keep the break).
+pub fn shell_escaped(text: &str) -> String {
+    let plain = |c: char| c.is_alphanumeric() || "_-./,:@%+=^".contains(c);
+    if !text.is_empty() && text.chars().all(plain) {
+        return text.to_owned();
+    }
+    if text.is_empty() || text.contains(['\n', '\r']) {
+        return format!("'{}'", text.replace('\'', "'\\''"));
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if !plain(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Dropped files, as Terminal.app types them: each path escaped, a space
+/// between and one after, so the next word can follow.
+pub fn dropped_paths(paths: &[String]) -> String {
+    let mut out: Vec<String> = paths.iter().filter(|p| !p.is_empty()).map(|p| shell_escaped(p)).collect();
+    if out.is_empty() {
+        return String::new();
+    }
+    out.push(String::new());
+    out.join(" ")
+}
+
+/// ⌥-click on the prompt, as Terminal.app has it: the arrow keys that take
+/// the cursor from where it is to the clicked cell, counting along the line
+/// as it wraps (`cols` wide). Rows are the screen's. None when it's where it
+/// is already, or farther than a long command could be.
+pub fn cursor_moves(from: (usize, usize), to: (usize, usize), cols: usize, app_cursor: bool) -> Option<Vec<u8>> {
+    let at = |(col, row): (usize, usize)| (row * cols + col.min(cols.saturating_sub(1))) as i64;
+    let distance = at(to) - at(from);
+    if distance == 0 || cols == 0 || distance.unsigned_abs() > 4000 {
+        return None;
+    }
+    let lead = if app_cursor { 'O' } else { '[' };
+    let arrow = format!("\x1b{lead}{}", if distance > 0 { 'C' } else { 'D' });
+    Some(arrow.repeat(distance.unsigned_abs() as usize).into_bytes())
+}
+
+/// The mark to jump to from the line at the top of the view (⌘↑ and ⌘↓),
+/// marks being lines counted from the top of the scrollback (`Marks`): the
+/// nearest above it, or below it. None when there isn't one that way.
+pub fn next_mark(marks: &[i64], top: i64, up: bool) -> Option<i64> {
+    if up {
+        marks.iter().copied().filter(|&m| m < top).max()
+    } else {
+        marks.iter().copied().filter(|&m| m > top).min()
+    }
+}
+
+/// Lines Return was pressed on at the shell's prompt (Terminal.app's marks),
+/// counted from the top of the scrollback, so ⌘↑ and ⌘↓ go from one command
+/// to the next. Scrollback that fills up drops lines from its top, so the
+/// lines drop by as much, and marks scrolled off go.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Marks {
+    lines: Vec<i64>,
+}
+
+impl Marks {
+    pub const MAX: usize = 1000;
+
+    pub fn add(&mut self, line: i64) {
+        if self.lines.last() == Some(&line) {
+            return;
+        }
+        self.lines.retain(|&l| l < line);
+        self.lines.push(line);
+        if self.lines.len() > Self::MAX {
+            self.lines.remove(0);
+        }
+    }
+
+    /// The scrollback lost `lines` from its top.
+    pub fn dropped(&mut self, lines: i64) {
+        if lines <= 0 {
+            return;
+        }
+        self.lines.retain_mut(|l| {
+            *l -= lines;
+            *l >= 0
+        });
+    }
+
+    pub fn clear(&mut self) {
+        self.lines.clear();
+    }
+
+    pub fn lines(&self) -> &[i64] {
+        &self.lines
+    }
+}
+
+/// What's typed in the terminal's Find field as the pattern the terminal's
+/// search takes: the words as they are (every special character escaped),
+/// matching either case, as Terminal.app's Find does by default.
+pub fn find_pattern(typed: &str) -> Option<String> {
+    if typed.is_empty() {
+        return None;
+    }
+    let mut out = String::from("(?i)");
+    for c in typed.chars() {
+        if "\\.+*?()|[]{}^$#&-~".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    Some(out)
+}
+
+/// "3 of 12" under the Find field, or "Not found".
+pub fn find_count(at: Option<usize>, total: usize, capped: bool) -> String {
+    match (at, total) {
+        (_, 0) => "Not found".to_owned(),
+        (Some(at), total) => format!("{} of {}{}", at + 1, total, if capped { "+" } else { "" }),
+        (None, total) => format!("{}{} found", total, if capped { "+" } else { "" }),
+    }
+}
+
+/// The tab ⌃Tab and ⌃⇧Tab go to, round from the last to the first.
+pub fn cycled_tab(current: usize, count: usize, back: bool) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    if back { (current + count - 1) % count } else { (current + 1) % count }
+}
+
+/// How many of a shell's last lines are kept for when Threadbear opens again
+/// (`SavedTabs`), as Terminal.app brings back a window's text.
+pub const SAVED_LINES: usize = 1000;
+
+/// A thread's shells as they were when Threadbear quit: each tab's name and
+/// its last lines of text. Read back when the thread's terminal next opens,
+/// then removed, so text is never brought back twice or kept for long.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedTabs {
+    pub tabs: Vec<SavedTab>,
+    #[serde(default)]
+    pub current: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedTab {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub text: String,
+}
+
+/// The file a thread's saved shells go in: one per thread under the folder
+/// given, named for the key so a thread id can't reach outside it.
+pub fn saved_file_name(key: &TerminalKey) -> String {
+    match key {
+        TerminalKey::Home => "home.json".to_owned(),
+        TerminalKey::Thread(id) => {
+            let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(80).collect();
+            format!("thread-{safe}.json")
+        }
+    }
+}
+
+/// A shell's text as it's saved: its last `SAVED_LINES` lines, trailing
+/// blank lines gone, with no control characters (so text read back can't
+/// change the terminal's modes or run anything).
+pub fn saved_text(lines: &[String]) -> String {
+    let mut lines: Vec<&str> = lines.iter().map(|l| l.as_str()).collect();
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    let start = lines.len().saturating_sub(SAVED_LINES);
+    lines[start..].iter().map(|l| l.chars().filter(|c| !c.is_control() || *c == '\t').collect::<String>()).collect::<Vec<_>>().join("\n")
+}
+
+/// When saved text is from, as its "Restored from" line says it: "Nov 18,
+/// 9:41 PM", in this Mac's time.
+pub fn saved_when(saved: std::time::SystemTime) -> String {
+    chrono::DateTime::<chrono::Local>::from(saved).format("%b %-d, %-I:%M %p").to_string()
+}
+
+/// Saved text as the bytes the terminal shows before the new shell's
+/// prompt: dimmed, each line ending in CR LF, then a line saying where it's
+/// from. Control characters are taken out again, in case the file was
+/// edited.
+pub fn restored_bytes(text: &str, when: &str) -> Vec<u8> {
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+    let mut out = String::from("\x1b[2m");
+    for line in text.lines() {
+        out.extend(line.chars().filter(|c| !c.is_control() || *c == '\t'));
+        out.push_str("\r\n");
+    }
+    out.push_str(&format!("\x1b[0m\x1b[2m--- Restored from {when} ---\x1b[0m\r\n"));
+    out.into_bytes()
 }
 
 #[cfg(test)]
@@ -1272,11 +1546,137 @@ mod tests {
     }
 
     #[test]
+    fn a_link_under_the_pointer_knows_its_cells() {
+        let span = |line: &str, at| link_word_span(&line.chars().collect::<Vec<_>>(), at);
+        assert_eq!(span("open http://localhost:5173/ now", 9), Some(5..27));
+        assert_eq!(span("open http://localhost:5173/ now", 2), Some(0..4));
+        assert_eq!(span("open http://localhost:5173/ now", 4), None);
+        assert_eq!(span("see https://example.com/a, ok", 6), Some(4..25), "the trailing comma isn't the link's");
+        assert!(underlines("http://localhost:5173/"));
+        assert!(underlines("HTTPS://example.com"));
+        assert!(!underlines("src/main.rs:12"));
+        assert!(!underlines("file:///tmp/a"));
+        assert!(!underlines("https://"));
+    }
+
+    #[test]
+    fn terminal_tabs_are_named_and_numbered() {
+        assert_eq!(tab_title(None, "", 2), "Terminal 2");
+        assert_eq!(tab_title(None, "  vim notes.md ", 1), "vim notes.md");
+        assert_eq!(tab_title(Some("Dev server"), "zsh", 1), "Dev server");
+        assert_eq!(tab_name("  Dev server "), Some("Dev server".to_owned()));
+        assert_eq!(tab_name("   "), None);
+        assert_eq!(tab_name(&"x".repeat(80)).map(|n| n.len()), Some(60));
+        assert_eq!(next_tab_number(&[]), 1);
+        assert_eq!(next_tab_number(&[1, 2]), 3);
+        assert_eq!(next_tab_number(&[1, 3]), 2);
+    }
+
+    #[test]
     fn a_file_hyperlink_can_name_only_this_exact_machine() {
         assert_eq!(local_file_url("file://MY-MAC.local/tmp/a%20b.command", "my-mac.local").as_deref(), Some("file:///tmp/a%20b.command"));
         for uri in ["file://my-mac.local.evil/tmp/a", "file://my-mac/tmp/a", "file://user@my-mac.local/tmp/a", "file://my-mac.local:1/tmp/a", "file://other/tmp/a", "https://my-mac.local/a"] {
             assert_eq!(local_file_url(uri, "my-mac.local"), None, "{uri}");
         }
         assert_eq!(local_file_url("file:///tmp/a", ""), None);
+    }
+
+    #[test]
+    fn mac_line_editing_keys() {
+        let cmd = |key: &str, modes: Modes| encode_key(&Key { key, command: true, ..Default::default() }, modes);
+        let shell = Modes { option_is_meta: true, ..Default::default() };
+        assert_eq!(cmd("backspace", shell), bytes("\x15"));
+        assert_eq!(cmd("left", shell), bytes("\x01"));
+        assert_eq!(cmd("right", shell), bytes("\x05"));
+        let vim = Modes { app_cursor: true, alt_screen: true, option_is_meta: true };
+        assert_eq!(cmd("left", vim), bytes("\x1bOH"));
+        assert_eq!(cmd("right", vim), bytes("\x1bOF"));
+        assert_eq!(cmd("backspace", vim), KeyAction::Pass);
+        // The app's own keys stay the app's.
+        assert_eq!(cmd("k", shell), KeyAction::Pass);
+        assert_eq!(cmd("j", shell), KeyAction::Pass);
+        let shifted = encode_key(&Key { key: "left", command: true, shift: true, ..Default::default() }, shell);
+        assert_eq!(shifted, KeyAction::Pass);
+    }
+
+    #[test]
+    fn line_editing_keys_edit_the_prompt() {
+        let put = Line::Put("ls".into());
+        assert_eq!(line_after_key(&put, "backspace", false, false, false, true), Line::Edited);
+        assert_eq!(line_after_key(&put, "left", false, false, false, true), Line::Edited);
+        assert_eq!(line_after_key(&put, "j", false, false, false, true), put);
+    }
+
+    #[test]
+    fn escapes_for_the_shell() {
+        assert_eq!(shell_escaped("/Users/me/notes.md"), "/Users/me/notes.md");
+        assert_eq!(shell_escaped("/Users/me/My File (1).txt"), "/Users/me/My\\ File\\ \\(1\\).txt");
+        assert_eq!(shell_escaped("it's $HOME"), "it\\'s\\ \\$HOME");
+        assert_eq!(shell_escaped("two\nlines"), "'two\nlines'");
+        assert_eq!(shell_escaped("don't\nstop"), "'don'\\''t\nstop'");
+        assert_eq!(shell_escaped(""), "''");
+        assert_eq!(dropped_paths(&["/a b".into(), "/c".into()]), "/a\\ b /c ");
+        assert_eq!(dropped_paths(&[]), "");
+    }
+
+    #[test]
+    fn option_click_moves_the_cursor_along_the_line() {
+        assert_eq!(cursor_moves((5, 2), (8, 2), 80, false), Some(b"\x1b[C\x1b[C\x1b[C".to_vec()));
+        assert_eq!(cursor_moves((5, 2), (3, 2), 80, true), Some(b"\x1bOD\x1bOD".to_vec()));
+        // Wrapped onto the next row: the rest of this row, then into the next.
+        assert_eq!(cursor_moves((78, 0), (1, 1), 80, false).map(|b| b.len() / 3), Some(3));
+        assert_eq!(cursor_moves((5, 2), (5, 2), 80, false), None);
+        assert_eq!(cursor_moves((0, 0), (0, 100), 80, false), None);
+    }
+
+    #[test]
+    fn marks_jump_between_commands_and_follow_the_scrollback() {
+        let mut marks = Marks::default();
+        for line in [10, 20, 30] {
+            marks.add(line);
+        }
+        marks.add(30);
+        assert_eq!(marks.lines(), &[10, 20, 30]);
+        assert_eq!(next_mark(marks.lines(), 25, true), Some(20));
+        assert_eq!(next_mark(marks.lines(), 25, false), Some(30));
+        assert_eq!(next_mark(marks.lines(), 10, true), None);
+        marks.dropped(15);
+        assert_eq!(marks.lines(), &[5, 15]);
+        // A clear makes earlier lines new ones: later marks give way.
+        marks.add(3);
+        assert_eq!(marks.lines(), &[3]);
+    }
+
+    #[test]
+    fn find_takes_words_as_they_are() {
+        assert_eq!(find_pattern(""), None);
+        assert_eq!(find_pattern("error").as_deref(), Some("(?i)error"));
+        assert_eq!(find_pattern("a.b (c)").as_deref(), Some("(?i)a\\.b \\(c\\)"));
+        assert_eq!(find_count(Some(2), 12, false), "3 of 12");
+        assert_eq!(find_count(None, 0, false), "Not found");
+        assert_eq!(find_count(Some(0), 500, true), "1 of 500+");
+    }
+
+    #[test]
+    fn control_tab_goes_round() {
+        assert_eq!(cycled_tab(0, 3, false), 1);
+        assert_eq!(cycled_tab(2, 3, false), 0);
+        assert_eq!(cycled_tab(0, 3, true), 2);
+        assert_eq!(cycled_tab(0, 0, true), 0);
+    }
+
+    #[test]
+    fn saved_shells_keep_only_plain_text() {
+        let lines: Vec<String> = (0..1200).map(|n| format!("line {n}")).chain(["\x1b[31mred\x07".to_owned(), String::new(), "  ".to_owned()]).collect();
+        let text = saved_text(&lines);
+        assert_eq!(text.lines().count(), SAVED_LINES);
+        assert!(text.ends_with("[31mred"));
+        assert!(!text.contains('\x1b'));
+        let shown = String::from_utf8(restored_bytes("a\n\x1b]52;c;evil\x07b", "Tuesday")).unwrap();
+        assert!(!shown.contains("\x1b]"));
+        assert!(shown.contains("--- Restored from Tuesday ---"));
+        assert!(restored_bytes("  \n", "x").is_empty());
+        assert_eq!(saved_file_name(&TerminalKey::Thread("../../etc/x".into())), "thread-etcx.json");
+        assert_eq!(saved_file_name(&TerminalKey::Home), "home.json");
     }
 }

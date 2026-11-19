@@ -291,3 +291,139 @@ Feature: The Terminal
     Given the agent's last reply in "Export last quarter's invoices as CSV" holds a bash block "make report"
     When I open the thread "Export last quarter's invoices as CSV"
     Then the reply only offers to copy "make report"
+
+  # The frozen Swift automation lacks the tab and hover commands used below.
+  @terminal.tabs @swift-pending
+  Scenario: Separate shells keep their screens when switching tabs
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "echo first-shell" and press Return in the Terminal
+    Then the Terminal shows the line "first-shell"
+    When I rename the current Terminal tab to "First"
+    And I add a Terminal tab
+    And I type "echo second-shell" and press Return in the Terminal
+    Then the Terminal shows the line "second-shell"
+    When I rename the current Terminal tab to "Second"
+    And I choose the Terminal tab "First"
+    Then the Terminal shows the line "first-shell"
+    When I choose the Terminal tab "Second"
+    And I type "exit" and press Return in the Terminal
+    Then the Terminal has 1 tab
+    And the Terminal shows the line "first-shell"
+
+  @terminal.tabs @swift-pending
+  Scenario: A tab can be renamed from its menu and closed
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I rename the current Terminal tab to "Dev server"
+    Then the Terminal tab menu for "Dev server" offers "Rename…" and "Use the Shell's Name"
+    When I rename the Terminal tab "Dev server" from its menu to "Server"
+    And I add a Terminal tab
+    And I rename the current Terminal tab to "Scratch"
+    And I close the Terminal tab "Scratch" from its menu
+    Then the Terminal has 1 tab
+    And the Terminal tab "Server" is selected
+
+  @terminal.linkhover @windows-pending @swift-pending
+  Scenario: Pointing at a printed web address highlights the link
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "printf 'https://example.com/terminal\n'" and press Return in the Terminal
+    Then the Terminal shows the line "https://example.com/terminal"
+    When I point at the Terminal words "https://example.com/terminal"
+    Then the Terminal highlights the web address "https://example.com/terminal"
+
+  @terminal.panel
+  Scenario: Closing the Terminal keeps the conversation visible
+    When I open the thread "Make uploads resume after a crash"
+    And I press ⌘J
+    And I press ⌘J
+    Then the Terminal is put away
+    And the transcript shows my message "Great. Clear out the old build folders too"
+
+  @terminal.panel @rail.right
+  Scenario: The optional rail button opens the same terminal as the keyboard
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    Then the right rail has no "Terminal" button
+    When I open Settings on "general"
+    And I press "Add a Terminal button to the rail" in Settings
+    And I close the slash settings window
+    Then the right rail has a "Terminal" button
+    When I click "Terminal" in the right rail
+    Then the Terminal is showing a shell in the thread's folder
+    And the "Terminal" button in the right rail is lit
+    When I type "printf 'rail-kept-shell\n'" and press Return in the Terminal
+    Then the Terminal shows the line "rail-kept-shell"
+    When I press ⌘J
+    And I click "Terminal" in the right rail
+    Then the Terminal shows the line "rail-kept-shell"
+
+  # Terminal.app's keys and comforts, where Threadbear's own keys don't
+  # already have them (⌘K is Open Anything, so ⌘L clears). The GPUI app's;
+  # the frozen Swift app doesn't get new features.
+  @terminal.mackeys @swift-pending @windows-pending @linux-pending
+  Scenario: ⌘← and ⌘→ go to the start and end of the line, and ⌘⌫ deletes it
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "echo middle" in the Terminal
+    And I press "cmd-left" in the Terminal
+    And I type "X" in the Terminal
+    And I press "cmd-right" in the Terminal
+    And I type "Y" in the Terminal
+    Then the Terminal's prompt has "Xecho middleY" on it
+    When I press "cmd-backspace" in the Terminal
+    And I type "echo fresh" and press Return in the Terminal
+    Then the Terminal shows the line "fresh"
+
+  @terminal.mackeys @swift-pending @windows-pending @linux-pending
+  Scenario: ⌘L clears everything above the prompt
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I type "echo old-output" and press Return in the Terminal
+    Then the Terminal shows the line "old-output"
+    When I type "echo kept" in the Terminal
+    And I press "cmd-l" in the Terminal
+    Then the Terminal doesn't show the line "old-output"
+    And the Terminal's prompt has "echo kept" on it
+
+  @terminal.mackeys @swift-pending @windows-pending @linux-pending
+  Scenario: ⌘F finds words in the Terminal and counts them
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    # The word is split on the command line, so only what it prints has it,
+    # and Find waits for that to be drawn.
+    And I type "printf 'nee%sdle\nhay\nnee%sdle\n' '' ''" and press Return in the Terminal
+    Then the Terminal shows the line "hay"
+    When I find "needle" in the Terminal
+    Then the Terminal's Find says "2 of 2"
+    When I press "enter" in the Terminal's Find
+    Then the Terminal's Find says "1 of 2"
+    And the Terminal has "needle" selected
+
+  @terminal.mackeys @swift-pending @windows-pending @linux-pending
+  Scenario: ⌘T opens another shell and ⌃Tab goes between them
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I press "cmd-t" in the Terminal
+    Then the Terminal has 2 tabs
+    And the Terminal tab "Terminal 2" is selected
+    When I press "ctrl-tab" in the Terminal
+    Then the Terminal tab "Terminal 1" is selected
+
+  @terminal.mackeys @swift-pending @windows-pending @linux-pending
+  Scenario: The bell in a tab I'm not looking at puts a dot on it
+    Given the thread "Rename the Settings tabs" works in a folder of its own
+    When I open the thread "Rename the Settings tabs"
+    And I press ⌘J
+    And I press "cmd-t" in the Terminal
+    And I type "sleep 1; printf '\a'" and press Return in the Terminal
+    And I press "ctrl-tab" in the Terminal
+    Then a Terminal tab has rung its bell

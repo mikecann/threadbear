@@ -182,7 +182,11 @@ File references are where to look.
   (threads, settings, `secrets/`, runner releases, the pinned release key
   `upstream-signers`, the Mac app's `app-drafts.json` and the GPUI app's
   `desktop-drafts.json`, what's typed but not sent in each message box and card's Something else box, so
-  a quit or relaunch doesn't lose it, and
+  a quit or relaunch doesn't lose it, and `desktop-terminal/`, the last
+  1,000 lines of each Terminal tab and its name, written when the GPUI app
+  quits so the text comes back above a new shell's prompt (as Terminal.app
+  restores its windows), readable only by you, deleted as it's read back,
+  when its thread is archived or deleted, and after 14 days, and
   `sync-sent.json`, hashes of what's already in your
   Convex mirror so a restart sends only what changed, and
   `shared-pools.json`, the last pools your Convex backend had, which every
