@@ -9,6 +9,7 @@ import { realCopy } from './real-copy.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
 import { readShareImage } from './share-images.ts';
 import { CallerGate } from './rpc-gate.ts';
 import { threadOfSocket } from './peer.ts';
@@ -44,7 +45,8 @@ import { Reinstaller } from './reinstall.ts';
 import { MacScreen } from './mac-screen.ts';
 import { Projects, drainProjectMethods, projectMethods } from './projects.ts';
 import { Librarian, librarianMethods } from './librarian.ts';
-import { ConnectorsMonitor, connectorsMethods } from './connectors.ts';
+import { ConnectorsMonitor, connectorsMethods, type StaticClientDeps } from './connectors.ts';
+import { ownsGateway } from './static-clients.ts';
 import { DEFAULT_RECIPES_FOLDER, RECIPES_EXPERIMENT, Recipes, recipeMethods } from './recipes.ts';
 import { TaskBoards, gatewayCaller, helperHeaders } from './notion-tasks.ts';
 import { createLogger } from './log.ts';
@@ -624,6 +626,16 @@ async function main(): Promise<void> {
     onChange: (s) => runner.publish({ method: 'connectors.updated', params: { connectors: s } }),
   });
   connectors.start();
+  // The panel's Create Slack app and paste form (static-clients.ts): only
+  // for a gateway whose files are on this Mac.
+  const plugbearData = path.join(os.homedir(), 'Library', 'Application Support', 'Connectors');
+  const staticClients: StaticClientDeps = {
+    dataDir: () => (ownsGateway(plugbearData, cfg.connectorsUrl) ? plugbearData : undefined),
+    restart: () =>
+      new Promise<void>((resolve, reject) => {
+        execFile('launchctl', ['kickstart', '-k', `gui/${process.getuid?.() ?? 501}/local.connectors`], { timeout: 20_000 }, (err) => (err ? reject(new Error("couldn't restart the gateway (launchctl kickstart local.connectors failed)")) : resolve()));
+      }),
+  };
   // Projects' task boards in Notion, read through the same gateway
   // (notion-tasks.ts). With no gateway, a project with a Notion page
   // shows why its board is empty.
@@ -1237,7 +1249,7 @@ async function main(): Promise<void> {
     if (n.method === 'thread.updated') updates.threadChanged(n.params.thread.id);
     else if (n.method === 'thread.deleted') updates.threadChanged(n.params.threadId);
   });
-  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors), ...recipeMethods(recipes), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
+  const methods = { ...restartMethods(restarter), ...scheduleMethods(scheduler), ...projectMethods(projects), ...drainProjectMethods(projects), ...librarianMethods(librarian), ...connectorsMethods(connectors, staticClients), ...recipeMethods(recipes), ...settingsMethods(settings), ...instructionsMethods(instructions), ...modelMethods(models), ...devicesMethods(sync), ...usageStatsMethods({ tally, history: usageHistory, clock: realClock }) };
   // runner.status carries the CLI statuses too (protocol, "runner.status").
   const restartStatus = methods['runner.status'];
   methods['runner.status'] = (p) => {
