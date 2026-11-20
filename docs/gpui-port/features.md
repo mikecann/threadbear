@@ -347,6 +347,9 @@ It comes from reading code, not from running anything, so "(unverified)" means n
 | `cards.run` | Run on the card | Taken out 14 Nov 2026: the runAsks experiment was turned off and removed | Not ported: the Swift app's is frozen and the runner no longer offers it. | drop | none | `RowRenderer` (`appendRun`), `AppModel+ThreadActions` (`pressRunButton`) |
 | `terminal.putcommand` | Put a command in the Terminal | Play icon on a shell block types it at the prompt, never presses Return, replaces its own unrun command, copies instead if the shell is busy | Icons on the code block, then the terminal's own paste. | build | S | `ShellBlockIcons`, `ShellBlock`, `TerminalPanel` (`Terminals.put`) |
 | `terminal.lifecycle` | Shell lifecycle | Starts on request, stops on archive or quit | Unix pty on macOS and Linux, ConPTY on Windows. | shim | M | `TerminalPanel` (`Terminals`) |
+| `terminal.tabs` | Terminal tabs | Add, switch, rename and close shells in a thread | Tabs above the emulator, keeping each shell alive. | build | M | `TerminalTabStrip`, `TerminalTabButton` |
+| `terminal.linkhover` | Terminal link hover | Underline web addresses under the pointer with an opening tip | Grid spans and the terminal pointer. | build | S | `ThreadTerminalView` |
+| `terminal.mackeys` | Terminal.app keys | ⌘⌫ ⌘← ⌘→ line editing, ⌘L and ⌥⌘K clears, ⌥⌘R reset, ⌘F find, ⌘↑ ⌘↓ marks, ⌘T and ⌃Tab, ⌥-click, ⌥-drag, right-click menu, file drop, ⌃⌘V, bell dot, close asks, text kept across launches | Terminal-scoped actions and alacritty's search; never a key Threadbear already uses. | build | M | none (GPUI only) |
 
 ## 14. Projects, Librarian, Schedules, Usage, Runners, Connectors, Updates
 

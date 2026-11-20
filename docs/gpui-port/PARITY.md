@@ -37,179 +37,263 @@ earlier four-platform run.
 
 <!-- parity:start -->
 
-125 of 329 features have a spec so far, across 225 scenarios.
+268 of 367 features have a spec so far, across 753 scenarios.
 
-Scenarios passing: Swift: 207 of 225, Mac: 214 of 225, Windows: 192 of 225, Linux: 214 of 225.
+Scenarios passing: Swift: not run, Mac: not run, Windows: not run, Linux: not run.
 
 
 ### 0. Foundations everything else needs
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `foundation.rpc` Runner RPC client | pass | pass | pass | pass |
-| `foundation.zoom` Zoom | partly | pass | pass | pass |
+| `foundation.rpc` Runner RPC client | pending | pending | pending | pending |
+| `foundation.zoom` Zoom | pending | pending | pending | pending |
+| `foundation.theme` Theme and appearance | pending | pending | pending | pending |
+| `foundation.webruntime` Web runtime | pending | pending | pending | pending |
+| `foundation.filewatch` File watching | pending | pending | pending | pending |
+| `foundation.accessibility` Accessibility labels | pending | pending | pending | pending |
 
 ### 1. Windows and panel dock
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `dock.layout` Layout tree | pass | pass | pass | pass |
+| `dock.layout` Layout tree | pending | pending | pending | pending |
 | `dock.titlebar` No title bar | pending | pending | pending | pending |
 | `dock.frame` Window frame memory | pending | pending | pending | pending |
-| `dock.reset` Default layout and Reset | pass | pass | pass | pass |
+| `dock.motion` Panels glide open and closed | pending | pending | pending | pending |
+| `dock.reset` Default layout and Reset | pending | pending | pending | pending |
+| `dock.threadpanel` Thread in its own panel | pending | pending | pending | pending |
+| `dock.pin` Pin a side panel to its thread | pending | pending | pending | pending |
+| `dock.openelsewhere` Open elsewhere note | pending | pending | pending | pending |
+| `dock.contexttabs` Context tabs | pending | pending | pending | pending |
 
 ### 2. Rails
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `rail.activity` Activity bar | pass | pass | pass | pass |
-| `rail.dots` Rail dots | pass | pass | pass | pass |
-| `rail.right` Right rail | partly | pass | partly | pass |
+| `rail.activity` Activity bar | pending | pending | pending | pending |
+| `rail.dots` Rail dots | pending | pending | pending | pending |
+| `rail.honeypot` Honey pot | pending | pending | pending | pending |
+| `rail.right` Right rail | pending | pending | pending | pending |
 
 ### 3. Sidebar and inbox
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `sidebar.sections` Sections | pass | pass | pass | pass |
-| `sidebar.sort` Inbox sort | pass | pass | pass | pass |
-| `sidebar.search` Thread search | pass | pass | pass | pass |
-| `sidebar.newthread` New thread button | pass | pass | pass | pass |
-| `sidebar.row` Thread row | pass | pass | pass | pass |
-| `sidebar.row.marks` Row left marks | pass | pass | pass | pass |
-| `sidebar.row.origin` Origin mark | pass | pass | pass | pass |
-| `sidebar.row.status` Row right status | pass | pass | pass | pass |
-| `sidebar.row.remote` Other-Mac icon | pass | pass | pass | pass |
-| `sidebar.row.hoverbuttons` Hover buttons | pass | pass | pass | pass |
-| `sidebar.row.menu` Row context menu | pass | pass | pass | pass |
-| `sidebar.subagents` Sub-agent tree | pass | pass | pass | pass |
-| `sidebar.archived.paging` Archived paging | pass | pass | pass | pass |
-| `sidebar.skeleton` Loading skeleton | pass | pass | pass | pass |
-| `sidebar.hibernate.presets` Hibernate presets | pass | pass | pass | pass |
+| `sidebar.sections` Sections | pending | pending | pending | pending |
+| `sidebar.sort` Inbox sort | pending | pending | pending | pending |
+| `sidebar.search` Thread search | pending | pending | pending | pending |
+| `sidebar.newthread` New thread button | pending | pending | pending | pending |
+| `sidebar.row` Thread row | pending | pending | pending | pending |
+| `sidebar.row.marks` Row left marks | pending | pending | pending | pending |
+| `sidebar.row.origin` Origin mark | pending | pending | pending | pending |
+| `sidebar.row.status` Row right status | pending | pending | pending | pending |
+| `sidebar.row.remote` Other-Mac icon | pending | pending | pending | pending |
+| `sidebar.row.hoverbuttons` Hover buttons | pending | pending | pending | pending |
+| `sidebar.row.menu` Row context menu | pending | pending | pending | pending |
+| `sidebar.subagents` Sub-agent tree | pending | pending | pending | pending |
+| `sidebar.nested` Nested threads | pending | pending | pending | pending |
+| `sidebar.archived.paging` Archived paging | pending | pending | pending | pending |
+| `sidebar.skeleton` Loading skeleton | pending | pending | pending | pending |
+| `sidebar.hibernate.presets` Hibernate presets | pending | pending | pending | pending |
 | `sidebar.hibernate.pick` Pick a time | pending | pending | pending | pending |
-| `sidebar.hibernate.wake` Wake when… | pass | pass | pass | pass |
-| `sidebar.move` Move to another runner | pass | pass | pass | pass |
+| `sidebar.hibernate.wake` Wake when… | pending | pending | pending | pending |
+| `sidebar.swipe` Swipe row to archive | pending | pending | pending | pending |
+| `sidebar.mousedrag` Mouse drag to archive | pending | pending | pending | pending |
+| `sidebar.rowmotion` Row slide and count roll | pending | pending | pending | pending |
+| `sidebar.keys` Sidebar keys | pending | pending | pending | pending |
+| `sidebar.move` Move to another runner | pending | pending | pending | pending |
 
 ### 4. Thread header, banners, toasts
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `header.title` Title line | pass | pass | pass | pass |
-| `header.backforward` Back and forward | pass | pass | pass | pass |
-| `header.share` Share | pass | pass | pass | pass |
-| `header.more` ... menu | pass | pass | pass | pass |
-| `banner.connection` Connection banner | pass | pass | pass | pass |
-| `banner.error` Error banner | pass | pass | pass | pass |
-| `banner.limit` Limit banner | pending | pass | pending | pass |
-| `toast.archived` Archived toast | pass | pass | pass | pass |
-| `toast.inboxend` Inbox end toast | pass | pass | pass | pass |
-| `thread.newpage` New-thread page | pass | pass | pass | pass |
+| `header.title` Title line | pending | pending | pending | pending |
+| `thread.startedby` Started by | pending | pending | pending | pending |
+| `header.projectchip` Project chip menu | pending | pending | pending | pending |
+| `header.schedulechip` Schedule chip | pending | pending | pending | pending |
+| `header.backforward` Back and forward | pending | pending | pending | pending |
+| `header.share` Share | pending | pending | pending | pending |
+| `header.more` ... menu | pending | pending | pending | pending |
+| `header.pendingreviews` Pending reviews button | pending | pending | pending | pending |
+| `banner.connection` Connection banner | pending | pending | pending | pending |
+| `banner.error` Error banner | pending | pending | pending | pending |
+| `banner.limit` Limit banner | pending | pending | pending | pending |
+| `banner.refusal` Refusal offer | pending | pending | pending | pending |
+| `header.subagent` Sub-agent header | pending | pending | pending | pending |
+| `toast.archived` Archived toast | pending | pending | pending | pending |
+| `toast.inboxend` Inbox end toast | pending | pending | pending | pending |
+| `toast.milestone` Milestone toast | pending | pending | pending | pending |
+| `thread.newpage` New-thread page | pending | pending | pending | pending |
+| `thread.loadfailure` Load failure states | pending | pending | pending | pending |
+| `thread.loading` Reading a thread | pending | pending | pending | pending |
+| `thread.kept` Threads kept loaded | pending | pending | pending | pending |
 
 ### 5. Transcript row kinds
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `transcript.list` The transcript list | pass | pass | pass | pass |
-| `transcript.user` Your bubble | pass | pass | pass | pass |
-| `transcript.reply` Assistant reply | pass | pass | pass | pass |
-| `transcript.thinking` Thinking line | pass | pass | pass | pass |
-| `transcript.tool` Tool line | pass | pass | pass | pass |
-| `transcript.tooloutput` Tool output styling | pass | pass | pass | pass |
-| `transcript.diff` Diff row | pass | pass | pass | pass |
-| `transcript.images` Images row | partly | pass | pass | pass |
-| `transcript.approval` Approval card | pass | pass | pass | pass |
-| `transcript.approval.stacked` Stacked approval | pass | pass | pass | pass |
-| `transcript.approval.settled` Settled approval | pass | pass | pass | pass |
-| `transcript.question` Question card | pass | pass | pass | pass |
-| `transcript.secret` Secret card | pass | pass | pass | pass |
-| `transcript.review` Review card | pass | pass | pass | pass |
-| `transcript.turnfooter` Turn footer | pass | pass | pass | pass |
-| `transcript.error` Error row | pass | pass | pass | pass |
-| `transcript.workedfor` Worked-for group | pass | pass | pass | pass |
-| `transcript.working` Working line | pass | pass | pass | pass |
-| `transcript.changes` Changes card | pass | pass | pass | pass |
-| `transcript.rowmenu` Row context menu | pass | pass | pass | pass |
+| `transcript.list` The transcript list | pending | pending | pending | pending |
+| `transcript.user` Your bubble | pending | pending | pending | pending |
+| `transcript.pending` Pending states | pending | pending | pending | pending |
+| `transcript.edit` Edit pencil | pending | pending | pending | pending |
+| `transcript.agentmessage` Agent message card | pending | pending | pending | pending |
+| `transcript.reply` Assistant reply | pending | pending | pending | pending |
+| `transcript.thinking` Thinking line | pending | pending | pending | pending |
+| `transcript.tool` Tool line | pending | pending | pending | pending |
+| `transcript.tooloutput` Tool output styling | pending | pending | pending | pending |
+| `transcript.diff` Diff row | pending | pending | pending | pending |
+| `transcript.images` Images row | pending | pending | pending | pending |
+| `transcript.approval` Approval card | pending | pending | pending | pending |
+| `transcript.approval.stacked` Stacked approval | pending | pending | pending | pending |
+| `transcript.approval.settled` Settled approval | pending | pending | pending | pending |
+| `transcript.question` Question card | pending | pending | pending | pending |
+| `transcript.secret` Secret card | pending | pending | pending | pending |
+| `transcript.review` Review card | pending | pending | pending | pending |
+| `transcript.turnfooter` Turn footer | pending | pending | pending | pending |
+| `transcript.error` Error row | pending | pending | pending | pending |
+| `transcript.workedfor` Worked-for group | pending | pending | pending | pending |
+| `transcript.working` Working line | pending | pending | pending | pending |
+| `transcript.gap` Gap divider | pending | pending | pending | pending |
+| `transcript.changes` Changes card | pending | pending | pending | pending |
+| `transcript.rowmenu` Row context menu | pending | pending | pending | pending |
 
 ### 6. Rich content inside a reply
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `rich.browserbear` BrowserBear tab handover | pending | pass | pending | pass |
+| `rich.blocks` Headings, lists, quotes | pending | pending | pending | pending |
+| `rich.table` Tables | pending | pending | pending | pending |
+| `rich.mermaid` Mermaid diagrams | pending | pending | pending | pending |
+| `rich.html` HTML blocks | pending | pending | pending | pending |
+| `rich.chrome` Rich box chrome | pending | pending | pending | pending |
+| `rich.fullsize` Full-size rich window | pending | pending | pending | pending |
+| `rich.draft` Draft blocks | pending | pending | pending | pending |
+| `rich.draft.copy` Draft copy | pending | pending | pending | pending |
+| `rich.draft.edit` Draft edited | pending | pending | pending | pending |
+| `rich.draft.select` Draft words selected | pending | pending | pending | pending |
+| `rich.replybuttons` Reply buttons | pending | pending | pending | pending |
+| `rich.threadchips` Thread chips | pending | pending | pending | pending |
+| `rich.threadlinkmarks` Thread link marks | pending | pending | pending | pending |
+| `rich.cardchips` Card chips | pending | pending | pending | pending |
+| `rich.picturechips` Picture chips | pending | pending | pending | pending |
+| `rich.worklinks` Work links | pending | pending | pending | pending |
+| `rich.filerefs` File path refs | pending | pending | pending | pending |
+| `rich.textservices` Mac text services | pending | pending | pending | pending |
+| `rich.linkpeek` Link hover peek | pending | pending | pending | pending |
+| `rich.filemenu` File link menu | pending | pending | pending | pending |
+| `rich.webmenu` Web link menu | pending | pending | pending | pending |
+| `rich.browserbear` BrowserBear tab handover | pending | pending | pending | pending |
+| `rich.cmdclick` ⌘-click | pending | pending | pending | pending |
+| `rich.selectionbar` Selection bar | pending | pending | pending | pending |
+| `rich.copy` Rich copy | pending | pending | pending | pending |
+| `rich.explain` Explain pane | pending | pending | pending | pending |
 
 ### 7. Composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `composer.textbox` Text box | pass | pass | pass | pass |
-| `composer.return` Return, Shift-Return | pass | pass | pass | pass |
-| `composer.listcontinue` List continuation | pass | pass | pass | pass |
-| `composer.picturechips` Picture chips | pass | pass | pass | pass |
-| `composer.chiphover` Chip hover and × | pass | pass | pass | pass |
-| `composer.filedrop` File path drop | pass | pass | pass | pass |
-| `composer.dropanywhere` Drop anywhere on thread | pass | pass | pass | pass |
-| `composer.runner` Runner chip | pass | pass | pass | pass |
-| `composer.modelpicker` Model picker | pass | pass | pass | pass |
-| `composer.permission` Permission chip | pass | pass | pass | pass |
-| `composer.contextring` Context ring | pass | partly | partly | partly |
-| `composer.send` Send and Stop | pass | pass | pass | pass |
-| `composer.starting` Starting state | pass | pass | pass | pass |
-| `composer.slash` Slash palette | pass | pass | pass | pass |
-| `composer.slash.keys` Palette keys | pass | pass | pass | pass |
+| `composer.textbox` Text box | pending | pending | pending | pending |
+| `composer.idle` Idle text box | pending | pending | pending | pending |
+| `composer.spelling` Spelling | pending | pending | pending | pending |
+| `composer.return` Return, Shift-Return | pending | pending | pending | pending |
+| `composer.listcontinue` List continuation | pending | pending | pending | pending |
+| `composer.picturechips` Picture chips | pending | pending | pending | pending |
+| `composer.chiphover` Chip hover and × | pending | pending | pending | pending |
+| `composer.chipcopy` Copy or cut chips | pending | pending | pending | pending |
+| `composer.filedrop` File path drop | pending | pending | pending | pending |
+| `composer.threadid` Thread id paste or drop | pending | pending | pending | pending |
+| `composer.cardmention` Card mention | pending | pending | pending | pending |
+| `composer.dropanywhere` Drop anywhere on thread | pending | pending | pending | pending |
+| `composer.plus` + menu | pending | pending | pending | pending |
+| `composer.runner` Runner chip | pending | pending | pending | pending |
+| `composer.account` Account chip | pending | pending | pending | pending |
+| `composer.modelpicker` Model picker | pending | pending | pending | pending |
+| `composer.permission` Permission chip | pending | pending | pending | pending |
+| `composer.contextring` Context ring | pending | pending | pending | pending |
+| `composer.send` Send and Stop | pending | pending | pending | pending |
+| `composer.schedulefromsend` Schedule from send | pending | pending | pending | pending |
+| `composer.editing` Editing banner | pending | pending | pending | pending |
+| `composer.starting` Starting state | pending | pending | pending | pending |
+| `composer.slash` Slash palette | pending | pending | pending | pending |
+| `composer.slash.keys` Palette keys | pending | pending | pending | pending |
+| `composer.slash.resize` Palette resize | pending | pending | pending | pending |
 
 ### 8. Cards in the composer
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `card.done` Done card | pass | pass | pass | pass |
-| `card.needsyou` Needs you card | pass | pass | pass | pass |
-| `card.collapse` Collapse | pass | pass | pass | pass |
-| `card.somethingelse` Something else box | pass | pass | pass | pass |
-| `card.returnflow` Return flow | pass | pass | pass | pass |
-| `card.answers` Answer and follow-up state | pass | pass | pass | pass |
+| `card.done` Done card | pending | pending | pending | pending |
+| `card.review` Review findings | pending | pending | pending | pending |
+| `card.needsyou` Needs you card | pending | pending | pending | pending |
+| `card.collapse` Collapse | pending | pending | pending | pending |
+| `card.somethingelse` Something else box | pending | pending | pending | pending |
+| `card.returnflow` Return flow | pending | pending | pending | pending |
+| `card.answers` Answer and follow-up state | pending | pending | pending | pending |
 
 ### 9. Highlights
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `highlights.panel` Panel and folds | pass | pass | pass | pass |
-| `highlights.librarian` Librarian line | pass | pass | pass | pass |
-| `highlights.needsyou` Needs you list | pass | pass | pass | pass |
-| `highlights.projects` Project blocks | pass | pass | pass | pass |
-| `highlights.scheduled` Scheduled list | pass | pass | pass | pass |
-| `highlights.subagents` Sub-agents list | pass | pass | pass | pass |
-| `highlights.started` Threads it started | pass | pass | pass | pass |
-| `highlights.pinned` Pinned, Files, Links | pass | pass | pass | pass |
-| `highlights.changes` Changes | pass | pass | pass | pass |
-| `highlights.rowmenus` Row menus | pass | pass | pass | pass |
+| `highlights.panel` Panel and folds | pending | pending | pending | pending |
+| `highlights.librarian` Librarian line | pending | pending | pending | pending |
+| `highlights.needsyou` Needs you list | pending | pending | pending | pending |
+| `highlights.projects` Project blocks | pending | pending | pending | pending |
+| `highlights.board` Notion board | pending | pending | pending | pending |
+| `highlights.scheduled` Scheduled list | pending | pending | pending | pending |
+| `highlights.subagents` Sub-agents list | pending | pending | pending | pending |
+| `highlights.started` Threads it started | pending | pending | pending | pending |
+| `highlights.pinned` Pinned, Files, Links | pending | pending | pending | pending |
+| `highlights.changes` Changes | pending | pending | pending | pending |
+| `highlights.rowmenus` Row menus | pending | pending | pending | pending |
+| `highlights.dragout` Drag out | pending | pending | pending | pending |
 
 ### 10. Patches panels and web panels
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `patches.list` Patches list | pass | pass | pass | pass |
-| `patches.run` Patch chips run | pass | pass | pass | pass |
-| `panel.list` List panel | pass | pass | pass | pass |
-| `panel.image` Image panel | pass | pass | pass | pass |
+| `patches.list` Patches list | pending | pending | pending | pending |
+| `patches.run` Patch chips run | pending | pending | pending | pending |
+| `panel.list` List panel | pending | pending | pending | pending |
+| `panel.image` Image panel | pending | pending | pending | pending |
+| `panel.web` Web panel | pending | pending | pending | pending |
+| `panel.bar` Panel bar buttons | pending | pending | pending | pending |
+| `panel.convex` Convex panel | pending | pending | pending | pending |
+| `panel.requests` Panel requests | pending | pending | pending | pending |
+| `pane.sections` Pane sections side by side | pending | pending | pending | pending |
+| `panel.projectpage` Project page panels | pending | pending | pending | pending |
 
 ### 11. Browser pane
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `browser.pages` Page list | pending | pass | pending | pass |
-| `browser.show` Show window | pending | pass | pending | pass |
-| `browser.handoff` Your turn and Done | pending | pass | pending | pass |
+| `browser.pages` Page list | pending | pending | pending | pending |
+| `browser.show` Show window | pending | pending | pending | pending |
+| `browser.handoff` Your turn and Done | pending | pending | pending | pending |
+| `pane.prs` Pull requests in the pane | pending | pending | pending | pending |
 
 ### 12. File previews and folders
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `file.host` Preview host | pass | pass | pass | pass |
-| `file.picture` Picture view | pass | pass | pass | pass |
-| `file.textview` Text viewer | pass | pass | pass | pass |
-| `file.markdown` Markdown preview | pass | pass | pass | pass |
-| `folder.list` Folder list | pass | pass | pass | pass |
-| `folder.pathbar` Path bar | pass | pass | pass | pass |
-| `folder.menu` Folder menu | pass | pass | pass | pass |
-| `folder.filespanel` Files panel | pass | pass | pass | pass |
+| `file.host` Preview host | pending | pending | pending | pending |
+| `file.restore` Open file kept across restarts | pending | pending | pending | pending |
+| `file.picture` Picture view | pending | pending | pending | pending |
+| `file.video` Video view | pending | pending | pending | pending |
+| `file.quicklook` Quick Look fallback | pending | pending | pending | pending |
+| `file.textview` Text viewer | pending | pending | pending | pending |
+| `file.markdown` Markdown preview | pending | pending | pending | pending |
+| `file.editor` Text editor | pending | pending | pending | pending |
+| `file.find` Find in file | pending | pending | pending | pending |
+| `file.conflict` Conflict bar | pending | pending | pending | pending |
+| `file.htmlpreview` Local HTML preview | pending | pending | pending | pending |
+| `file.runthem` Run them | pending | pending | pending | pending |
+| `folder.list` Folder list | pending | pending | pending | pending |
+| `folder.icons` Folder icons | pending | pending | pending | pending |
+| `folder.pathbar` Path bar | pending | pending | pending | pending |
+| `folder.keys` Finder keys | pending | pending | pending | pending |
+| `folder.menu` Folder menu | pending | pending | pending | pending |
+| `folder.filespanel` Files panel | pending | pending | pending | pending |
 
 ### 13. Terminal
 
@@ -217,40 +301,124 @@ Scenarios passing: Swift: 207 of 225, Mac: 214 of 225, Windows: 192 of 225, Linu
 |---|---|---|---|---|
 | `terminal.panel` Terminal panel | pending | pending | pending | pending |
 | `terminal.putcommand` Put a command in the Terminal | pending | pending | pending | pending |
+| `terminal.lifecycle` Shell lifecycle | pending | pending | pending | pending |
+| `terminal.tabs` Terminal tabs | pending | pending | pending | pending |
+| `terminal.linkhover` Terminal link hover | pending | pending | pending | pending |
+| `terminal.mackeys` Terminal.app keys | pending | pending | pending | pending |
 
 ### 14. Projects, Librarian, Schedules, Usage, Runners, Connectors, Updates
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `projects.decisions` Decisions on the Projects page | pass | pending | pending | pending |
-| `librarian.page` Librarian page | pass | pass | pending | pass |
-| `librarian.log` Librarian log | pass | pass | pending | pass |
-| `schedule.page` Scheduled page | pass | pass | pending | pass |
-| `schedule.list` Scheduled list | pass | pass | pending | pass |
-| `schedule.editor` Schedule editor | pass | pass | pending | pass |
+| `projects.home` Projects home | pending | pending | pending | pending |
+| `projects.list` Projects list | pending | pending | pending | pending |
+| `projects.page` Project page | pending | pending | pending | pending |
+| `projects.decisions` Decisions on the Projects page | pending | pending | pending | pending |
+| `projects.parts` Parts of a project | pending | pending | pending | pending |
+| `projects.tabs` Project page tabs | pending | pending | pending | pending |
+| `projects.newthread` New thread in project | pending | pending | pending | pending |
+| `librarian.page` Librarian page | pending | pending | pending | pending |
+| `librarian.log` Librarian log | pending | pending | pending | pending |
+| `schedule.page` Scheduled page | pending | pending | pending | pending |
+| `schedule.list` Scheduled list | pending | pending | pending | pending |
+| `schedule.editor` Schedule editor | pending | pending | pending | pending |
+| `usage.spend` Usage spend | pending | pending | pending | pending |
+| `usage.pools` Usage pools | pending | pending | pending | pending |
+| `usage.sign-in` Usage sign-ins | pending | pending | pending | pending |
+| `runners.panel` Runners panel | pending | pending | pending | pending |
+| `connectors.panel` Connectors panel | pending | pending | pending | pending |
+| `updates.panel` Updates panel | pending | pending | pending | pending |
+| `updates.popover` Updates popover | pending | pending | pending | pending |
+| `updates.swiftchanges` Not in the new app yet | pending | pending | pending | pending |
 
 ### 15. Settings
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `settings.window` Settings window | pass | pass | pending | pass |
-| `settings.general` General | pending | pass | pending | pass |
-| `settings.models` Models | pending | pass | pending | pass |
+| `settings.window` Settings window | pending | pending | pending | pending |
+| `settings.general` General | pending | pending | pending | pending |
+| `settings.models` Models | pending | pending | pending | pending |
+| `settings.runners` Runners | pending | pending | pending | pending |
+| `settings.devices` Phone & browser | pending | pending | pending | pending |
+| `settings.keyboard` Keyboard | pending | pending | pending | pending |
+
+### 16. Options review window
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `review.window` Window and stage | pending | pending | pending | pending |
+| `review.nav` Navigation | pending | pending | pending | pending |
+| `review.zoom` Zoom and pan | pending | pending | pending | pending |
+| `review.minimap` Minimap | pending | pending | pending | pending |
+| `review.holdspace` Hold Space compare | pending | pending | pending | pending |
+| `review.media` Video and HTML shots | pending | pending | pending | pending |
+| `review.picks` Picks and notes | pending | pending | pending | pending |
+| `review.openlive` Open live | pending | pending | pending | pending |
 
 ### 17. Navigation, shortcuts, main menu
 
 | Feature | Swift | Mac | Windows | Linux |
 |---|---|---|---|---|
-| `nav.history` Back/forward history | partly | pass | partly | pass |
-| `nav.sidebuttons` Mouse side buttons | pass | pass | pass | pass |
-| `nav.nextinbox` Next Inbox Thread | pass | pass | pass | pass |
-| `menu.app` App menu | pass | pass | pass | pass |
-| `menu.file` File menu | pass | pass | pass | pass |
-| `menu.view` View menu | pass | pass | pass | pass |
-| `menu.go` Go menu | pass | pass | pass | pass |
-| `menu.thread` Thread menu | pass | pass | pass | pass |
-| `menu.help` Help menu | pass | pass | pass | pass |
-| `nav.shortcuts` Keyboard shortcuts | partly | pass | pass | pass |
+| `nav.history` Back/forward history | pending | pending | pending | pending |
+| `nav.sidebuttons` Mouse side buttons | pending | pending | pending | pending |
+| `nav.swipe` Trackpad swipe nav | pending | pending | pending | pending |
+| `nav.nextinbox` Next Inbox Thread | pending | pending | pending | pending |
+| `nav.openanything` Open Anything | pending | pending | pending | pending |
+| `nav.hints` Hold ⌘ hints | pending | pending | pending | pending |
+| `nav.deeplink` Deep link | pending | pending | pending | pending |
+| `menu.app` App menu | pending | pending | pending | pending |
+| `menu.file` File menu | pending | pending | pending | pending |
+| `menu.edit` Edit menu | pending | pending | pending | pending |
+| `menu.window` Window menu | pending | pending | pending | pending |
+| `menu.view` View menu | pending | pending | pending | pending |
+| `menu.go` Go menu | pending | pending | pending | pending |
+| `menu.thread` Thread menu | pending | pending | pending | pending |
+| `menu.help` Help menu | pending | pending | pending | pending |
+| `nav.shortcuts` Keyboard shortcuts | pending | pending | pending | pending |
+
+### 18. Drag and drop summary
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `drag.threadout` Thread row out | pending | pending | pending | pending |
+| `drag.fileout` File or link out | pending | pending | pending | pending |
+
+### 19. System integration
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `system.selfupdate` Self-update | pending | pending | pending | pending |
+| `system.handover` Seamless handover | pending | pending | pending | pending |
+| `system.crash` Crash reporting | pending | pending | pending | pending |
+| `system.hangwatch` Hang watch | pending | pending | pending | pending |
+| `system.applog` App log | pending | pending | pending | pending |
+| `system.activitylog` Activity log | pending | pending | pending | pending |
+| `system.swiftimport` Bringing the Swift app's settings across | pending | pending | pending | pending |
+| `system.testharness` Scripted test harness | pending | pending | pending | pending |
+
+### 20. Tour, setup, about, juice
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `tour.firstrun` First-run tour | pending | pending | pending | pending |
+| `tour.hello` Setup cards | pending | pending | pending | pending |
+| `tour.intros` One-card intros | pending | pending | pending | pending |
+| `tour.setup` Finish setting up | pending | pending | pending | pending |
+| `tour.about` About (the Den) | pending | pending | pending | pending |
+| `juice.archiveflight` Archive flight | pending | pending | pending | pending |
+| `juice.hibernateflight` Hibernate flight | pending | pending | pending | pending |
+| `juice.opening` Threads coming in | pending | pending | pending | pending |
+| `juice.confetti` Confetti for rare wins | pending | pending | pending | pending |
+| `juice.pickfill` A picked answer fills | pending | pending | pending | pending |
+| `juice.picturedrop` A pasted picture drops in | pending | pending | pending | pending |
+| `juice.replyfade` Replies fade in | pending | pending | pending | pending |
+
+### Planned features
+
+| Feature | Swift | Mac | Windows | Linux |
+|---|---|---|---|---|
+| `planned.exp.looseends` Loose ends (`looseEnds`) | pending | pending | pending | pending |
+| `planned.exp.inboxguess` Inbox guess (`inboxGuess`) | pending | pending | pending | pending |
 
 <!-- parity:end -->
 

@@ -244,6 +244,10 @@ async fn run(app: &WeakEntity<Threadbear>, window: AnyWindowHandle, cmd: &Value,
     if cmd["cmd"] == "palette-menu" {
         return crate::slash_resize::menu_command(window, cmd, cx).await;
     }
+    // A Terminal tab's right-click menu (terminal.rs), the same way.
+    if cmd["cmd"] == "terminal-menu" {
+        return crate::terminal::menu_command(window, cmd, cx).await;
+    }
     if cmd["cmd"] == "composer-menu" && cmd["menu"] == "send" {
         return crate::composer_send::menu_command(window, cmd, cx).await;
     }
