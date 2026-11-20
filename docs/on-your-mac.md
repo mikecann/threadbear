@@ -505,7 +505,10 @@ File references are where to look.
   who owns that group.
   A cleanup still blocked after 30 seconds
   records its process IDs in `~/.cache/threadbear-check/perf-cleanup.log`
-  and keeps the locks until the work stops. With `remote.sh --perf`, the shared warm
+  and keeps the locks until the work stops, rescanning once a second. After
+  10 minutes (`THREADBEAR_PERF_REAP_LIMIT` seconds) it logs that it gave up,
+  exits with a failure and releases the locks, so a cleanup whose caller has
+  gone can't run `lsof` forever. With `remote.sh --perf`, the shared warm
   target is `~/.cache/threadbear-check/gpui/perf-target`, kept out of ordinary
   cache eviction; other builds keep their own target. Source/target `.in-use`
   markers are renewed while a remote run waits and works. With update build hosts set but none

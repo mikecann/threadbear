@@ -19,7 +19,20 @@ $SIG{CHLD} = 'DEFAULT';
 my ($mode, $dir) = splice @ARGV, 0, 2;
 my $log = dirname($dir) . '/perf-cleanup.log';
 my $last_note = time;
+# --reap sets $give_up_at after waitpid($guard) returns. Every retry loop calls
+# note_if_stuck, which exits once that time passes; the exit closes fds 198 and
+# 199, releasing both host locks, so a reaper whose lsof probe keeps failing
+# can't hold them and rerun lsof forever.
+my $give_up_at;
+my $reap_status = 0;
 sub note_if_stuck {
+    if (defined($give_up_at) && time >= $give_up_at) {
+        if (sysopen(my $out, $log, O_WRONLY | O_CREAT | O_APPEND, 0600)) {
+            print {$out} scalar(gmtime) . " UTC: gave up after the cleanup time limit; releasing locks: $_[0]\n";
+            close $out;
+        }
+        exit($reap_status & 127 ? 128 + ($reap_status & 127) : ($reap_status >> 8) || 1);
+    }
     return if time - $last_note < 30;
     $last_note = time;
     if (sysopen(my $out, $log, O_WRONLY | O_CREAT | O_APPEND, 0600)) {
@@ -394,6 +407,10 @@ if (!$guard) {
 }
 waitpid($guard, 0);
 my $status = $?;
+$reap_status = $status;
+my $limit = $ENV{THREADBEAR_PERF_REAP_LIMIT} // '';
+$give_up_at = time + ($limit =~ /^\d+$/ ? $limit : 600);
+my $cleanup_started = time;
 # From here cleanup must survive the caller's stdout/stderr having gone.
 open(STDERR, '>', '/dev/null');
 open(my $state, '<', "$dir/state") or die "perf-children: no registry\n";
@@ -503,7 +520,9 @@ for (;;) {
     $quiet = $complete && !%known && !%ending ? $quiet + 1 : 0;
     last if $quiet >= 2;
     note_if_stuck('still stopping performance children ' . join(',', keys %known) . '; locks retained');
-    select(undef, undef, undef, 0.05);
+    # Each pass runs collect_owned, which starts ps and lsof. After 30 seconds
+    # of cleanup, wait 1 second between passes instead of 50 ms.
+    select(undef, undef, undef, time - $cleanup_started < 30 ? 0.05 : 1);
 }
 remove_tree($dir) if $renamed;
 exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
