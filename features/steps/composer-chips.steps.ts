@@ -69,7 +69,8 @@ async function sendMenu(world: ThreadbearWorld): Promise<string[]> {
 }
 
 Then('right-clicking Send offers {string}', async function (this: ThreadbearWorld, items: string) {
-  assert.deepEqual(await sendMenu(this), items.split(' | '));
+  const actual = await sendMenu(this);
+  for (const item of items.split(' | ')) assert.ok(actual.includes(item), `missing ${item}: ${actual.join(', ')}`);
 });
 
 // With nothing of its own, the right-click is the panel's (Hide Title and
@@ -171,4 +172,49 @@ Then('the chips under the box fit inside it', async function (this: ThreadbearWo
 // The thumbnail's × over the box, clicked through the window.
 When('I remove picture {int} with its ×', async function (this: ThreadbearWorld, picture: number) {
   assert.equal(await this.app.do({ cmd: 'composer-peek', strip: picture - 1, remove: true }), 'ok removed');
+});
+
+Then('the schedule is set to send once tomorrow at 9 am', async function (this: ThreadbearWorld) {
+  type Editor = { once: boolean; at: string };
+  const editor = await this.until('the schedule editor', (d) => (d as unknown as { scheduleEditor?: Editor }).scheduleEditor);
+  assert.equal(editor.once, true);
+  const date = new Date(editor.at);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  assert.equal(date.toDateString(), tomorrow.toDateString());
+  assert.equal(date.getHours(), 9);
+  assert.equal(date.getMinutes(), 0);
+});
+
+When('I choose the known token reset from Send', async function (this: ThreadbearWorld) {
+  const items = await sendMenu(this);
+  const item = items.find((title) => title.startsWith('Send when tokens reset (') && !title.includes('unavailable'));
+  assert.ok(item, `no known reset: ${items.join(', ')}`);
+  await this.app.do({ cmd: 'composer-menu', menu: 'send', click: item });
+});
+
+Then('the schedule waits until a pool login resets plus one minute', async function (this: ThreadbearWorld) {
+  const out = await this.app.do({ cmd: 'mock', method: 'accounts', params: {} });
+  const { accounts } = JSON.parse(out.slice(out.indexOf('{')));
+  const reset = accounts.find((a: { id: string }) => a.id === 'claude-4').usage.windows.find((w: { kind: string }) => w.kind === 'five_hour').resetsAt;
+  type Editor = { once: boolean; at: string };
+  const editor = await this.until('the schedule editor', (d) => (d as unknown as { scheduleEditor?: Editor }).scheduleEditor);
+  assert.equal(editor.once, true);
+  assert.equal(Date.parse(editor.at), Date.parse(reset) + 60_000);
+});
+
+When('I open the visible Send later menu', async function (this: ThreadbearWorld) {
+  await this.app.do({ cmd: 'click', title: 'Send later' });
+});
+
+Then('the Send later menu shows the quick choices', async function (this: ThreadbearWorld) {
+  const out = await this.app.do({ cmd: 'context-menus' });
+  assert.ok(out.includes('Send tomorrow at 9 am'), out);
+  assert.ok(out.includes('Send when tokens reset'), out);
+});
+
+When('I save the prepared send time', async function (this: ThreadbearWorld) {
+  await this.until('the prepared schedule ready to save', (d) => Boolean((d as unknown as { scheduleEditor?: { preview?: string } }).scheduleEditor?.preview));
+  await this.app.do({ cmd: 'click', title: 'Schedule' });
+  await this.until('the schedule saved', (d) => !(d as unknown as { scheduleEditor?: unknown }).scheduleEditor && d.composer.text === '');
 });

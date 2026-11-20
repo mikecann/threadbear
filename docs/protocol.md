@@ -6115,6 +6115,17 @@ A schedule sends a message at a set time, once (`at`) or over and over
 a thread that already exists or starts a new thread each time. They're
 kept in `schedules.json` in the data dir.
 
+The desktop composer's quick send times prefill the existing editor with a
+one-off `at`: tonight at 21:00, tomorrow at 09:00 in the app's local zone,
+or a known token reset plus 60 seconds. These are ordinary schedules, not a
+new wire operation or a live subscription to usage changes. The reset preset
+uses the selected account, or the earliest eligible pool member on its
+provider; every exhausted five-hour/weekly window must have a future reset.
+A blocked account without an exhausted window uses its tightest window.
+With room remaining, it uses the next future reset of a used main window.
+Stale or unknown readings cannot supply that preset. Pool schedules keep
+`poolId`, so the runner still chooses an account at run time.
+
 - **Cron.** Five fields: minute, hour, day of month, month, day of week
   (0 or 7 is Sunday), with `*`, lists (`1,15`), ranges (`1-5`), steps
   (`*/15`, `9-17/2`) and names (`jan`, `mon`). When both day fields are

@@ -1137,7 +1137,21 @@ project and it won't put it back.
 A schedule sends a message at a set time, once or over and over: to a
 thread, or to a new thread each time (a morning summary, say). Make one in
 the Scheduled view (⌘2), or ask an agent ("look at this again every weekday
-at 9"). The Scheduled view lists them under Active, Paused and Done, with
+at 9"). The desktop composer's arrow beside Send offers **Send tonight at 9 pm…**
+(until 9 pm), **Send tomorrow at 9 am…**, and **Send when tokens reset…**.
+Send's right-click menu has the same choices. Each opens the schedule editor
+with **Once** and the time filled in; press Schedule to book it. **Schedule…**
+still lets you choose any time or a repeating schedule. Times are local.
+
+The token-reset choice uses the selected login, or the earliest known reset
+among the selected pool's logins on that provider. It waits for all exhausted
+5-hour and weekly windows to reset, plus a minute for the provider to catch
+up. With room left it uses the next reset of a window you've used. Stale,
+missing or elapsed reset readings aren't guessed: the choice says the time
+is unavailable. The saved time is fixed; you can edit it in Scheduled if
+plans change. Schedules send text only, so attached pictures stay in the box.
+
+The Scheduled view lists them under Active, Paused and Done, with
 when each runs next. One that starts a new thread each time keeps the
 pool the composer was on when you made it, so each run starts on
 whichever of that pool's logins it would pick then; ask an agent to put

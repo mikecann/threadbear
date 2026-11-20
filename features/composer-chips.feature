@@ -167,3 +167,37 @@ Feature: The chips under the message box
     When I put the cursor in the composer
     And I press ⌘Z
     Then the composer holds 1 picture
+
+  # Quick send presets are new desktop UI; the Swift app is frozen.
+  @composer.schedulefromsend @swift-pending
+  Scenario: Send tomorrow prepares a one-off with the composer's message
+    When I type "Check the backups tomorrow" in the composer
+    Then right-clicking Send offers "Send tomorrow at 9 am…"
+    When I right-click Send and choose "Send tomorrow at 9 am…"
+    Then the schedule editor is open on a new schedule that sends "Check the backups tomorrow"
+    And the schedule is set to send once tomorrow at 9 am
+
+  # Quick send presets are new desktop UI; the Swift app is frozen.
+  @composer.schedulefromsend @swift-pending
+  Scenario: Send at the known reset uses the pool's earliest replenishment
+    When I type "Run the checks after my allowance resets" in the composer
+    And I choose the known token reset from Send
+    Then the schedule editor is open on a new schedule that sends "Run the checks after my allowance resets"
+    And the schedule waits until a pool login resets plus one minute
+
+  # Quick send presets are new desktop UI; the Swift app is frozen.
+  @composer.schedulefromsend @swift-pending
+  Scenario: The quick send choices are discoverable without right-clicking
+    When I open the visible Send later menu
+    Then the Send later menu shows the quick choices
+
+  # Quick send presets are new desktop UI; the Swift app is frozen.
+  @composer.schedulefromsend @swift-pending
+  Scenario: A quick send saves a new thread for tomorrow without starting it now
+    When I start a new thread
+    And I type "Review tomorrow's build" in the composer
+    And I right-click Send and choose "Send tomorrow at 9 am…"
+    And I save the prepared send time
+    And I click "Scheduled" in the activity bar
+    Then the "Active" section lists "Review tomorrow's build"
+    And the schedule "Review tomorrow's build" sends to "New thread in misc"
