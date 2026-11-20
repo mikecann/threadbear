@@ -13,6 +13,12 @@
 //     An Android phone sends platform: "android" and its Firebase token as
 //     deviceToken, with no environment, and only `encrypted` (fcm.ts).
 //
+//   POST /clear  Authorization: Bearer <installId>.<installKey>
+//     { deviceToken, environment?, platform?, threadId }  ->  the same as /send
+//     A silent push telling the phone to take down that thread's
+//     notifications, as it no longer needs the person (apns.ts clear). A
+//     relay from before this answers 404, which the backend shrugs off.
+//
 // Nothing here is stored but the install row and daily counts.
 import { httpRouter } from 'convex/server';
 import { httpAction } from './_generated/server';
@@ -109,6 +115,36 @@ http.route({
     // tallies the same.
     if (!ok) console.warn(`[send] failed: ${reasonKey(r.status, r.reason)}`);
     await ctx.runMutation(internal.relay.counted, { ok, status: r.status, installId: auth[1]!, hour: admitted.hour, ...(r.reason ? { reason: r.reason } : {}) });
+    const gone = android ? fcmGone(r.status, r.reason) : r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered';
+    return json({ ok, status: r.status, ...(r.reason ? { reason: r.reason } : {}), ...(gone ? { gone: true } : {}) });
+  }),
+});
+
+// A silent push to take a thread's notifications down (apns.ts, fcm.ts clear).
+// Checked, admitted and counted like a send: it uses the same hourly allowance.
+http.route({
+  path: '/clear',
+  method: 'POST',
+  handler: httpAction(async (ctx, req) => {
+    const auth = req.headers.get('authorization')?.match(/^Bearer (i_[0-9a-f]+)\.(k_[0-9a-f]+)$/);
+    if (!auth) return json({ error: 'unauthorized' }, 401);
+    const b = await body(req);
+    const android = b?.platform === 'android';
+    const deviceToken = str(b?.deviceToken, android ? 4096 : 200);
+    const environment = b?.environment === 'production' ? 'production' : b?.environment === 'sandbox' ? 'sandbox' : undefined;
+    const threadId = str(b?.threadId, 100);
+    if (!b || !deviceToken || !(android ? FCM_TOKEN.test(deviceToken) : /^[0-9a-f]+$/i.test(deviceToken)) || (!android && !environment) || !threadId) return json({ error: 'bad request' }, 400);
+    const header = req.headers.get('x-threadbear-version');
+    const version = header === null ? undefined : storedVersion(header);
+    const admitted = await ctx.runMutation(internal.relay.admit, { installId: auth[1]!, installKey: auth[2]!, ...(version ? { version } : {}) });
+    if (admitted === 'auth') return json({ error: 'unauthorized' }, 401);
+    if (admitted === 'limited') return json({ error: 'rate limited' }, 429);
+    const r = await (android ? ctx.runAction(internal.fcm.clear, { deviceToken, threadId }) : ctx.runAction(internal.apns.clear, { deviceToken, environment: environment!, threadId })).catch(
+      () => ({ status: 0, reason: 'send threw' }) as { status: number; reason?: string },
+    );
+    const ok = r.status === 200;
+    if (!ok) console.warn(`[clear] failed: ${reasonKey(r.status, r.reason)}`);
+    await ctx.runMutation(internal.relay.counted, { ok, status: r.status, ...(r.reason ? { reason: r.reason } : {}) });
     const gone = android ? fcmGone(r.status, r.reason) : r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered';
     return json({ ok, status: r.status, ...(r.reason ? { reason: r.reason } : {}), ...(gone ? { gone: true } : {}) });
   }),

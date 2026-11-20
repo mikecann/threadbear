@@ -1917,7 +1917,9 @@ terminal command setup used to print still works too:
 If you have them on, notifications reach your phone only while you're away
 from the Mac by default. Threadbear counts you as at the Mac when the app is open and you've
 used the keyboard or mouse in the last two minutes, and as away when the Mac
-is asleep. On the iPhone, Settings > Notify me changes it to Always or Never.
+is asleep. On the iPhone, Settings > Notify me changes it to Always or Never. A
+notification goes away by itself once its thread no longer needs you: when
+you open it on the phone, deal with it on the Mac, or archive it.
 
 Ask on the iPhone: press the Action button, say a question, and hear the
 answer from an archive server of your own, one that knows your past

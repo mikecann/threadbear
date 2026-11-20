@@ -887,6 +887,7 @@ export const linkProjects = internalMutation({
 // false to true), at most one per thread this often, so a status that
 // flaps doesn't ring his phone over and over.
 const PUSH_COOLDOWN_MS = 30_000;
+const CLEAR_WITHIN_MS = 24 * 60 * 60_000;
 
 export const upsertThreads = mutation({
   args: { key: v.string(), threads: v.array(threadDoc) },
@@ -987,6 +988,11 @@ export const upsertThreads = mutation({
       }
       const before = transfer ? null : existing;
       const wantsPush = t.needsYou && before !== null && !before.needsYou && (before.pushedAt ?? 0) < now - PUSH_COOLDOWN_MS;
+      // It stopped needing Mike after a push went out for it (seen on the
+      // Mac, answered, archived): the phones take that notification down
+      // (push:clear). Not for one pushed more than a day ago, which the
+      // phone's own tidying on opening has long since dealt with.
+      const wantsClear = before?.needsYou === true && !t.needsYou && (before.pushedAt ?? 0) > now - CLEAR_WITHIN_MS;
       // A held push stays held only while the thread still needs Mike.
       const held = t.needsYou && before?.pushHeldAt && !wantsPush ? { pushHeldAt: before.pushHeldAt } : {};
       const row = { ...t, ...stored, updatedMs: now };
@@ -1008,6 +1014,7 @@ export const upsertThreads = mutation({
       // thread, one taken over, or one whose projects changed reads its links.
       if (!existing || transfer || projectKey(existing) !== projectKey(row)) await linkThread(ctx, t.threadId, row);
       if (wantsPush && (caller.owner || (await pushAllowed(ctx, t.runnerId, now)))) await ctx.scheduler.runAfter(0, internal.push.notify, { threadId: t.threadId });
+      if (wantsClear && (caller.owner || (await pushAllowed(ctx, t.runnerId, now)))) await ctx.scheduler.runAfter(0, internal.push.clear, { threadId: t.threadId });
     }
     return { skipped, ...(closed.length ? { closed } : {}) };
   },
