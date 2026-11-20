@@ -126,6 +126,21 @@ The same, through Firebase Cloud Messaging (API 66):
    you". A token Firebase says is unregistered (404) is dropped like an Apple
    one.
 
+### Taking a notification down
+
+When a thread that had a push stops needing the person, the backend's
+`push:clear` posts `{ deviceToken, environment?, platform?, threadId }` to
+the relay's `/clear` (20 Nov 2026). The relay sends Apple a background
+push (`apns-push-type: background`, priority 5) of `{ aps: {
+"content-available": 1 }, clear: threadId }`, or Firebase a data-only
+`{ clear: threadId }` at normal priority. The app takes down that thread's
+notifications. It's checked, rate limited and counted like a send. Apps
+from before it ignore it, as there's no alert and no `threadId`, and a
+relay from before it answers 404, which the backend takes as "can't clear"
+and stops there. iOS may hold background pushes back, so the iPhone app
+also tidies up whenever its inbox updates. UnifiedPush phones (the F-Droid
+build) don't get clears yet.
+
 A relay with no `FCM_SERVICE_ACCOUNT` answers an Android send with
 `relay not configured`, which the backend reports as failing pushes
 (`pushHealth`). Deploy the relay before a backend that has Android phones.

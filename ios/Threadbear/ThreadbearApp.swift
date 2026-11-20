@@ -168,6 +168,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in completionHandler([.banner, .sound]) }
     }
 
+    /// The backend's silent push:clear: the thread no longer needs you, so its
+    /// notification comes down (DeliveredNotifications). Background pushes
+    /// need the remote-notification background mode (Info.plist).
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        guard let threadId = userInfo["clear"] as? String else { completionHandler(.noData); return }
+        Task { @MainActor in
+            await DeliveredNotifications.clear(threadId: threadId)
+            completionHandler(.newData)
+        }
+    }
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         let threadId = response.notification.request.content.userInfo["threadId"] as? String
         pushTaps.tapped(threadId: threadId, done: completionHandler)
