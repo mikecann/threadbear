@@ -202,7 +202,7 @@ pub enum ShortcutCommand {
     TogglePanels,
     ToggleTerminal,
     ResetPanelLayout,
-    /// ⌘/ folds the Threads panel away and back, keeping its place and width.
+    /// ⌘B folds the Threads panel away and back, keeping its place and width.
     CollapseThreads,
     Settings,
 }
@@ -329,10 +329,11 @@ impl ShortcutCommand {
             Self::ZoomOut => Some(ShortcutKey::new("-")),
             Self::ActualSize => Some(ShortcutKey::new("0")),
             Self::ToggleThreads => Some(ShortcutKey::with("s", false, true, false)),
-            Self::TogglePanels => Some(ShortcutKey::with("p", true, false, false)),
+            // VS Code's and Cursor's keys for their left and right sidebars.
+            Self::TogglePanels => Some(ShortcutKey::with("b", true, false, false)),
             // VS Code's and T3 Code's key for their terminal.
             Self::ToggleTerminal => Some(ShortcutKey::new("j")),
-            Self::CollapseThreads => Some(ShortcutKey::new("/")),
+            Self::CollapseThreads => Some(ShortcutKey::new("b")),
             Self::Hibernate
             | Self::ShowHibernating
             | Self::ShowArchived
@@ -550,7 +551,11 @@ mod tests {
         );
         assert_eq!(
             ShortcutCommand::CollapseThreads.default_key(),
-            Some(key("cmd+/"))
+            Some(key("cmd+b"))
+        );
+        assert_eq!(
+            ShortcutCommand::TogglePanels.default_key(),
+            Some(key("cmd+opt+b"))
         );
     }
 
