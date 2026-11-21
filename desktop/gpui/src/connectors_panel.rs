@@ -71,9 +71,9 @@ impl Threadbear {
                     // A runner from before Connectors: no icon, no panel.
                     Err(e) if e.code == -32601 => {
                         t.connectors_panel.status = None;
-                        if t.activity_panel_showing(shell::CONNECTORS, cx) {
-                            t.toggle_under_threads(shell::CONNECTORS, cx);
-                        }
+                        // Closed even while ⌥⇧⌘B has it folded away, so it
+                        // doesn't come back with the sidebar.
+                        t.dock.update(cx, |m, cx| m.close(shell::CONNECTORS, cx));
                     }
                     Err(e) if shown => t.show_error(e.message, cx),
                     Err(_) => {}

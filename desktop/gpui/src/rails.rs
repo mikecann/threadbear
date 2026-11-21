@@ -696,7 +696,7 @@ impl Threadbear {
         // Usage, as a honey pot filled to the room the next thread would get,
         // its tooltip each pool's best room (usage.rs). Toggles its panel
         // under the threads, as VS Code's bar does its views.
-        let usage_shown = self.dock.read(cx).controller.is_showing(shell::USAGE);
+        let usage_shown = self.activity_panel_showing(shell::USAGE, cx);
         let (pot, tip) = self.honey_pot();
         let mut button = RailButton::new(
             "rail-usage",

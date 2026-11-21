@@ -175,6 +175,9 @@ pub enum ShortcutCommand {
     Hibernate,
     Stop,
     CopyTranscript,
+    /// ⌘/ opens the message box's model picker, as Cursor's does (Wayne, 21
+    /// Nov). The GPUI app's own, like Open Anything.
+    ChooseModel,
     Back,
     Forward,
     NextInboxThread,
@@ -204,16 +207,21 @@ pub enum ShortcutCommand {
     ResetPanelLayout,
     /// ⌘B folds the Threads panel away and back, keeping its place and width.
     CollapseThreads,
+    /// ⌥⇧⌘B folds the whole left sidebar away and back: the Threads panel
+    /// and Runners, Connectors, Updates, Usage and Setup under it (Wayne, 21
+    /// Nov). The GPUI app's own.
+    CollapseSidebar,
     Settings,
 }
 
 impl ShortcutCommand {
-    pub const ALL: [ShortcutCommand; 27] = [
+    pub const ALL: [ShortcutCommand; 29] = [
         Self::NewThread,
         Self::Archive,
         Self::Hibernate,
         Self::Stop,
         Self::CopyTranscript,
+        Self::ChooseModel,
         Self::Back,
         Self::Forward,
         Self::NextInboxThread,
@@ -235,6 +243,7 @@ impl ShortcutCommand {
         Self::ToggleTerminal,
         Self::ResetPanelLayout,
         Self::CollapseThreads,
+        Self::CollapseSidebar,
         Self::Settings,
     ];
 
@@ -248,6 +257,7 @@ impl ShortcutCommand {
             Self::Back => "back",
             Self::Forward => "forward",
             Self::NextInboxThread => "nextInboxThread",
+            Self::ChooseModel => "chooseModel",
             Self::OpenAnything => "openAnything",
             Self::OpenAnythingAlso => "openAnythingAlso",
             Self::ShowInbox => "showInbox",
@@ -266,6 +276,7 @@ impl ShortcutCommand {
             Self::ToggleTerminal => "toggleTerminal",
             Self::ResetPanelLayout => "resetPanelLayout",
             Self::CollapseThreads => "collapseThreads",
+            Self::CollapseSidebar => "collapseSidebar",
             Self::Settings => "settings",
         }
     }
@@ -284,6 +295,7 @@ impl ShortcutCommand {
             Self::Back => "Back",
             Self::Forward => "Forward",
             Self::NextInboxThread => "Next Inbox Thread",
+            Self::ChooseModel => "Choose Model",
             Self::OpenAnything => "Open Anything",
             Self::OpenAnythingAlso => "Open Anything (second key)",
             Self::ShowInbox => "Show Inbox",
@@ -302,6 +314,7 @@ impl ShortcutCommand {
             Self::ToggleTerminal => "Show Terminal",
             Self::ResetPanelLayout => "Reset Panel Layout",
             Self::CollapseThreads => "Collapse Threads",
+            Self::CollapseSidebar => "Collapse Sidebar",
             Self::Settings => "Settings…",
         }
     }
@@ -318,6 +331,7 @@ impl ShortcutCommand {
             Self::PreviousTab => Some(ShortcutKey::with("[", false, false, true)),
             Self::NextTab => Some(ShortcutKey::with("]", false, false, true)),
             Self::NextInboxThread => Some(ShortcutKey::with("down", true, false, false)),
+            Self::ChooseModel => Some(ShortcutKey::new("/")),
             Self::OpenAnything => Some(ShortcutKey::new("k")),
             Self::OpenAnythingAlso => Some(ShortcutKey::new("p")),
             Self::ShowInbox => Some(ShortcutKey::new("1")),
@@ -334,6 +348,7 @@ impl ShortcutCommand {
             // VS Code's and T3 Code's key for their terminal.
             Self::ToggleTerminal => Some(ShortcutKey::new("j")),
             Self::CollapseThreads => Some(ShortcutKey::new("b")),
+            Self::CollapseSidebar => Some(ShortcutKey::with("b", true, false, true)),
             Self::Hibernate
             | Self::ShowHibernating
             | Self::ShowArchived
@@ -519,7 +534,7 @@ mod tests {
             unique.len(),
             "two commands can't start on one key"
         );
-        assert_eq!(ShortcutCommand::ALL.len(), 27);
+        assert_eq!(ShortcutCommand::ALL.len(), 29);
         // The Swift app's names and keys, as both apps read shortcuts.json.
         assert_eq!(
             ShortcutCommand::from_name("previousTab"),
@@ -546,12 +561,31 @@ mod tests {
             Some(key("cmd+k"))
         );
         assert_eq!(
+            ShortcutCommand::ChooseModel.default_key(),
+            Some(key("cmd+/"))
+        );
+        assert_eq!(
+            ShortcutCommand::from_name("chooseModel"),
+            Some(ShortcutCommand::ChooseModel)
+        );
+        assert_eq!(
             ShortcutCommand::OpenAnythingAlso.default_key(),
             Some(key("cmd+p"))
         );
         assert_eq!(
             ShortcutCommand::CollapseThreads.default_key(),
             Some(key("cmd+b"))
+        );
+        assert_eq!(
+            ShortcutCommand::CollapseSidebar.default_key(),
+            Some(key("cmd+opt+shift+b"))
+        );
+        assert_eq!(
+            ShortcutCommand::CollapseSidebar
+                .default_key()
+                .unwrap()
+                .display(),
+            "⌥⇧⌘B"
         );
         assert_eq!(
             ShortcutCommand::TogglePanels.default_key(),

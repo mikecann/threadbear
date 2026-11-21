@@ -1981,7 +1981,7 @@ impl Threadbear {
         }
     }
 
-    #[cfg(feature = "automation")]
+    /// What ⌘/ opens the model picker on, and the automation's composer.
     pub(crate) fn composer(&self, cx: &App) -> Option<Entity<Composer>> {
         // The open thread's box, or the new-thread page's.
         self.pane

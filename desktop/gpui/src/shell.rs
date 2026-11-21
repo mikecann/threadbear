@@ -37,6 +37,9 @@ pub(crate) const CONNECTORS: &str = "threadbear.connectors";
 pub(crate) const RUNNERS: &str = "threadbear.runners";
 /// Finish setting up (setup_panel.rs), open until Mike closes it.
 pub(crate) const SETUP: &str = "threadbear.setup";
+/// The panels the activity bar opens under the threads list. With it they
+/// make up the left sidebar, which ⌥⇧⌘B folds away (thread_panels.rs).
+pub(crate) const UNDER_THREADS: [&str; 5] = [USAGE, UPDATES, SETUP, CONNECTORS, RUNNERS];
 
 /// How often the settings file is written during a burst of changes.
 const SAVE_THROTTLE_MS: i64 = 300;
@@ -371,6 +374,7 @@ actions!(
         WakeWhenPrompt,
         StopTurn,
         CopyTranscript,
+        ChooseModel,
         GoBack,
         GoForward,
         NextInboxThread,
@@ -394,6 +398,7 @@ actions!(
         ToggleTerminal,
         ResetPanelLayout,
         CollapseThreads,
+        CollapseSidebar,
         ToggleFrameRate,
         AboutApp,
         RestartToUpdate,
@@ -469,6 +474,7 @@ commands!(
         CopyTranscript,
         Some(ShortcutCommand::CopyTranscript)
     ),
+    (ChooseModel, ChooseModel, Some(ShortcutCommand::ChooseModel)),
     (Back, GoBack, Some(ShortcutCommand::Back)),
     (Forward, GoForward, Some(ShortcutCommand::Forward)),
     (
@@ -548,6 +554,11 @@ commands!(
         CollapseThreads,
         CollapseThreads,
         Some(ShortcutCommand::CollapseThreads)
+    ),
+    (
+        CollapseSidebar,
+        CollapseSidebar,
+        Some(ShortcutCommand::CollapseSidebar)
     ),
     (ToggleFrameRate, ToggleFrameRate, None),
     (About, AboutApp, None),
@@ -681,7 +692,10 @@ impl Threadbear {
         // Folded away with ⌘B: the main panel takes its room, and it comes
         // back at the same width (thread_panels.rs).
         if panel == THREADS {
-            return !self.threads_collapsed();
+            return !self.threads_collapsed() && !self.sidebar_collapsed();
+        }
+        if UNDER_THREADS.contains(&panel) {
+            return !self.sidebar_collapsed();
         }
         // A thread's own panel while there's such a thread: one deleted on
         // another machine leaves it nothing to show.
@@ -764,7 +778,11 @@ impl Threadbear {
     /// as a tab beside another of them if one's open, else under the threads
     /// list (`setShownUnderThreads`).
     pub(crate) fn toggle_under_threads(&mut self, panel: &str, cx: &mut Context<Self>) {
-        if self.is_panel_showing(panel, cx) {
+        // Folded away with ⌥⇧⌘B, its icon brings the sidebar back with the
+        // panel in front, rather than closing a panel nobody can see.
+        let folded = self.sidebar_collapsed();
+        self.set_sidebar_collapsed(false, cx);
+        if !folded && self.is_panel_showing(panel, cx) {
             self.dock.update(cx, |m, cx| m.close(panel, cx));
             return;
         }
@@ -775,10 +793,7 @@ impl Threadbear {
             .group_containing(THREADS)
             .map(|g| DockDrop::edge(g.id, DockEdge::Bottom))
             .unwrap_or(DockDrop::window(DockEdge::Left));
-        let near: Vec<&str> = [USAGE, UPDATES, SETUP, CONNECTORS, RUNNERS]
-            .into_iter()
-            .filter(|p| *p != panel)
-            .collect();
+        let near: Vec<&str> = UNDER_THREADS.into_iter().filter(|p| *p != panel).collect();
         self.dock
             .update(cx, |m, cx| m.show(panel, &near, under, cx));
     }
@@ -787,11 +802,12 @@ impl Threadbear {
     /// the left of the window; folded away with ⌘B counts as hidden.
     fn toggle_threads_panel(&mut self, cx: &mut Context<Self>) {
         let contains = self.dock.read(cx).layout().contains(THREADS);
-        if contains && !self.threads_collapsed() {
+        if contains && !self.threads_collapsed() && !self.sidebar_collapsed() {
             self.dock.update(cx, |m, cx| m.close(THREADS, cx));
             return;
         }
         self.set_threads_collapsed(false, cx);
+        self.set_sidebar_collapsed(false, cx);
         if !contains {
             self.dock.update(cx, |m, cx| {
                 m.open(THREADS, DockDrop::window(DockEdge::Left), cx)
@@ -969,6 +985,12 @@ impl Threadbear {
                     pane.update(cx, |p, cx| p.copy_transcript(cx));
                 }
             }
+            // The open thread's box, or the new-thread page's.
+            Command::ChooseModel => {
+                if let Some(composer) = self.composer(cx) {
+                    composer.update(cx, |c, cx| c.toggle_model_picker(cx));
+                }
+            }
             Command::Back => self.go_back(window, cx),
             Command::Forward => self.go_forward(window, cx),
             Command::NextInboxThread => self.next_inbox_thread(window, cx),
@@ -1005,6 +1027,7 @@ impl Threadbear {
             Command::ToggleTerminal => crate::terminal::toggle(self, window, cx),
             Command::ResetPanelLayout => self.reset_panel_layout(cx),
             Command::CollapseThreads => self.toggle_threads_collapsed(cx),
+            Command::CollapseSidebar => self.toggle_sidebar_collapsed(cx),
             Command::ToggleFrameRate => self.toggle_frame_rate(window, cx),
             Command::About => self.show_about(window, cx),
             Command::RestartToUpdate => self.restart_to_update(cx),
@@ -1753,6 +1776,15 @@ impl Threadbear {
                         },
                         Command::CollapseThreads,
                     ),
+                    // The whole left sidebar, the panels under the list too.
+                    item(
+                        if self.left_sidebar_showing(cx) {
+                            "Collapse Sidebar"
+                        } else {
+                            "Expand Sidebar"
+                        },
+                        Command::CollapseSidebar,
+                    ),
                     item(
                         if panels_shown {
                             "Hide Panels"
@@ -1816,6 +1848,8 @@ impl Threadbear {
                         items: self.hibernate_menu_items(),
                     },
                     item("Stop", Command::Stop).enabled(busy),
+                    item("Choose Model…", Command::ChooseModel)
+                        .enabled(self.composer(cx).is_some()),
                     Separator,
                     item("Copy Transcript as Markdown", Command::CopyTranscript)
                         .enabled(has_thread),

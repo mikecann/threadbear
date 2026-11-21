@@ -99,6 +99,9 @@ pub struct Saved {
     /// `threadsCollapsed`: ⌘B folded the Threads panel away (thread_panels.rs).
     /// None is no.
     pub threads_collapsed: Option<bool>,
+    /// `sidebarCollapsed`: ⌥⇧⌘B folded the whole left sidebar away, the
+    /// Threads panel and the panels under it (thread_panels.rs). None is no.
+    pub sidebar_collapsed: Option<bool>,
     /// ⌘K's Recent (open_anything.rs): what was opened lately, newest first,
     /// as the box's keys ("thread:<id>", "panel:<place>|<id>"). The GPUI
     /// app's own; the Swift app hasn't got the box.

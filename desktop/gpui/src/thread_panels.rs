@@ -72,7 +72,62 @@ impl Threadbear {
     /// The Threads panel is on screen: in the layout and not folded away
     /// (`threadsShowing`), which is what the View menu's titles go by.
     pub(crate) fn threads_showing(&self, cx: &App) -> bool {
-        self.dock.read(cx).layout().contains(THREADS) && !self.threads_collapsed()
+        self.dock.read(cx).layout().contains(THREADS)
+            && !self.threads_collapsed()
+            && !self.sidebar_collapsed()
+    }
+
+    /// ⌥⇧⌘B folded the whole left sidebar away (`sidebarCollapsed`): the
+    /// Threads panel and the panels under it stay in the layout with nothing
+    /// to show (`panel_available`), and come back where they were.
+    pub(crate) fn sidebar_collapsed(&self) -> bool {
+        self.settings.saved.sidebar_collapsed == Some(true)
+    }
+
+    pub(crate) fn set_sidebar_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        if self.sidebar_collapsed() == collapsed {
+            return;
+        }
+        self.settings.saved.sidebar_collapsed = collapsed.then_some(true);
+        self.save_settings_soon(cx);
+        self.dock.update(cx, |_, cx| cx.notify());
+        cx.notify();
+    }
+
+    /// The left sidebar has something in the layout: the Threads panel or
+    /// one of the panels under it.
+    fn left_sidebar_open(&self, cx: &App) -> bool {
+        let layout = self.dock.read(cx).layout();
+        layout.contains(THREADS)
+            || crate::shell::UNDER_THREADS
+                .iter()
+                .any(|p| layout.contains(p))
+    }
+
+    /// The left sidebar is on screen, which the View menu's Collapse or
+    /// Expand Sidebar goes by.
+    pub(crate) fn left_sidebar_showing(&self, cx: &App) -> bool {
+        self.left_sidebar_open(cx) && !self.sidebar_collapsed()
+    }
+
+    /// ⌥⇧⌘B (`toggleSidebarCollapsed`): folds the whole left sidebar away,
+    /// or brings it back as it was with the Threads list showing. The
+    /// activity bar stays. With nothing there (Hide Threads took the panel
+    /// out), it puts the Threads panel back instead.
+    pub(crate) fn toggle_sidebar_collapsed(&mut self, cx: &mut Context<Self>) {
+        if !self.left_sidebar_open(cx) {
+            self.set_sidebar_collapsed(false, cx);
+            self.set_threads_collapsed(false, cx);
+            self.dock.update(cx, |m, cx| {
+                m.open(THREADS, DockDrop::window(DockEdge::Left), cx)
+            });
+            return;
+        }
+        let collapsed = !self.sidebar_collapsed();
+        self.set_sidebar_collapsed(collapsed, cx);
+        if !collapsed {
+            self.set_threads_collapsed(false, cx);
+        }
     }
 
     pub(crate) fn set_threads_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
@@ -91,6 +146,12 @@ impl Threadbear {
     /// brings it back as it was. The activity bar stays. If Hide Threads had
     /// taken the panel out of the layout, this puts it back instead.
     pub(crate) fn toggle_threads_collapsed(&mut self, cx: &mut Context<Self>) {
+        // The whole sidebar folded away with ⌥⇧⌘B: ⌘B brings it back, list and all.
+        if self.sidebar_collapsed() {
+            self.set_sidebar_collapsed(false, cx);
+            self.set_threads_collapsed(false, cx);
+            return;
+        }
         if !self.dock.read(cx).layout().contains(THREADS) {
             self.set_threads_collapsed(false, cx);
             self.dock.update(cx, |m, cx| {
@@ -107,6 +168,7 @@ impl Threadbear {
     /// the Swift app's do.
     pub(crate) fn unfold_threads(&mut self, cx: &mut Context<Self>) {
         self.set_threads_collapsed(false, cx);
+        self.set_sidebar_collapsed(false, cx);
     }
 
     // ---------------------------------------------------------------- a thread in a panel of its own

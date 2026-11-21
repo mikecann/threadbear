@@ -90,6 +90,12 @@ pub struct Composer {
     restore: Option<RestoreDraft>,
     /// The model picker's search and column, kept while it's open.
     pub(crate) model_picker: Option<Entity<ModelPickerView>>,
+    /// ⌘/ asked for the model picker to open (true) or close (false): taken
+    /// by the chip's next draw, after which its popover runs itself.
+    pub(crate) model_picker_request: Option<bool>,
+    /// Whether the model picker's popover is open, as far as its own opens
+    /// and closes say, so ⌘/ can close it again.
+    pub(crate) model_picker_shown: bool,
     /// What's picked on the open card, and how the card's showing.
     pub(crate) card: CardState,
     /// Which card was last seen arriving, for it to settle in (composer_card.rs).
@@ -231,6 +237,13 @@ pub struct SavedPicks {
 }
 
 impl Composer {
+    /// ⌘/ (Choose Model): opens the model picker over its chip, or closes
+    /// it, as Cursor's ⌘/ does. The chip's next draw does it.
+    pub(crate) fn toggle_model_picker(&mut self, cx: &mut Context<Self>) {
+        self.model_picker_request = Some(!self.model_picker_shown);
+        cx.notify();
+    }
+
     pub fn new(
         thread_id: Option<String>,
         client: Arc<Client>,
@@ -298,6 +311,8 @@ impl Composer {
             sent_hop: None,
             restore: None,
             model_picker: None,
+            model_picker_request: None,
+            model_picker_shown: false,
             card: CardState::default(),
             card_arrival: Default::default(),
             strip_opening: None,

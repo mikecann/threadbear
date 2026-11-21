@@ -871,12 +871,26 @@ impl Composer {
             tip: tip.into(),
             selected: false,
         };
+        // ⌘/'s ask, taken now, so a chip that's spinning drops it rather
+        // than opening by surprise once its change lands.
+        let request = self.model_picker_request.take();
         // A login or pool change can't be guessed: it spins till it lands.
         if trigger.busy {
             return trigger.into_any_element();
         }
         let picker = self.picker_state(window, cx);
+        if let Some(open) = request {
+            self.model_picker_shown = open;
+            // Opened from the keyboard, its search takes the typing.
+            picker.update(cx, |p, _| p.focus_search = open);
+        }
+        let composer = cx.entity().downgrade();
         Popover::new("composer-model")
+            .when_some(request, |p, open| p.open(open))
+            .on_open_change(move |open, _, cx| {
+                let open = *open;
+                composer.update(cx, |c, _| c.model_picker_shown = open).ok();
+            })
             // Its chip's title may shrink to fit a narrow box.
             .trigger_style(StyleRefinement::default().min_w_0())
             // Centred over its chip, as an NSPopover opens.
@@ -1444,6 +1458,8 @@ pub(crate) struct ModelPickerView {
     column: Option<String>,
     /// The Login line's list is open.
     login_open: bool,
+    /// ⌘/ opened it: the search takes focus on its next draw.
+    focus_search: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -1466,6 +1482,7 @@ impl ModelPickerView {
             search,
             column: None,
             login_open: false,
+            focus_search: false,
             _subs: vec![sub],
         }
     }
@@ -1514,12 +1531,28 @@ impl ModelPickerView {
     }
 }
 
+impl ModelPickerView {
+    /// ⌘/ opened it: the search takes the typing, fresh each time, as
+    /// Cursor's is, not last time's words.
+    fn take_focus_request(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.focus_search) {
+            return;
+        }
+        self.search.update(cx, |s, cx| {
+            s.set_value(String::new(), window, cx);
+            s.focus(window, cx);
+        });
+        crate::web_panels::keyboard_to_app(window);
+    }
+}
+
 impl Render for ModelPickerView {
     #[expect(
         clippy::too_many_lines,
         reason = "baselined at 296 lines when the lint was turned on (20 Nov 2026); split it when it's next worked on"
     )]
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.take_focus_request(window, cx);
         let Some(composer) = self.composer.upgrade() else {
             return div().into_any_element();
         };
