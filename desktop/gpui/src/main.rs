@@ -60,6 +60,7 @@ mod draft_boxes;
 mod drafts;
 mod explain_pane;
 mod far_rows;
+mod fast_lane;
 mod file_drag;
 mod file_edit;
 mod file_find;

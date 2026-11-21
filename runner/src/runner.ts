@@ -3,6 +3,8 @@ import { HELD_EXTRA } from './schedule-check.ts';
 // The thread manager: owns threads, turns, the event log, approvals, idle
 // release and snoozes. Providers plug in through AgentAdapter; the WebSocket
 // server in rpc.ts is a thin layer over the public methods here.
+import { experimentOn } from './experiments.ts';
+import { fastLaneFromConfig, formatFastAnswer, formatFastHandoff, formatFastNote, parseFastQuery, type FastLookup } from './fast-lane.ts';
 import type { ReinstallStatus } from './reinstall.ts';
 import { RELEASE } from './release.ts';
 import type { StartSessionOptions, UserInput } from './adapters/types.ts';
@@ -388,6 +390,8 @@ export type Turn = {
   // Whether the agent has read a background task's notification that came
   // into the turn (needs.ts, WakeRead).
   wake?: WakeRead;
+  // Abort controller for an in-flight read-only Fast lane web lookup.
+  fastAbort?: AbortController;
 };
 
 export type TurnHold = 'save' | 'setup' | 'broken' | 'token';
@@ -674,6 +678,9 @@ export type RunnerDeps = {
   // Whether a provider's API can be reached (net-probe.ts), for threads
   // whose turn failed because it couldn't be; tests pass a fake.
   reachable?: Reachable;
+  // Read-only Fast lane web lookup (experiment `fastLane`, fast-lane.ts);
+  // tests pass a fake.
+  fastLane?: FastLookup;
 };
 
 // The note Mike's pick from the done card's Archive menu leaves in the
@@ -888,11 +895,13 @@ export class Runner {
 
   private threadKey?: (threadId: string) => string;
   private answered?: RunnerDeps['answered'];
+  private fastLane: FastLookup;
   constructor(deps: RunnerDeps) {
     if (deps.boxThread !== undefined) this.boxThread = deps.boxThread;
     this.boxHolds = deps.boxHolds ?? [];
     this.threadKey = deps.threadKey;
     this.answered = deps.answered;
+    this.fastLane = deps.fastLane ?? fastLaneFromConfig(deps.config.connectorsClient, deps.config.fastLane, deps.log);
     if ('release' in deps) this.release = deps.release;
     this.cfg = deps.config;
     this.store = deps.store;
@@ -1943,7 +1952,16 @@ export class Runner {
       this.markDirty(st);
     }
     const turnId = opts.messageId ?? crypto.randomUUID();
+    const fastLaneOn = experimentOn(this.cfg.home, 'fastLane');
+    if (opts.fast === true && !fastLaneOn) {
+      throw new RpcError(ErrorCode.badParams, 'Fast lane is off. Turn on Fast lane in Settings > General > Experiments.');
+    }
+    const parsedFast = fastLaneOn ? parseFastQuery(text, opts.fast === true) : { fast: false as const };
+    if (parsedFast.fast && !parsedFast.query) {
+      throw new RpcError(ErrorCode.badParams, 'Fast web search needs a text question.');
+    }
     const msg: QueuedSend = { turnId, text, images: refs };
+    if (parsedFast.fast) msg.fast = true;
     if (opts.origin) msg.origin = opts.origin;
     if (opts.wakeReason && opts.origin === 'runner') msg.wakeReason = opts.wakeReason;
     if (opts.scheduleId) msg.scheduleId = opts.scheduleId;
@@ -1993,8 +2011,9 @@ export class Runner {
     }
     // A slash command waits for the turn to end rather than going into it:
     // a CLI runs one only as a message of its own, and the runner's own
-    // change settings for the next turn.
-    if (rt.turn && !opts.queue && this.canSteer(st) && !this.commandPlan(st, text)) {
+    // change settings for the next turn. A Fast lane lookup also runs on its
+    // own turn rather than steering into a live coding CLI.
+    if (rt.turn && !opts.queue && !msg.fast && this.canSteer(st) && !this.commandPlan(st, text)) {
       // Sent while a turn runs: it goes into that turn now, as typing into
       // the CLI would. The CLI takes it at its next step, or straight after
       // its reply if that was already finishing; either way the thread's
@@ -2015,7 +2034,7 @@ export class Runner {
     }
     // Onto the live CLI: it waits in the queue (shown there) while the
     // folder's Claude Code settings are looked at (kickQueue, rt.preLook).
-    if (this.needsPreLook(st)) {
+    if (!msg.fast && this.needsPreLook(st)) {
       rec.queue.push(msg);
       this.markDirty(st);
       this.kickQueue(st);
@@ -2138,7 +2157,13 @@ export class Runner {
     // messages as were sent into it (Codex review).
     turn.dispatched = true;
     if (!turn.deliveryKnown) turn.foreignOutput = false;
-    this.sendWithInstructionsNews(st, this.withInterruptedMessages(st, msg, this.forAgent(msg)));
+    const fastCtx = st.rec.fastLaneContext;
+    if (fastCtx) {
+      delete st.rec.fastLaneContext;
+      this.markDirty(st);
+    }
+    const steered = this.withInterruptedMessages(st, msg, this.forAgent(msg));
+    this.sendWithInstructionsNews(st, fastCtx ? { ...steered, text: `${fastCtx}${steered.text}` } : steered);
     if (!isAutomaticInput(msg)) turn.ordinaryInput = true;
   }
 
@@ -2265,10 +2290,63 @@ export class Runner {
     });
   }
 
+  async runFastLaneTurn(st: ThreadState, msg: QueuedSend): Promise<void> {
+    const { rec, rt } = st;
+    const gone = () => rt.deleted || rt.turn?.turnId !== msg.turnId;
+    const turn = rt.turn;
+    if (!turn) return;
+    if (!experimentOn(this.cfg.home, 'fastLane')) {
+      this.failTurn(st, 'Fast lane is off. Turn on Fast lane in Settings > General > Experiments.');
+      return;
+    }
+    const parsed = parseFastQuery(msg.text, true);
+    if (!parsed.fast || !parsed.query) {
+      this.failTurn(st, 'Fast web search needs a text question.');
+      return;
+    }
+    turn.local = true;
+    const ac = new AbortController();
+    turn.fastAbort = ac;
+    rec.status = 'running';
+    this.markDirty(st);
+    try {
+      const res = await this.fastLane(parsed.query, { signal: ac.signal });
+      if (gone()) return;
+      const formatted = formatFastAnswer(res.answer, res.citations);
+      const itemId = crypto.randomUUID();
+      this.emit(st, { type: 'assistant.text', itemId, text: formatted, final: true }, turn.turnId);
+      // The reply phase owns a turn's reply (reply-phase.ts): the answer is
+      // its text, and an end_turn with nothing needed is its card.
+      this.reply(st, { kind: 'text', itemId, text: formatted });
+      const callId = crypto.randomUUID();
+      this.reply(st, { kind: 'call', itemId: callId, input: { needs: 'nothing' }, by: turn.endTurnBy });
+      this.reply(st, { kind: 'result', itemId: callId, ok: true, text: '' });
+      this.emit(st, { type: 'system.note', text: formatFastNote(res.durationMs, res.source) }, turn.turnId);
+      rec.preview = oneLine(res.answer, LIMITS.previewChars);
+      if (!rec.sessionUsed && !rt.session) {
+        rec.handoff ??= { fromCwd: rec.cwd, fromAccountId: rec.accountId, fastLane: true };
+        rec.handoff.fastLane = true;
+      } else {
+        rec.fastLaneContext = `${rec.fastLaneContext ?? ''}${formatFastHandoff(parsed.query, formatted)}`;
+      }
+      this.markDirty(st);
+      this.completeTurn(st, { outcome: 'completed', durationMs: res.durationMs });
+    } catch (e) {
+      if (gone()) return;
+      this.failTurn(st, e instanceof Error ? e.message : String(e));
+    } finally {
+      if (turn.fastAbort === ac) turn.fastAbort = undefined;
+    }
+  }
+
   async deliver(st: ThreadState, msg: QueuedSend, live?: LiveLook): Promise<void> {
     const { rec, rt } = st;
     // Deleted (which leaves rt.turn as it was) or interrupted meanwhile.
     const gone = () => rt.deleted || rt.turn?.turnId !== msg.turnId;
+    if (msg.fast) {
+      await this.runFastLaneTurn(st, msg);
+      return;
+    }
     // Looks at the folder's Claude Code settings on the trust worker, as a
     // folder outside git is walked, which held the main thread for seconds
     // at every message (19 Nov). After the look, the turn may have been
@@ -2394,6 +2472,12 @@ export class Runner {
       delete rec.agentNotice;
       this.markDirty(st);
     }
+    // Mid-thread Fast lane lookups carried forward into the coding session.
+    if (typeof rec.fastLaneContext === 'string' && rec.fastLaneContext) {
+      text = `${rec.fastLaneContext}${text}`;
+      delete rec.fastLaneContext;
+      this.markDirty(st);
+    }
     // Emails the email watcher kept for this thread's next turn.
     const mail = this.takeHeldMail(st);
     if (mail) text = `${mail}\n\n${text}`;
@@ -2417,8 +2501,8 @@ export class Runner {
         delete rec.handoff;
       } else if (rec.handoff) {
         text = this.handoffNote(st, account) + text;
-        // A quick ask's thread never had a session, so nothing to say.
-        if (!rec.handoff.quickAsk) this.emit(st, { type: 'system.note', text: `Started a new session in ${rec.cwd} on ${account.title}.` }, msg.turnId);
+        // A quick ask or fast lane start never had a CLI session, so nothing to say.
+        if (!rec.handoff.quickAsk && !rec.handoff.fastLane) this.emit(st, { type: 'system.note', text: `Started a new session in ${rec.cwd} on ${account.title}.` }, msg.turnId);
         rec.nativeSessionId = crypto.randomUUID();
         rec.sessionUsed = false;
         rec.sessionCostTotal = 0;
@@ -3477,6 +3561,11 @@ export class Runner {
     }
     turn.interruptRequested = true;
     this.expireApprovals(st, 'Interrupted.', closing);
+    if (turn.fastAbort) {
+      turn.fastAbort.abort();
+      this.failTurn(st, 'Interrupted.');
+      return {};
+    }
     const session = runningSession(rt);
     // Nothing is running in the CLI for a turn that was only opened for a
     // background subagent's approval, so nothing would end it.
@@ -4948,7 +5037,7 @@ export function stoppedWorkMessage(what: string[], last: boolean): string {
 // `wakeReason`: for a message the runner sends by itself, what happened, in a few
 // words ("The app restarted"), shown on the divider before the turn it
 // starts ("14 h later · The app restarted", Mike 19 Nov).
-export type SendOptions = { origin?: MessageOrigin; wakeReason?: string; scheduleId?: string; preserveSchedule?: boolean; queue?: boolean; answers?: AskAnswer[]; editOf?: number; messageId?: string; scheduledSince?: number };
+export type SendOptions = { origin?: MessageOrigin; wakeReason?: string; scheduleId?: string; preserveSchedule?: boolean; queue?: boolean; answers?: AskAnswer[]; editOf?: number; messageId?: string; scheduledSince?: number; fast?: boolean };
 
 type ScheduledDelivery = { seq: number; started: boolean; text: string; images: ImageRef[]; superseded?: false } | { superseded: true; started: true };
 

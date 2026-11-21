@@ -129,6 +129,15 @@ impl Threadbear {
     /// already asked for these settings. On ⌘N or the button, and as the box
     /// changes, so a folder or model picked after opening gets its own.
     pub(crate) fn warm_new_thread(&mut self, cx: &mut Context<Self>) {
+        // Skip warming a coding CLI while the new-thread composer is armed for Fast lane.
+        if self
+            .new_thread
+            .composer
+            .as_ref()
+            .is_some_and(|c| c.read(cx).fast_armed)
+        {
+            return;
+        }
         let Some(params) = self.warm_params() else {
             return;
         };
@@ -215,6 +224,19 @@ impl Threadbear {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.send_new_thread_with_fast(text, images, stored, false, window, cx);
+    }
+
+    /// Starts a new thread, optionally routing its first turn through the Fast lane (`fast: true`).
+    pub(crate) fn send_new_thread_with_fast(
+        &mut self,
+        text: String,
+        images: Vec<ImageRef>,
+        stored: String,
+        fast: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.new_thread.creating {
             return;
         }
@@ -262,12 +284,17 @@ impl Threadbear {
             params["projectIds"] = json!([project]);
         }
         // The CLI started for this draft, while its settings are the ones it
-        // was started with (warm start). Used once either way.
-        let warm = self.new_thread.warm.take();
-        self.new_thread.warm_asked = None;
-        if let (Some((warmed, id)), Some(now)) = (warm, self.warm_params()) {
-            if warmed == now {
-                params["warmId"] = json!(id);
+        // was started with (warm start). Fast lane turns skip spawning a CLI,
+        // so leave any warm spare untouched for the next coding thread.
+        if fast {
+            params["fast"] = json!(true);
+        } else {
+            let warm = self.new_thread.warm.take();
+            self.new_thread.warm_asked = None;
+            if let (Some((warmed, id)), Some(now)) = (warm, self.warm_params()) {
+                if warmed == now {
+                    params["warmId"] = json!(id);
+                }
             }
         }
         let account = self.with_draft(&logins, |d| d.account_id());

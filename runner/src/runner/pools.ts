@@ -514,6 +514,12 @@ export const poolsPart = {
         `The thread so far:\n\n${lines.join('\n\n') || '(none)'}\n\n[End of handoff. The new message follows.]\n\n`
       );
     }
+    if (from.fastLane) {
+      return (
+        `[Threadbear handoff] This thread began with a read-only fast web search answered directly without a coding session. This is a fresh session in ${rec.cwd}. ` +
+        `The thread so far:\n\n${lines.join('\n\n') || '(none)'}\n\n[End of handoff. The new message follows.]\n\n`
+      );
+    }
     if (from.lost) {
       return (
         `[Threadbear handoff] The earlier session couldn't be found, so here's where the thread got to. This is a fresh session in ${rec.cwd}. ` +

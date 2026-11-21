@@ -15,7 +15,7 @@ export type LabLedger = LabReviewLedger & { delivered?: number; answered?: numbe
 // A reviewer's verdict: its findings, none when nothing holds up.
 export type ReviewVerdict = { findings: Pick<ReviewFinding, 'severity' | 'claim' | 'where' | 'case'>[] };
 
-export type QueuedSend = { beforeMessage?: true; retryAfterInterrupt?: true; preserveSchedule?: boolean; scheduledSince?: number; turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; wakeReason?: string; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number };
+export type QueuedSend = { beforeMessage?: true; retryAfterInterrupt?: true; preserveSchedule?: boolean; scheduledSince?: number; turnId: string; text: string; images: ImageRef[]; origin?: MessageOrigin; wakeReason?: string; scheduleId?: string; reviewId?: string; reviewResponse?: ReviewDraft; answers?: AskAnswer[]; editOf?: number; fast?: true };
 
 // What thread.json holds: the public summary fields plus a few internal ones.
 // A report held for a thread from one it started (runner/nested.ts).
@@ -296,7 +296,11 @@ export type ThreadRecord = {
   // while the fresh session's first message is put together).
   // quickAsk: the thread began as a quick ask from the phone (Runner.quickAsk),
   // answered by a fast model rather than a session of its own.
-  handoff?: { fromCwd: string; fromAccountId: string; rebuilt?: boolean; lost?: boolean; quickAsk?: boolean };
+  // fastLane: the thread began with Fast lane web lookup (runner/src/fast-lane.ts),
+  // so the first coding turn carries the fast answer as handoff context.
+  handoff?: { fromCwd: string; fromAccountId: string; rebuilt?: boolean; lost?: boolean; quickAsk?: boolean; fastLane?: boolean };
+  // Context from a mid-thread Fast lane lookup to prepend to the next coding turn.
+  fastLaneContext?: string;
   copied?: true; // a copy of a real thread on a dev runner's --clone-real data: never runs (real-copy.ts)
   sample?: true; // one of the tour's sample threads (Runner.samples): made up, never sent to
   allowRules?: string[]; // "Always allow" rules, in the CLI's syntax

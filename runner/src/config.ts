@@ -11,6 +11,7 @@ import type { ArchiveSettings } from './agent-archive.ts';
 import { credentialUrlProblem } from './secure-url.ts';
 import { reviewerLists, type LabReviewer } from './lab-reviewers.ts';
 import { findGatewayClient } from './notion-tasks.ts';
+import type { FastLaneConfig } from './fast-lane.ts';
 import { onPath } from './adapters/acp/agents.ts';
 import { dataDirFor, exeName, logFileFor } from './platform.ts';
 import { CLI_POLICIES, isEffortLevel, isProvider, type CliPolicy, type EffortLevel, type PermissionMode, type Provider } from './protocol.ts';
@@ -190,6 +191,9 @@ export type Config = {
   // Why a configured gateway URL isn't used (plain http off this Mac,
   // secure-url.ts): the Connectors panel's off state and the log say it.
   connectorsRefused?: string;
+  // Fast lane (experiment `fastLane`, fast-lane.ts): optional timeout,
+  // endpoint override or direct Exa fallback from runner.json.
+  fastLane?: FastLaneConfig;
 };
 
 export type RunnerJson = {
@@ -290,6 +294,9 @@ export type RunnerJson = {
   // Recipes (experiment recipes, recipes.ts): where the user's own recipes
   // and set-up recipes' working files go. Default ~/ThreadbearThreads/recipes.
   recipes?: { folder?: string };
+  // Fast lane (experiment fastLane, fast-lane.ts): optional endpoint,
+  // timeout or direct Exa fallback.
+  fastLane?: FastLaneConfig;
 };
 
 // What defaults.permissionMode may be. Not Plan first: that waits for Mike
@@ -533,7 +540,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts: { readOnl
     sync: syncConfig(json.sync, env),
     secretCheck: json.secretCheck?.enabled === true,
     ...connectorsConfig(json.connectors, env, expand(env.THREADBEAR_CLAUDE_MAIN_JSON || '~/.claude.json')),
+    ...(fastLaneConfig(json.fastLane) ? { fastLane: fastLaneConfig(json.fastLane) } : {}),
   };
+}
+
+function fastLaneConfig(raw: RunnerJson['fastLane']): FastLaneConfig | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: FastLaneConfig = {};
+  if (typeof raw.timeoutMs === 'number' && Number.isFinite(raw.timeoutMs)) out.timeoutMs = raw.timeoutMs;
+  if (nonEmpty(raw.endpointId)) out.endpointId = nonEmpty(raw.endpointId);
+  if (nonEmpty(raw.headersHelper)) out.headersHelper = nonEmpty(raw.headersHelper);
+  if (nonEmpty(raw.exaApiKey)) out.exaApiKey = nonEmpty(raw.exaApiKey);
+  if (nonEmpty(raw.exaUrl)) out.exaUrl = nonEmpty(raw.exaUrl);
+  return Object.keys(out).length ? out : undefined;
 }
 
 // THREADBEAR_CONNECTORS_URL wins (empty or "off" turns it off, for tests),

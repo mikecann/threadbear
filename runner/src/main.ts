@@ -47,6 +47,7 @@ import { Librarian, librarianMethods } from './librarian.ts';
 import { ConnectorsMonitor, connectorsMethods } from './connectors.ts';
 import { DEFAULT_RECIPES_FOLDER, RECIPES_EXPERIMENT, Recipes, recipeMethods } from './recipes.ts';
 import { TaskBoards, gatewayCaller, helperHeaders } from './notion-tasks.ts';
+import { fastLaneFromConfig } from './fast-lane.ts';
 import { createLogger } from './log.ts';
 import { hidIdleMs, isAtMac, screenLocked } from './presence.ts';
 import { ThreadStore } from './store.ts';
@@ -524,6 +525,7 @@ async function main(): Promise<void> {
       if (!appRestarts.isWatching(threadId)) appRestarts.watch(threadId);
     },
     awaitingAppRestart: (threadId) => appRestarts.isWatching(threadId),
+    fastLane: fastLaneFromConfig(cfg.connectorsClient, cfg.fastLane, log),
     appRestartWant: (threadId) => appRestarts.waitingFor(threadId),
   });
   // Until it is listening (below): see Runner.holdWaits.

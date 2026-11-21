@@ -785,6 +785,7 @@ export class RpcServer {
           });
         }
         if (p.worktree !== undefined && typeof p.worktree !== 'boolean') throw bad('worktree must be a boolean');
+        if (p.fast !== undefined && typeof p.fast !== 'boolean') throw bad('fast must be a boolean');
         // An older runner handing over passes on a sandboxed agent's
         // create_thread this way: there's no sandbox to start it in now
         // (taken out 16 Nov 2026), and it mustn't start outside one.
@@ -807,6 +808,7 @@ export class RpcServer {
           ...optProjectIds(p),
           // A CLI this connection had started ahead of it (threads.warm).
           ...(typeof p.warmId === 'string' ? { warmId: p.warmId } : {}),
+          ...(p.fast === true ? { fast: true } : {}),
         });
         return { thread: res.thread, turnId: res.turnId };
       }
@@ -847,8 +849,10 @@ export class RpcServer {
         return r.listButtons(reqString(p, 'threadId'));
       case 'buttons.press':
         return r.pressButton(reqString(p, 'threadId'), reqString(p, 'buttonId'));
-      case 'threads.send':
-        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p) });
+      case 'threads.send': {
+        if (p.fast !== undefined && typeof p.fast !== 'boolean') throw bad('fast must be a boolean');
+        return r.send(reqString(p, 'threadId'), optString(p, 'text') ?? '', optImages(p) ?? [], { ...optAnswers(p), ...optPhoneOrigin(p), ...(p.fast === true ? { fast: true } : {}) });
+      }
       case 'threads.edit':
         return r.editMessage(reqString(p, 'threadId'), reqNumber(p, 'seq'), optString(p, 'text') ?? '', optImages(p) ?? [], { stopBackground: p.stopBackground === true });
       case 'threads.interrupt':
