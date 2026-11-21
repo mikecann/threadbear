@@ -2126,7 +2126,7 @@ impl Threadbear {
             "limit": self.limit_dump(cx),
             "error": self.error_message.clone(),
             "dock": dock,
-            // Folded away with ⌘/ or closed, it isn't on screen (thread_panels.rs).
+            // Folded away with ⌘B or closed, it isn't on screen (thread_panels.rs).
             "threadsShowing": self.threads_showing(cx),
             // Threads in panels of their own, and the one the main panel says
             // is open in its own panel (`OpenElsewhereNote`).
