@@ -1,7 +1,7 @@
 // The panels round the main one (the Swift app's ThreadPanels.swift, and the
 // Threads panel's toggles in AppModel+Chrome.swift):
 //
-// - the Threads panel folded away with ⌘/ and back as it was;
+// - the Threads panel folded away with ⌘B and back as it was;
 // - a thread open in a panel of its own (Open in New Panel), which stays put
 //   whatever the sidebar picks, with its title line and menus in its bar and
 //   its transcript and box under them, as in the main panel. Picking it again
@@ -62,7 +62,7 @@ impl ThreadPanels {
 impl Threadbear {
     // ---------------------------------------------------------------- the Threads panel
 
-    /// ⌘/ folded the Threads panel away (`threadsCollapsed`). It stays in the
+    /// ⌘B folded the Threads panel away (`threadsCollapsed`). It stays in the
     /// layout with nothing to show (`panel_available`), so the dock gives its
     /// room to the rest and it comes back where it was, as wide as it was.
     pub(crate) fn threads_collapsed(&self) -> bool {
@@ -87,7 +87,7 @@ impl Threadbear {
         cx.notify();
     }
 
-    /// ⌘/ (`toggleThreadsCollapsed`): folds the Threads panel away, or
+    /// ⌘B (`toggleThreadsCollapsed`): folds the Threads panel away, or
     /// brings it back as it was. The activity bar stays. If Hide Threads had
     /// taken the panel out of the layout, this puts it back instead.
     pub(crate) fn toggle_threads_collapsed(&mut self, cx: &mut Context<Self>) {
@@ -103,7 +103,7 @@ impl Threadbear {
     }
 
     /// A view's icon in the activity bar, or Show Inbox and the rest in the
-    /// Thread menu, bring the Threads panel back if ⌘/ folded it away, as
+    /// Thread menu, bring the Threads panel back if ⌘B folded it away, as
     /// the Swift app's do.
     pub(crate) fn unfold_threads(&mut self, cx: &mut Context<Self>) {
         self.set_threads_collapsed(false, cx);
