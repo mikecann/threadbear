@@ -27,7 +27,11 @@ pub(crate) trait Tip: ParentElement + StatefulInteractiveElement + Sized {
     }
 }
 
-fn tipped<E: ParentElement + StatefulInteractiveElement>(element: E, text: SharedString, leftward: bool) -> E {
+fn tipped<E: ParentElement + StatefulInteractiveElement>(
+    element: E,
+    text: SharedString,
+    leftward: bool,
+) -> E {
     let shown = text.clone();
     element
         .tooltip(move |window, cx| {
@@ -37,7 +41,11 @@ fn tipped<E: ParentElement + StatefulInteractiveElement>(element: E, text: Share
             // The pointer stopped on it to find out what it is.
             crate::activity::hover(&shown, window, cx);
             let tip = Tooltip::new(shown.clone()).build(window, cx);
-            if leftward { cx.new(|_| Leftward(tip)).into() } else { tip }
+            if leftward {
+                cx.new(|_| Leftward(tip)).into()
+            } else {
+                tip
+            }
         })
         .child(anchor(text))
 }
@@ -74,11 +82,25 @@ impl Element for Shifted {
         None
     }
 
-    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
         (self.0.request_layout(window, cx), ())
     }
 
-    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) {
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         // Wherever gpui put it (flipped or not), its right edge at the pointer,
         // never past the window's left.
         let x = (window.mouse_position().x - bounds.size.width).max(px(0.));
@@ -86,7 +108,16 @@ impl Element for Shifted {
         window.with_element_offset(point(dx, px(0.)), |window| self.0.prepaint(window, cx));
     }
 
-    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), _: &mut (), window: &mut Window, cx: &mut App) {
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         self.0.paint(window, cx);
     }
 }
