@@ -2528,6 +2528,15 @@ impl Composer {
                 }
             }))
             .capture_action(cx.listener(|this, action: &Enter, window, cx| {
+                // The text box binds Option + Return to a new line (Enter with
+                // shift), and bindings run before key-down listeners, so the
+                // one-shot Fast lane search is caught here, by the keys held.
+                let m = window.modifiers();
+                if action.shift && m.alt && !m.shift && !m.control && !m.platform && this.fast_lane_available(cx) {
+                    this.send_with_fast(Some(true), window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if (action.shift && this.shift_return(window, cx))
                     || (!action.shift && this.palette_key(PaletteKey::Enter, window, cx))
                 {
