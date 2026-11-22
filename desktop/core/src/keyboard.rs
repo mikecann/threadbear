@@ -53,12 +53,14 @@ pub const SEARCH_PROMPT: &str = "Search shortcuts";
 pub fn group(command: ShortcutCommand) -> Group {
     use ShortcutCommand::*;
     match command {
-        NewThread | Archive | Hibernate | Stop | CopyTranscript | ChooseModel => Group::Threads,
+        NewThread | Archive | Hibernate | Stop | CopyTranscript | ChooseModel | AttachFiles => {
+            Group::Threads
+        }
         Back | Forward | NextInboxThread | OpenAnything | OpenAnythingAlso | ShowInbox
         | ShowScheduled | ShowProjects | ShowLibrarian | ShowHibernating | ShowArchived
         | PreviousTab | NextTab | Settings => Group::Go,
         ZoomIn | ZoomOut | ActualSize | ToggleThreads | TogglePanels | ToggleTerminal
-        | ResetPanelLayout | CollapseThreads | CollapseSidebar => Group::View,
+        | ResetPanelLayout | CollapseThreads | CollapseSidebar | ToggleSidebarPanels => Group::View,
     }
 }
 
@@ -531,7 +533,8 @@ mod tests {
                 "Hibernate",
                 "Stop",
                 "Copy Transcript as Markdown",
-                "Choose Model"
+                "Choose Model",
+                "Attach Images or Markdown"
             ]
         );
         assert_eq!(
@@ -540,7 +543,7 @@ mod tests {
         );
         assert_eq!(titles(Group::Go).last(), Some(&"Settings…"));
         assert_eq!(titles(Group::View).first(), Some(&"Zoom In"));
-        assert_eq!(titles(Group::View).last(), Some(&"Collapse Sidebar"));
+        assert_eq!(titles(Group::View).last(), Some(&"Show Sidebar Panels"));
         let all: usize = Group::ALL.iter().map(|g| g.commands().len()).sum();
         assert_eq!(
             all,

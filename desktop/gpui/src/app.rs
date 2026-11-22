@@ -76,6 +76,8 @@ pub struct Threadbear {
     pub(crate) frame_rate: Option<Entity<crate::frame_stats::FrameRate>>,
     /// The pane sections Hide Panels closed, for Show Panels (`hiddenPanes`).
     pub(crate) hidden_panes: Vec<String>,
+    /// The panels under the threads list ⇧⌘B closed, for bringing back.
+    pub(crate) hidden_sidebar_panels: Vec<String>,
     pub(crate) mode: SidebarMode,
     /// When the activity bar last switched the sidebar's view, for the new
     /// one to settle in (shell.rs `render_threads_panel`).
@@ -564,6 +566,7 @@ impl Threadbear {
             #[cfg(feature = "frame-stats")]
             frame_rate: None,
             hidden_panes: Vec::new(),
+            hidden_sidebar_panels: Vec::new(),
             mode: SidebarMode::Inbox,
             view_switched: None,
             history: NavigationHistory::default(),

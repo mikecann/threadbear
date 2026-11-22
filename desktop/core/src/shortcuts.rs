@@ -211,11 +211,18 @@ pub enum ShortcutCommand {
     /// and Runners, Connectors, Updates, Usage and Setup under it (Wayne, 21
     /// Nov). The GPUI app's own.
     CollapseSidebar,
+    /// ⇧⌘B closes whichever of Runners, Connectors, Updates, Usage and Setup
+    /// are open under the Threads list, and brings the same ones back. The
+    /// list stays. The GPUI app's own.
+    ToggleSidebarPanels,
+    /// ⇧⌘A opens the composer's "Attach images or Markdown…" picker. The
+    /// GPUI app's own.
+    AttachFiles,
     Settings,
 }
 
 impl ShortcutCommand {
-    pub const ALL: [ShortcutCommand; 29] = [
+    pub const ALL: [ShortcutCommand; 31] = [
         Self::NewThread,
         Self::Archive,
         Self::Hibernate,
@@ -244,6 +251,8 @@ impl ShortcutCommand {
         Self::ResetPanelLayout,
         Self::CollapseThreads,
         Self::CollapseSidebar,
+        Self::ToggleSidebarPanels,
+        Self::AttachFiles,
         Self::Settings,
     ];
 
@@ -277,6 +286,8 @@ impl ShortcutCommand {
             Self::ResetPanelLayout => "resetPanelLayout",
             Self::CollapseThreads => "collapseThreads",
             Self::CollapseSidebar => "collapseSidebar",
+            Self::ToggleSidebarPanels => "toggleSidebarPanels",
+            Self::AttachFiles => "attachFiles",
             Self::Settings => "settings",
         }
     }
@@ -315,6 +326,8 @@ impl ShortcutCommand {
             Self::ResetPanelLayout => "Reset Panel Layout",
             Self::CollapseThreads => "Collapse Threads",
             Self::CollapseSidebar => "Collapse Sidebar",
+            Self::ToggleSidebarPanels => "Show Sidebar Panels",
+            Self::AttachFiles => "Attach Images or Markdown",
             Self::Settings => "Settings…",
         }
     }
@@ -349,6 +362,10 @@ impl ShortcutCommand {
             Self::ToggleTerminal => Some(ShortcutKey::new("j")),
             Self::CollapseThreads => Some(ShortcutKey::new("b")),
             Self::CollapseSidebar => Some(ShortcutKey::with("b", true, false, true)),
+            // ⌥⌘B is the panels on the right, so ⇧⌘B is the ones on the left.
+            Self::ToggleSidebarPanels => Some(ShortcutKey::with("b", false, false, true)),
+            // A for attach; ⌘U and ⌘O are left free for formatting and opening.
+            Self::AttachFiles => Some(ShortcutKey::with("a", false, false, true)),
             Self::Hibernate
             | Self::ShowHibernating
             | Self::ShowArchived
@@ -534,7 +551,7 @@ mod tests {
             unique.len(),
             "two commands can't start on one key"
         );
-        assert_eq!(ShortcutCommand::ALL.len(), 29);
+        assert_eq!(ShortcutCommand::ALL.len(), 31);
         // The Swift app's names and keys, as both apps read shortcuts.json.
         assert_eq!(
             ShortcutCommand::from_name("previousTab"),
@@ -590,6 +607,14 @@ mod tests {
         assert_eq!(
             ShortcutCommand::TogglePanels.default_key(),
             Some(key("cmd+opt+b"))
+        );
+        assert_eq!(
+            ShortcutCommand::ToggleSidebarPanels.default_key(),
+            Some(key("cmd+shift+b"))
+        );
+        assert_eq!(
+            ShortcutCommand::AttachFiles.default_key(),
+            Some(key("cmd+shift+a"))
         );
     }
 

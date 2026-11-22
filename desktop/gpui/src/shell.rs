@@ -399,6 +399,8 @@ actions!(
         ResetPanelLayout,
         CollapseThreads,
         CollapseSidebar,
+        ToggleSidebarPanels,
+        AttachFiles,
         ToggleFrameRate,
         AboutApp,
         RestartToUpdate,
@@ -560,6 +562,12 @@ commands!(
         CollapseSidebar,
         Some(ShortcutCommand::CollapseSidebar)
     ),
+    (
+        ToggleSidebarPanels,
+        ToggleSidebarPanels,
+        Some(ShortcutCommand::ToggleSidebarPanels)
+    ),
+    (AttachFiles, AttachFiles, Some(ShortcutCommand::AttachFiles)),
     (ToggleFrameRate, ToggleFrameRate, None),
     (About, AboutApp, None),
     (RestartToUpdate, RestartToUpdate, None),
@@ -786,6 +794,12 @@ impl Threadbear {
             self.dock.update(cx, |m, cx| m.close(panel, cx));
             return;
         }
+        self.show_under_threads(panel, cx);
+    }
+
+    /// Opens one of them under the threads list, as a tab beside another of
+    /// them if one's open.
+    fn show_under_threads(&mut self, panel: &str, cx: &mut Context<Self>) {
         let under = self
             .dock
             .read(cx)
@@ -813,6 +827,48 @@ impl Threadbear {
                 m.open(THREADS, DockDrop::window(DockEdge::Left), cx)
             });
         }
+    }
+
+    /// The panels under the threads list that are open, in layout order.
+    fn open_sidebar_panels(&self, cx: &App) -> Vec<String> {
+        let layout = self.dock.read(cx).layout();
+        UNDER_THREADS
+            .into_iter()
+            .filter(|p| layout.contains(p))
+            .map(String::from)
+            .collect()
+    }
+
+    /// View > Hide or Show Sidebar Panels: Runners, Connectors, Updates,
+    /// Usage and Setup, the list stays. Greyed out with none to close or bring back.
+    fn sidebar_panels_item(&self, cx: &App) -> MenuEntry {
+        let shown = !self.open_sidebar_panels(cx).is_empty();
+        let title = if shown {
+            "Hide Sidebar Panels"
+        } else {
+            "Show Sidebar Panels"
+        };
+        MenuEntry::item(title, Command::ToggleSidebarPanels)
+            .enabled(shown || !self.hidden_sidebar_panels.is_empty())
+    }
+
+    /// ⇧⌘B: closes every panel open under the threads list, remembered, and
+    /// brings the same ones back. The list itself stays, unlike ⌥⇧⌘B.
+    fn toggle_sidebar_panels(&mut self, cx: &mut Context<Self>) {
+        let open = self.open_sidebar_panels(cx);
+        if open.is_empty() {
+            self.set_sidebar_collapsed(false, cx);
+            for panel in std::mem::take(&mut self.hidden_sidebar_panels) {
+                self.show_under_threads(&panel, cx);
+            }
+            return;
+        }
+        self.dock.update(cx, |m, cx| {
+            for panel in &open {
+                m.close(panel, cx);
+            }
+        });
+        self.hidden_sidebar_panels = open;
     }
 
     /// `panelsShown.toggle()`: the pane sections go away, remembered, and
@@ -1028,6 +1084,13 @@ impl Threadbear {
             Command::ResetPanelLayout => self.reset_panel_layout(cx),
             Command::CollapseThreads => self.toggle_threads_collapsed(cx),
             Command::CollapseSidebar => self.toggle_sidebar_collapsed(cx),
+            Command::ToggleSidebarPanels => self.toggle_sidebar_panels(cx),
+            // The open thread's box, or the new-thread page's, as "+" does.
+            Command::AttachFiles => {
+                if let Some(composer) = self.composer(cx) {
+                    composer.update(cx, |c, cx| c.attach_images(window, cx));
+                }
+            }
             Command::ToggleFrameRate => self.toggle_frame_rate(window, cx),
             Command::About => self.show_about(window, cx),
             Command::RestartToUpdate => self.restart_to_update(cx),
@@ -1793,6 +1856,7 @@ impl Threadbear {
                         },
                         Command::TogglePanels,
                     ),
+                    self.sidebar_panels_item(cx),
                     item(
                         if terminal_shown {
                             "Hide Terminal"
@@ -1849,6 +1913,8 @@ impl Threadbear {
                     },
                     item("Stop", Command::Stop).enabled(busy),
                     item("Choose Model…", Command::ChooseModel)
+                        .enabled(self.composer(cx).is_some()),
+                    item("Attach Images or Markdown…", Command::AttachFiles)
                         .enabled(self.composer(cx).is_some()),
                     Separator,
                     item("Copy Transcript as Markdown", Command::CopyTranscript)

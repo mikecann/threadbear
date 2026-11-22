@@ -374,8 +374,9 @@ impl Composer {
         out
     }
 
-    /// Picks files for "+" > Attach images or Markdown… (ComposerView.chooseImages).
-    fn attach_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Picks files for "+" > Attach images or Markdown… (ComposerView.chooseImages),
+    /// and for ⇧⌘A.
+    pub(crate) fn attach_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = crate::composer_media::choose_images(window, cx);
         cx.spawn_in(window, async move |this, cx| match paths.await {
             Ok(Some(paths)) => {

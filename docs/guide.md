@@ -600,7 +600,7 @@ it appear in `~/ThreadbearThreads`.
 Return sends and Shift-Return (or Option-Return) adds a new line. In a list, Shift-Return
 starts the next item ("2. " after "1. milk", "- " after "- milk"), and
 Shift-Return on an empty item ends the list. You can paste or drop images
-into the composer, or add them with +. Each one goes in where the cursor
+into the composer, or add them with + (⇧⌘A in the new app). Each one goes in where the cursor
 is as a small chip, "Picture 1", "Picture 2", with
 its thumbnail, which drops into a strip over your words as the box opens
 for it, and the agent gets each picture right there in your words.
@@ -930,6 +930,9 @@ Librarian in that bar brings it back too), Collapse or Expand Sidebar
 (⌥⇧⌘B, the new desktop app only), which folds the whole left sidebar away,
 the list and any of Runners, Connectors, Updates, Usage or Setup under it,
 and brings it all back the same way (any icon in the bar brings it back too),
+Show or Hide Sidebar Panels (⇧⌘B, the new desktop app only), which closes
+whichever of Runners, Connectors, Updates, Usage or Setup are open and keeps
+the list, then brings the same ones back,
 Show or Hide Panels (⌥⌘B, ⌥⌘P in the Swift app) for the panels beside the thread, Show or Hide
 Terminal (⌘J), and Reset Panel Layout, which puts everything back how it
 started. Threadbear remembers your layout between launches.
@@ -1765,6 +1768,7 @@ key:
 - Stop: `stop`, ⌘.
 - Copy Transcript as Markdown: `copyTranscript`, ⇧⌘C
 - Choose Model (the new desktop app only): `chooseModel`, ⌘/, opens the message box's model picker with its search ready, and closes it again
+- Attach Images or Markdown (the new desktop app only): `attachFiles`, ⇧⌘A, opens the message box's + > Attach images or Markdown… picker
 - Back: `back`, ⌘[
 - Forward: `forward`, ⌘]
 - Next Inbox Thread: `nextInboxThread`, ⌥⌘↓
@@ -1783,6 +1787,7 @@ key:
 - Show Threads: `toggleThreads`, ⌃⌘S
 - Collapse Threads: `collapseThreads`, ⌘B (⌘/ in the Swift app)
 - Collapse Sidebar (the new desktop app only): `collapseSidebar`, ⌥⇧⌘B
+- Show Sidebar Panels (the new desktop app only): `toggleSidebarPanels`, ⇧⌘B, closes Runners, Connectors, Updates, Usage and Setup and keeps the Threads list
 - Show Panels: `togglePanels`, ⌥⌘B (⌥⌘P in the Swift app)
 - Show Terminal: `toggleTerminal`, ⌘J
 - Reset Panel Layout: `resetPanelLayout`, no key
