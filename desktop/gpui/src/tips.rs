@@ -16,17 +16,78 @@ use gpui_kit::*;
 pub(crate) trait Tip: ParentElement + StatefulInteractiveElement + Sized {
     /// A tooltip, shown after a short hover, and the name of a click on it.
     fn tip(self, text: impl Into<SharedString>) -> Self {
-        let text: SharedString = text.into();
-        let shown = text.clone();
-        self.tooltip(move |window, cx| {
+        tipped(self, text.into(), false)
+    }
+
+    /// `tip`, opening to the left of the pointer: for a control at the right
+    /// edge of what's showing (the composer's send and bolt buttons), whose
+    /// tip running right went past the composer and was cut off (21 Nov).
+    fn tip_leftward(self, text: impl Into<SharedString>) -> Self {
+        tipped(self, text.into(), true)
+    }
+}
+
+fn tipped<E: ParentElement + StatefulInteractiveElement>(element: E, text: SharedString, leftward: bool) -> E {
+    let shown = text.clone();
+    element
+        .tooltip(move |window, cx| {
             if MENU_UP.with(|m| m.get() != 0) {
                 return cx.new(|_| NoTip).into();
             }
             // The pointer stopped on it to find out what it is.
             crate::activity::hover(&shown, window, cx);
-            Tooltip::new(shown.clone()).build(window, cx)
+            let tip = Tooltip::new(shown.clone()).build(window, cx);
+            if leftward { cx.new(|_| Leftward(tip)).into() } else { tip }
         })
         .child(anchor(text))
+}
+
+/// A tooltip drawn so it ends at the pointer instead of starting there.
+/// gpui places every tooltip just right of the pointer and only flips it at
+/// the window's edge, so this shifts it as it's laid out.
+struct Leftward(AnyView);
+
+impl Render for Leftward {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Shifted(self.0.clone().into_any_element())
+    }
+}
+
+struct Shifted(AnyElement);
+
+impl IntoElement for Shifted {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Shifted {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+        (self.0.request_layout(window, cx), ())
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) {
+        // Wherever gpui put it (flipped or not), its right edge at the pointer,
+        // never past the window's left.
+        let x = (window.mouse_position().x - bounds.size.width).max(px(0.));
+        let dx = x - bounds.origin.x;
+        window.with_element_offset(point(dx, px(0.)), |window| self.0.prepaint(window, cx));
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), _: &mut (), window: &mut Window, cx: &mut App) {
+        self.0.paint(window, cx);
     }
 }
 

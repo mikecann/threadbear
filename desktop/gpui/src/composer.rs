@@ -2402,7 +2402,7 @@ impl Composer {
                 // button doesn't look quite right").
                 .child(div().size(px(9.)).rounded(px(2.)).bg(fg))
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.stop(cx)))
-                .tip(if cfg!(target_os = "macos") {
+                .tip_leftward(if cfg!(target_os = "macos") {
                     "Stop (⌘.)"
                 } else {
                     "Stop (Ctrl+.)"
@@ -2450,7 +2450,7 @@ impl Composer {
             .when(can_send, |s| {
                 s.on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)))
             })
-            .tip(tip)
+            .tip_leftward(tip)
             // Dimmed with nothing to send, as SendButton's `.disabled`.
             .a11y_disabled(!can_send)
             .into_any_element()

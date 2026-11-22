@@ -83,7 +83,7 @@ pub(crate) fn beside_send(
         .test_support()
         .role(Role::Button)
         .aria_label(aria)
-        .tip(tip)
+        .tip_leftward(tip)
         .when(state != ButtonState::Sending, |d| d.on_click(on_toggle));
 
     // Outer halo ring drawn outside the circle so button spacing never shifts.
