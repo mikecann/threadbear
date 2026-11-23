@@ -12,7 +12,9 @@
 
 import fs from 'node:fs';
 import type { PersistedEvent } from './protocol.ts';
+import { ErrorCode, RpcError } from './protocol.ts';
 import { credentialUrlProblem } from './secure-url.ts';
+import { clientSetup, saveClient, type ClientSetup } from './static-clients.ts';
 
 // How often /health is asked when nobody's looking. A sign-in that lapses
 // shows within this; the panel opening asks straight away.
@@ -445,10 +447,78 @@ export function nudgedThisTurn(events: PersistedEvent[]): boolean {
 
 // ------------------------------------------------------------------ RPC
 
+// A service that needs an OAuth app of the user's own (static-clients.ts),
+// for a gateway whose files are on this Mac: where those are, and how to
+// restart it. Without it, no Create button.
+export type StaticClientDeps = {
+  // plugbear's data folder, when the gateway the runner uses is this Mac's.
+  dataDir: () => string | undefined;
+  restart: () => Promise<void>;
+  // How long saveClient waits for /health to list the service again.
+  waitMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+};
+
+export type ConnectorsPanelStatus = Omit<ConnectorsStatus, 'services'> & { services: (ConnectorService & { clientSetup?: ClientSetup })[] };
+
 // connectors.status: what the panel shows. { refresh: true } asks /health
 // first (the panel opening, or Check now), unless it did within FRESH_MS.
-export function connectorsMethods(m: Pick<ConnectorsMonitor, 'status' | 'refresh'>): Record<string, (p: Record<string, unknown>) => unknown> {
+// A service that needs an app of the user's own and hasn't got one carries
+// `clientSetup`, the link that makes it.
+//
+// connectors.saveClient { id, clientId, clientSecret }: the Create
+// button's paste form (static-clients.ts).
+export function connectorsMethods(m: Pick<ConnectorsMonitor, 'status' | 'refresh'>, clients?: StaticClientDeps): Record<string, (p: Record<string, unknown>) => unknown> {
+  const dataDir = () => {
+    try {
+      return clients?.dataDir();
+    } catch {
+      return undefined;
+    }
+  };
+  const panel = (s: ConnectorsStatus): ConnectorsPanelStatus => {
+    const dir = s.state === 'ok' ? dataDir() : undefined;
+    if (!dir) return s;
+    return {
+      ...s,
+      services: s.services.map((x) => {
+        const c = clientSetup(dir, x.id);
+        return c ? { ...x, clientSetup: c } : x;
+      }),
+    };
+  };
+  let saving: Promise<unknown> | undefined;
   return {
-    'connectors.status': (p) => (p.refresh === true ? m.refresh().then((connectors) => ({ connectors })) : { connectors: m.status() }),
+    'connectors.status': (p) => (p.refresh === true ? m.refresh().then((connectors) => ({ connectors: panel(connectors) })) : { connectors: panel(m.status()) }),
+    'connectors.saveClient': async (p) => {
+      const dir = dataDir();
+      if (!clients || !dir) throw new RpcError(ErrorCode.other, "The gateway isn't on this Mac, so its files can't be written from here.");
+      if (saving) throw new RpcError(ErrorCode.other, 'Already saving one: wait for it to finish.');
+      const run = (async () => {
+        try {
+          await saveClient({ dataDir: dir, restart: clients.restart }, p.id, p.clientId, p.clientSecret);
+        } catch (e) {
+          throw new RpcError(ErrorCode.other, `Couldn't save it: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+        }
+        // plugbear back, with the service in its /health.
+        const id = p.id as string;
+        const sleep = clients.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+        const until = Date.now() + (clients.waitMs ?? 30_000);
+        let s = m.status();
+        for (;;) {
+          await sleep(1000);
+          s = await m.refresh(true);
+          if (s.state === 'ok' && s.services.some((x) => x.id === id && x.state !== 'disabled')) break;
+          if (Date.now() > until) throw new RpcError(ErrorCode.other, "Saved, but the gateway didn't come back with it within 30 seconds. Check again in a minute, or look at ~/Library/Logs/connectors.log.");
+        }
+        return { connectors: panel(s) };
+      })();
+      saving = run;
+      try {
+        return await run;
+      } finally {
+        saving = undefined;
+      }
+    },
   };
 }

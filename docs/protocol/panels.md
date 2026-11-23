@@ -421,3 +421,32 @@ is refused once that turn, with an error result that starts `Not ended
 yet: this turn ran into`, names each service and its page, and asks for
 an ask with that page as a link if the work needs it. Called again, it's
 taken as it is. Nothing new reaches the app: the ask is an ordinary one.
+
+**An app of your own.** A service plugbear signs in to with a static
+OAuth client (`auth: "oauth-static"`, today Slack) needs an app the user
+makes, as it has no dynamic client registration.
+`runner/src/static-clients.ts` and its `STATIC_CLIENTS`
+turn that into a button and a paste
+form. When the gateway is this Mac's (plugbear's
+`~/Library/Application Support/Connectors/config` exists and its
+`settings.json` puts it at the runner's gateway address; Tailscale mode on
+this Mac counts) and `secrets/clients/<id>.json` doesn't exist (only its
+existence is checked), `connectors.status` puts `clientSetup: { createUrl,
+redirectUrl, help }` on that service. `createUrl` for Slack is
+`https://api.slack.com/apps?new_app=1&manifest_json=<manifest>`: an
+internal app named Threadbear with `settings.is_mcp_enabled`, the redirect
+`<publicUrl>/oauth/callback`, and the user scopes from the gateway's own
+`upstreams.json` (else the catalog's), so the app and the sign-in agree. A
+service with `clientSetup` gets Create, not Connect. The app's form checks
+the usual formats (Slack: digits with a dot, 32 hex characters) only to
+warn. `connectors.saveClient` refuses only blank, spaced or absurd keys,
+writes the client by a temp file and a rename (`0600`, in a `0700`
+folder), sets `enabled: true` on the upstream in `upstreams.json` (copied
+from the example if missing, the upstream added if it
+isn't there, every other field kept), puts the service's own `ask` rules
+first in `policy.json` (Slack: `slack__*schedule*`, which the catch-all
+rules miss), and runs `launchctl kickstart -k gui/<uid>/local.connectors`.
+The RPC's params aren't logged. A thread below Full access can't call it
+(rpc-gate.ts; one on Full access could write those files anyway), and the
+phone and website have no way to. A gateway on another Mac gets no
+`clientSetup`, and keeps plugbear's own steps (its README).

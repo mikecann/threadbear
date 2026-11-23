@@ -1918,6 +1918,18 @@ so: those are anyone's words, so a "sign in again" in them asks nothing. claude.
 connectors are signed in on claude.ai (Settings > Connectors), on the login
 the thread runs on.
 
+**Slack** needs a Slack app of your own, as Slack doesn't let the gateway
+register one. With the gateway on this Mac, Slack's row has **Create Slack
+app**: it opens Slack with the app already filled in (the redirect address,
+the user scopes, and Slack's MCP switch, which Slack's MCP server needs).
+Pick your workspace and press Create. Then copy the Client ID and Client
+Secret from Basic Information, App Credentials, into the two fields under
+the row and press **Save**. Threadbear saves them where the gateway reads
+them (never in Threadbear), turns Slack on, adds an "ask" rule for scheduled
+messages, and restarts the gateway, and the row shows **Connect**. Already
+made the app? **Paste keys** opens the fields without going to Slack. Your
+workspace's admin may have to approve the app. Posts then wait for your OK.
+
 ## The prompts macOS shows you
 <!-- slug: macos-prompts -->
 
