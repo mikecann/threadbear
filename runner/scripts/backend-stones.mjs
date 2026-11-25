@@ -21,7 +21,7 @@
 // the tree as it is.
 //
 // Node built-ins only, like deploy-backend.mjs.
-import { gitResult } from './deploy-git.mjs';
+import { gitResult, verifyRepositoryObjects } from './deploy-git.mjs';
 
 export const MIGRATIONS_FILE = 'convex/migrations.json';
 export const STEPPING_FILE = 'convex/stepping.ts';
@@ -30,6 +30,7 @@ const STEPPING_LINE = /^export const STEPPING: readonly string\[\] = \[\];$/m;
 
 /** The backfills a commit needs before it can be deployed, by name. */
 export function backfillsAt(repo, commit) {
+  verifyRepositoryObjects(repo, [commit]);
   const r = gitResult(repo, ['show', `${commit}:${MIGRATIONS_FILE}`]);
   if (!r.ok) return [];
   let parsed;

@@ -3,12 +3,13 @@
 // took 58 minutes and then failed on that Mac (19 Nov 2026).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { inflateSync, deflateSync } from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 // @ts-expect-error: a plain .mjs script, no types
-import { checkedUpstream } from '../../../scripts/checked-upstream.mjs';
+import { checkedUpstream, repoKey } from '../../../scripts/checked-upstream.mjs';
 
 
 function git(cwd: string, ...args: string[]) {
@@ -114,3 +115,23 @@ test('a validated upstream URL cannot be shadowed by a configured remote of that
   git(work, 'config', `remote.${url}.url`, '.');
   assert.equal(checkedUpstream({ repo: work, mikesRepo: url }).checked, false);
 });
+
+test('a forged intermediate parent cannot make unchecked code an upstream ancestor', (t) => {
+  const { work, mikes } = setup(t); const a = git(work, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(work, 'b'), 'upstream b'); git(work, 'add', '.'); git(work, 'commit', '-qm', 'b');
+  const b = git(work, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(work, 'c'), 'upstream c'); git(work, 'add', '.'); git(work, 'commit', '-qm', 'c'); git(work, 'push', '-q', 'origin', 'main');
+  const upstream = git(work, 'rev-parse', 'HEAD');
+  git(work, 'checkout', '-qb', 'fork', a); fs.writeFileSync(path.join(work, 'mine'), 'unchecked'); git(work, 'add', '.'); git(work, 'commit', '-qm', 'mine');
+  const local = git(work, 'rev-parse', 'HEAD');
+  const file = path.join(work, '.git/objects', b.slice(0, 2), b.slice(2));
+  const raw = inflateSync(fs.readFileSync(file)).toString().replace(`parent ${a}`, `parent ${local}`);
+  fs.chmodSync(file, 0o644); fs.writeFileSync(file, deflateSync(raw));
+  git(work, 'merge-base', '--is-ancestor', local, upstream); // Plain Git believes the forged header.
+  const result = checkedUpstream({ repo: work, mikesRepo: mikes });
+  assert.equal(result.checked, false); assert.match(result.why, /does not hash/);
+});
+
+for (const authority of ['https://attacker.example?@github.com/mikecann/threadbear.git', 'https://attacker.example#@github.com/mikecann/threadbear.git']) {
+  test(`upstream URL rejects ambiguous authority ${authority}`, () => assert.equal(repoKey(authority), ''));
+}

@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { untrustedGit, verifiedGitBlob } from './safe-git.ts';
+import { untrustedGit, untrustedGitEnv, verifiedGitBlob } from './safe-git.ts';
 
 export const FORMAT_LIST = '.git-blame-ignore-revs';
 
@@ -101,11 +101,7 @@ type Run = { ok: boolean; code: number; stdout: string; stderr: string };
 
 
 function cleanEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  // Ones that point git at some other repo or index (set inside a git hook).
-  // And config handed down from a `git -c` or a hook, which would beat command-line settings.
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT']) delete env[k];
-  for (const k of Object.keys(env)) if (/^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(k)) delete env[k];
+  const env = untrustedGitEnv();
   // Replacement objects and grafts off, after the caller's: an id is that
   // object, so a release's signed commit merges as itself, never what a
   // refs/replace/ entry or info/grafts in this checkout puts in its place

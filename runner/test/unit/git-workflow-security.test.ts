@@ -83,7 +83,7 @@ test('signature-looking objects never invoke repository verification programs du
   const tree = g('rev-parse', 'HEAD^{tree}'), parent = g('rev-parse', 'HEAD');
   const raw = `tree ${tree}\nparent ${parent}\nauthor Test <test@example.invalid> 1 +0000\ncommitter Test <test@example.invalid> 1 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n fake\n -----END PGP SIGNATURE-----\n\nfake signed commit\n`;
   const id = execFileSync('git', ['-C', repo, 'hash-object', '-w', '-t', 'commit', '--stdin'], { input: raw, encoding: 'utf8' }).trim();
-  g('config', 'gpg.program', hook); g('config', 'log.showSignature', 'true'); g('config', 'merge.verifySignatures', 'true');
+  g('config', 'format.pretty', '%G?'); g('config', 'gpg.program', hook); g('config', 'log.showSignature', 'true'); g('config', 'merge.verifySignatures', 'true');
   g('config', 'branch.main.mergeOptions', '--verify-signatures --gpg-sign');
   for (const run of [worktreeGit, formatGit]) {
     assert.ok((await run(repo, ['log', '-1', id])).ok);

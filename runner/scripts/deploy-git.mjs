@@ -147,7 +147,7 @@ export function snapshotCommit(root, prefix, commit, dest, releasePaths) {
 
 export function savePreview(dir, bare, base, commit, empty) {
   const run = (args) => {
-    const r = isolatedGit(path.dirname(bare), ['-C', bare, `--attr-source=${empty}`, ...args]);
+    const r = isolatedGit(path.dirname(bare), ['-c', 'core.commitGraph=false', '-c', `core.attributesFile=${os.devNull}`, '-c', 'merge.default=text', '-C', bare, `--attr-source=${empty}`, ...args]);
     if (r.status !== 0 && r.status !== 1) throw new Error(String(r.stderr));
     return r;
   };
@@ -156,10 +156,11 @@ export function savePreview(dir, bare, base, commit, empty) {
   const clashes = []; for (const f of parts) { if (!f) break; clashes.push(f); }
   fs.writeFileSync(path.join(dir, 'tree'), tree + '\n');
   fs.writeFileSync(path.join(dir, 'clashes.json'), JSON.stringify(clashes));
+  validatePaths(clashes.map((f) => [f]));
   fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
   for (const f of clashes) {
     validatePaths([[f]]);
-    const blob = run(['cat-file', 'blob', `${tree}:${f}`]);
+    const blob = isolatedGit(path.dirname(bare), ['-C', bare, 'cat-file', 'blob', `${tree}:${f}`]);
     if (blob.status !== 0) continue;
     parents(path.join(dir, 'files'), f);
     fs.writeFileSync(path.join(dir, 'files', f), blob.stdout, { flag: 'wx', mode: 0o600 });

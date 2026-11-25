@@ -70,3 +70,16 @@ test('update identity refuses replacement refs and grafts before materializing a
   await assert.rejects(syncClone(f.source, 'runner/', clone), /replacement|graft/);
   assert.equal(fs.existsSync(clone), false);
 });
+
+for (const key of ['uploadpack', 'rewrite']) {
+  test(`an existing update clone rejects a local-fetch ${key} override`, { skip: IS_WINDOWS }, async () => {
+    const f = fixture(); const clone = path.join(f.root, 'clone');
+    await syncClone(f.source, 'runner/', clone); f.advance();
+    const trap = path.join(f.root, 'uploadpack.sh');
+    fs.writeFileSync(trap, `#!/bin/sh\nprintf ran >> '${f.marker}'\n`, { mode: 0o755 });
+    if (key === 'uploadpack') { f.git(clone, 'config', `remote.${f.source}.url`, f.source); f.git(clone, 'config', `remote.${f.source}.uploadpack`, trap); }
+    else f.git(clone, 'config', `url.${f.source}.insteadOf`, f.source);
+    await assert.rejects(syncClone(f.source, 'runner/', clone), /transport config|global git config/);
+    assert.equal(fs.existsSync(f.marker), false);
+  });
+}

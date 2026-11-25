@@ -8,7 +8,7 @@ import { claudeCommands } from '../../src/claude-trust.ts';
 import { trackedNodeModules } from '../../src/tracked-packages.ts';
 import { git as worktreeGit } from '../../src/worktrees.ts';
 import { changedFiles } from '../../src/move-git.ts';
-import { untrustedGit, untrustedGitSync, parseConfigListBytes, repoProofConfig } from '../../src/safe-git.ts';
+import { untrustedGit, untrustedGitSync, untrustedGitEnv, parseConfigListBytes, repoProofConfig } from '../../src/safe-git.ts';
 
 // A folder that arrived with its own .git (a zip, a shared drive), whose
 // .git/config names an fsmonitor program. Nothing the runner does before
@@ -174,6 +174,8 @@ test("untrustedGit never looks inside a submodule, whatever the repo's config sa
     ['ls-files', '-z', '--others'],
     ['read-tree', 'HEAD'],
     ['reset', '--quiet'],
+    ['reset'],
+    ['checkout', 'HEAD'],
     ['rebase', 'HEAD'],
     ['merge', 'HEAD'],
     ['commit', '--allow-empty', '-m', 'probe'],
@@ -190,6 +192,11 @@ test("untrustedGit never looks inside a submodule, whatever the repo's config sa
   stale(30);
   await untrustedGit(repo, ['cherry-pick', 'HEAD']);
   assert.equal(ran(), false, 'a name declared only in .gitmodules stays out too');
+  fs.rmSync(path.join(repo, '.gitmodules'));
+  for (const args of [['commit', '--allow-empty', '-m', 'fallback'], ['cherry-pick', 'HEAD'], ['checkout', 'HEAD'], ['reset']]) {
+    stale(40); await untrustedGit(repo, args);
+    assert.equal(ran(), false, `${args[0]} does not inspect an index-only module`);
+  }
   // git submodule is git in each submodule, by design: refused outright.
   const r = await untrustedGit(repo, ['submodule', 'foreach', `${payload} </dev/null`]);
   assert.equal(r.ok, false);
@@ -257,5 +264,19 @@ test('a filter, diff driver, protocol or credential helper with any name is swit
     assert.ok(config.includes(`diff.${name}.textconv=`), JSON.stringify(name));
     assert.ok(config.includes(`protocol.${name}x.allow=never`), JSON.stringify(name));
     assert.ok(config.includes('credential.helper='), JSON.stringify(name));
+  }
+});
+
+
+test('mixed-case Git environment cannot survive Windows-style inheritance', () => {
+  const cleaned = untrustedGitEnv({ git_config_count: '1', Git_Config_Key_0: 'core.fsmonitor', git_config_value_0: 'payload', git_dir: 'elsewhere', GIT_AUTHOR_NAME: 'Test', PATH: '/bin' });
+  assert.deepEqual(cleaned, { GIT_AUTHOR_NAME: 'Test', PATH: '/bin' });
+});
+
+test('unknown local Git settings fail closed while owner-global settings remain trusted', () => {
+  assert.throws(() => repoProofConfig([{ scope: 'local', key: 'future.program', value: 'payload' }]), /global git config/);
+  assert.doesNotThrow(() => repoProofConfig([{ scope: 'global', key: 'future.program', value: 'payload' }]));
+  for (const network of ['bundle', 'remote'] as const) for (const key of ['remote.origin.proxy', 'remote.origin.proxyAuthMethod']) {
+    assert.throws(() => repoProofConfig([{ scope: 'local', key: key.toLowerCase(), value: 'attacker' }], network), /transport config/);
   }
 });

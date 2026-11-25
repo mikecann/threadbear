@@ -162,13 +162,23 @@ node): your edits to the single file land in the file their section went
 to. A copy of the script older than the split doesn't know that kind
 and would leave the split as a conflict, so run the release's own copy. If
 this checkout doesn't have the script yet, the same, reading it from the
-release's commit as its id names it (stop if `git for-each-ref
-refs/replace/` prints anything or `.git/info/grafts` is there: section 4):
+release's commit from a fresh, configuration-free fetch of the official repository.
+Do not extract executable modules from the existing checkout: its object files
+may contain substituted bytes under an original ID. Stop if `git for-each-ref
+refs/replace/` prints anything or `.git/info/grafts` is there (section 4):
 
 ```sh
 replay_dir=$(mktemp -d "${TMPDIR:-/tmp}/tb-format.XXXXXX")
+git_exe=$(command -v git)
+bootstrap_git() {
+  (cd "$replay_dir" && env -i PATH="$PATH" HOME="$replay_dir" XDG_CONFIG_HOME="$replay_dir" \
+    GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CEILING_DIRECTORIES="$replay_dir" \
+    NoDefaultCurrentDirectoryInExePath=1 "$git_exe" "$@")
+}
+bootstrap_git init -q --bare --template= "$replay_dir/objects.git"
+bootstrap_git -C "$replay_dir/objects.git" -c fetch.fsckObjects=true fetch --depth=1 --no-tags -- https://github.com/mikecann/threadbear.git <commit>
 for file in format-replay.ts safe-git.ts platform.ts; do
-  git --no-replace-objects -c core.commitGraph=false -c log.showSignature=false show --no-ext-diff --no-textconv "<commit>:runner/src/$file" > "$replay_dir/$file"
+  bootstrap_git -C "$replay_dir/objects.git" show "<commit>:runner/src/$file" > "$replay_dir/$file"
 done
 node "$replay_dir/format-replay.ts" --merge <commit> -m "Bring in Mike's release <date>"
 ```

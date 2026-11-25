@@ -38,7 +38,7 @@ export function untrustedGitArgs(dir: string, args: readonly string[]): string[]
 // that comes after the -c settings above.
 export function untrustedGitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...base };
-  for (const k of Object.keys(env)) if (k.startsWith('GIT_') && !/^GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)$/.test(k)) delete env[k];
+  for (const k of Object.keys(env)) if (/^GIT_/i.test(k) && !/^GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)$/.test(k)) delete env[k];
   return env;
 }
 
@@ -105,7 +105,8 @@ export function untrustedGitSync(dir: string, args: readonly string[]): string {
 // (shell-allowlist.ts liveCommandEnv) refuses a repo whose own config
 // sets anything unusual instead; a move can't, as it has to work in any
 // repo a thread is in (husky's core.hooksPath, a local git-lfs install),
-// so it switches every such thing off.
+// so known program settings are switched off. Unknown local settings fail
+// closed with guidance to move owner-approved settings to global config.
 // `bytes`: stdout as git wrote it, with UntrustedGitOptions.bytes (a blob that
 // isn't UTF-8 would not survive the string).
 export type UntrustedGitResult = { ok: boolean; code: number; stdout: string; stderr: string; bytes?: Buffer };
@@ -125,7 +126,7 @@ export type UntrustedGitOptions = {
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -172,6 +173,27 @@ export function settable(key: string): string {
   return key;
 }
 
+// Local settings must either be passive or have an explicit override below.
+// New Git options cannot silently add another repository-selected program.
+const LOCAL_KEYS = [
+  /^core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|checkstat|trustctime|worktree|sparsecheckout|sparsecheckoutcone|fsmonitor|untrackedcache|hookspath|sshcommand|askpass|alternaterefscommand|pager|attributesfile|commitgraph)$/,
+  /^remote\.[\s\S]+\.(url|pushurl|fetch|tagopt|prune|prunetags|gh-resolved|skipdefaultupdate|skipfetchall|uploadpack|receivepack|proxy|proxyauthmethod)$/,
+  /^branch\.[\s\S]+\.(remote|merge|pushremote|rebase|description|mergeoptions)$/,
+  /^extensions\.(worktreeconfig|objectformat|refstorage|partialclone)$/,
+  /^user\.(name|email|signingkey)$/,
+  /^credential\.[\s\S]+$/,
+  /^filter\.[\s\S]*\.(clean|smudge|process|required)$/,
+  /^diff\.[\s\S]*\.(command|textconv|binary|cachetextconv|xfuncname|wordregex|algorithm)$/,
+  /^merge\.[\s\S]*\.(name|driver|recursive)$/,
+  /^hook\.[\s\S]*\.(command|event|enabled)$/,
+  /^submodule\.[\s\S]*\.(url|path|active|ignore|branch|fetchrecursesubmodules)$/,
+  /^protocol\.[\s\S]*\.allow$/,
+  /^include\.path$/,
+  /^lfs\.repositoryformatversion$/,
+  /^(pull\.(rebase|ff)|push\.(default|autosetupremote|gpgsign|recursesubmodules)|init\.(defaultbranch|templatedir)|fetch\.(prune|recursesubmodules)|rerere\.enabled|commit\.gpgsign|tag\.gpgsign|submodule\.recurse|gc\.auto|maintenance\.auto|merge\.(autostash|default|verifysignatures)|rebase\.(autostash|updaterefs|instructionformat)|sequence\.editor|format\.pretty|log\.showsignature|diff\.(external|ignoresubmodules)|status\.submodulesummary|advice\.graftfiledeprecated|fsck\.skiplist|safe\.barerepository)$/,
+  /^gpg\.(program|format|openpgp\.program|x509\.program|ssh\.(program|defaultkeycommand|allowedsignersfile|revocationfile))$/,
+];
+
 // The -c settings for `entries` (a repo's config as git reads it): see above.
 export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote', filesForTests = false): string[] {
   const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', `core.hooksPath=${noHooksPath()}`, ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
@@ -180,6 +202,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   const hooks = new Set<string>();
   const allowed = network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [];
   for (const e of entries) {
+    if (e.scope !== 'command' && !TRUSTED_SCOPES.has(e.scope) && !LOCAL_KEYS.some((p) => p.test(e.key)) && !(filesForTests && /^url\./.test(e.key))) throw new Error(`This repo's git setting (${e.key}) must move to your global git config before Threadbear can run git here.`);
     // A protocol the repo names beats protocol.allow too (ftp, a helper's
     // name for `foo::`), so each one it names is turned off by name.
     // Any name, empty and with line separators too, which `.` skips
@@ -191,7 +214,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     if (sub) out.push('-c', `${settable(`submodule.${sub[1]}.ignore`)}=all`);
     const m = /^merge\.([\s\S]*)\.driver$/.exec(e.key);
     if (m) out.push('-c', `${settable(e.key)}=git merge-file --marker-size=%L -- %A %O %B`);
-    if (network === 'remote' && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && /^(url\.|http\.)/.test(e.key) || network === 'remote' && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && /^remote\.[\s\S]*:[\s\S]*\.[^.]+$/.test(e.key)) throw new Error(`This repo's transport config (${e.key}) must move to your global git config before Threadbear can fetch or push.`);
+    if (network && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && (/^(url\.|http\.)/.test(e.key) || /^remote\.[\s\S]*\.(proxy|proxyauthmethod)$/.test(e.key) || /^remote\.[\s\S]*[:/\\][\s\S]*\.[^.]+$/.test(e.key))) throw new Error(`This repo's transport config (${e.key}) must move to your global git config before Threadbear can fetch or push.`);
     const f = /^filter\.([\s\S]*)\.[^.]+$/.exec(e.key);
     if (f) drivers.add(`filter.${f[1]}`);
     const d = /^diff\.([\s\S]*)\.(command|textconv)$/.exec(e.key);
@@ -282,7 +305,7 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
   let config: string[];
   try {
     const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
-    if (['merge', 'rebase', 'commit', 'cherry-pick'].includes(sub)) {
+    if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
       const root = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
       const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
       if (modules) {
@@ -290,12 +313,16 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
         if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
         entries.push(...moduleEntries(m.bytes));
       }
+      for (const blob of [':0:.gitmodules', 'HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
+        const m = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', blob, '--list', '-z'], env, Math.min(10_000, timeout), true);
+        if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
+      }
     }
     config = repoProofConfig(entries, opts.network);
   } catch (e) {
     return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
   }
-  const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network === 'remote' && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
+  const pack = opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
   const control = ['merge', 'rebase', 'cherry-pick'].includes(sub) && rest.some((a) => ['--abort', '--quit', '--continue', '--skip', '--edit-todo', '--show-current-patch'].includes(a));
   const inside = control ? [] : (NO_SUBMODULES[sub] ?? []);
   // What's left of the caller's time, when it gave one.
@@ -341,7 +368,7 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
   let config: string[];
   try {
     const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
-    if (['merge', 'rebase', 'commit', 'cherry-pick'].includes(sub)) {
+    if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
       const root = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
       const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
       if (modules) {
@@ -349,12 +376,16 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
         if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
         entries.push(...moduleEntries(m.bytes));
       }
+      for (const blob of [':0:.gitmodules', 'HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
+        const m = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', blob, '--list', '-z'], env, Math.min(10_000, timeout), true);
+        if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
+      }
     }
     config = repoProofConfig(entries, opts.network);
   } catch (e) {
     return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
   }
-  const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network === 'remote' && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
+  const pack = opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
   const control = ['merge', 'rebase', 'cherry-pick'].includes(sub) && rest.some((a) => ['--abort', '--quit', '--continue', '--skip', '--edit-todo', '--show-current-patch'].includes(a));
   const inside = control ? [] : (NO_SUBMODULES[sub] ?? []);
   // What's left of the caller's time, when it gave one.
@@ -414,9 +445,22 @@ function* objectChecks(roots: readonly string[], history: boolean): Generator<st
   }
   const snapshots = [...ids];
   if (history && ids.length > 1) {
-    const r = yield ['merge-base', '--all', ...ids];
-    if (!r.ok && r.code !== 1) throw new Error('Cannot verify the merge bases.');
-    snapshots.push(...r.stdout.trim().split('\n').filter(Boolean));
+    const pending: string[][] = [];
+    const addPairs = (group: readonly string[]) => { for (let i = 0; i < group.length; i++) for (let j = i + 1; j < group.length; j++) pending.push([group[i]!, group[j]!]); };
+    addPairs(ids);
+    const seen = new Set<string>();
+    while (pending.length) {
+      const pair = pending.pop()!.sort(), key = pair.join(' ');
+      if (seen.has(key)) continue; seen.add(key);
+      const r = yield ['merge-base', '--all', ...pair];
+      if (!r.ok && r.code !== 1) throw new Error('Cannot verify the merge bases.');
+      const bases = r.stdout.trim().split('\n').filter(Boolean);
+      snapshots.push(...bases);
+      // Recursive/criss-cross merging reads the older bases of its bases.
+      // Visit those too, without scanning every historical file snapshot.
+      if (bases.length > 1) addPairs(bases);
+      if (seen.size > 10_000) throw new Error('The recursive merge-base graph is too large.');
+    }
   }
   let commits = ids;
   if (history) {

@@ -15,7 +15,7 @@
 // <home>/secrets/convex-self-hosted.env instead (src/convex-admin.ts). What
 // it last deployed is in <home>/backend.json. Node built-ins only, like
 // deploy.mjs (convex-admin.ts is too).
-import { git, refuseSubstitutes, snapshotCommit, snapshotDigest } from './deploy-git.mjs';
+import { git, refuseSubstitutes, verifyRepositoryObjects, snapshotCommit, snapshotDigest } from './deploy-git.mjs';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -223,6 +223,7 @@ function main(argv) {
   const repo = path.resolve(v.repo ?? git(import.meta.dirname, ['rev-parse', '--show-toplevel']));
   refuseSubstitutes(repo);
   const commit = git(repo, ['rev-parse', v.commit ?? 'HEAD']);
+  verifyRepositoryObjects(repo, [commit]);
   const short = commit.slice(0, 7);
   const want = { functions: treeOf(repo, commit, FUNCTION_PATHS), site: treeOf(repo, commit, SITE_PATHS) };
   // The website has the backend's address built into it (VITE_CONVEX_URL),

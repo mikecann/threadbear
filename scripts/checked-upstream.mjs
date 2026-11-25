@@ -22,10 +22,22 @@
 //     repo       the checkout
 //     mikesRepo  Mike's repo's URL, in any form git takes
 //   returns { checked: true, remote } or { checked: false, why }
-import { gitResult, refuseSubstitutes } from '../runner/scripts/deploy-git.mjs';
+import { gitResult, refuseSubstitutes, verifyRepositoryObjects } from '../runner/scripts/deploy-git.mjs';
 
 // The same key setup compares remotes by: host/owner/name, lower case.
-export const repoKey = (url) => url.trim().replace(/^git@([^:]+):/, '$1/').replace(/^[a-z+]+:\/\/(?:[^@/]+@)?/, '').replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+export function repoKey(value) {
+  const text = value.trim();
+  const scp = /^git@([^:/?#]+):([^?#]+)$/.exec(text);
+  if (scp) return `${scp[1]}/${scp[2]}`.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+  if (/^[a-z+]+:\/\//i.test(text)) {
+    try {
+      const url = new URL(text);
+      if (!['https:', 'ssh:'].includes(url.protocol) || url.search || url.hash || url.port || url.password || !url.hostname || /%/.test(url.pathname)) return '';
+      return `${url.hostname}${url.pathname}`.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+    } catch { return ''; }
+  }
+  return text.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+}
 
 function git(repo, args, timeout = 30_000) {
   const r = gitResult(repo, args, { timeoutMs: timeout, network: args[0] === 'fetch' ? 'remote' : undefined });
@@ -50,6 +62,7 @@ export function checkedUpstream({ repo, mikesRepo }) {
     const main = `refs/remotes/${remote}/main`;
     if (!git(repo, ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', url, `+refs/heads/main:${main}`], 120_000).ok) continue;
     fetched = true;
+    try { verifyRepositoryObjects(repo, [head.out, main], true); } catch (e) { return { checked: false, why: e.message }; }
     if (git(repo, ['merge-base', '--is-ancestor', head.out, main]).ok) return { checked: true, remote };
   }
   return { checked: false, why: fetched ? "HEAD isn't a commit Mike's main has" : "couldn't fetch Mike's main" };

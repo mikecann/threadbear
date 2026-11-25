@@ -56,3 +56,21 @@ test('format replay refuses a forged formatter script blob before executing it',
   await assert.rejects(formatter.format(tree), /does not hash to its ID/);
   assert.equal(fs.existsSync(marker), false);
 });
+
+test('recursive merge verification hashes the older base used to synthesize a virtual base', async () => {
+  const { dir, git } = repo();
+  const a = git('rev-parse', 'HEAD'), blob = git('rev-parse', 'HEAD:a');
+  const commit = (text: string, parents: string[]) => {
+    fs.writeFileSync(path.join(dir, 'a'), text); git('add', 'a');
+    return git('commit-tree', git('write-tree'), ...parents.flatMap((p) => ['-p', p]), '-m', text);
+  };
+  const b = commit('left\n', [a]), c = commit('right\n', [a]);
+  const d = commit('left result\n', [b, c]), e = commit('right result\n', [c, b]);
+  assert.deepEqual(new Set(git('merge-base', '--all', d, e).split('\n')), new Set([b, c]));
+  await verifyGitObjects(dir, [d, e], true);
+  const file = path.join(dir, '.git/objects', blob.slice(0, 2), blob.slice(2));
+  const data = inflateSync(fs.readFileSync(file)); data[data.indexOf(0) + 1] ^= 1;
+  fs.chmodSync(file, 0o644); fs.writeFileSync(file, deflateSync(data));
+  await assert.rejects(verifyGitObjects(dir, [d, e], true), /does not hash/);
+  assert.throws(() => verifyGitObjectsSync(dir, [d, e], true), /does not hash/);
+});
