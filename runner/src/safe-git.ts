@@ -32,13 +32,13 @@ export function untrustedGitArgs(dir: string, args: readonly string[]): string[]
   return [...UNTRUSTED_GIT_CONFIG, '-C', dir, ...args];
 }
 
-// The runner's environment without any GIT_ variable: one set when the
+// Keep only Git's commit identity variables. Other GIT_ variables set when the
 // runner was started from inside a git hook (or by hand) could point git
 // at another repo, or add config (GIT_CONFIG_COUNT, GIT_CONFIG_PARAMETERS)
 // that comes after the -c settings above.
 export function untrustedGitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...base };
-  for (const k of Object.keys(env)) if (k.startsWith('GIT_')) delete env[k];
+  for (const k of Object.keys(env)) if (k.startsWith('GIT_') && !/^GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)$/.test(k)) delete env[k];
   return env;
 }
 
@@ -191,7 +191,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     if (sub) out.push('-c', `${settable(`submodule.${sub[1]}.ignore`)}=all`);
     const m = /^merge\.([\s\S]*)\.driver$/.exec(e.key);
     if (m) out.push('-c', `${settable(e.key)}=git merge-file --marker-size=%L -- %A %O %B`);
-    if (network === 'remote' && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && /^(url\.|http\.)/.test(e.key)) throw new Error(`This repo's transport config (${e.key}) must move to your global git config before Threadbear can fetch or push.`);
+    if (network === 'remote' && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && /^(url\.|http\.)/.test(e.key) || network === 'remote' && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && /^remote\.[\s\S]*:[\s\S]*\.[^.]+$/.test(e.key)) throw new Error(`This repo's transport config (${e.key}) must move to your global git config before Threadbear can fetch or push.`);
     const f = /^filter\.([\s\S]*)\.[^.]+$/.exec(e.key);
     if (f) drivers.add(`filter.${f[1]}`);
     const d = /^diff\.([\s\S]*)\.(command|textconv)$/.exec(e.key);
@@ -364,7 +364,7 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
 
 // What untrustedGit runs. `git submodule` isn't one: it runs git in each
 // submodule with that submodule's own config.
-const SUBCOMMANDS = new Set(['add', 'checkout', 'checkout-index', 'cherry-pick', 'clean', 'commit', 'config', 'diff-tree', 'hash-object', 'log', 'ls-tree', 'merge', 'merge-tree', 'push', 'rebase', 'reflog', 'show', 'var', 'update-index', 'branch', 'bundle', 'cat-file', 'clone', 'commit-tree', 'diff', 'diff-files', 'diff-index', 'fetch', 'for-each-ref', 'fsck', 'ls-files', 'ls-remote', 'merge-base', 'read-tree', 'remote', 'reset', 'rev-list', 'rev-parse', 'status', 'symbolic-ref', 'update-ref', 'worktree', 'write-tree']);
+const SUBCOMMANDS = new Set(['add', 'checkout', 'checkout-index', 'cherry', 'cherry-pick', 'clean', 'commit', 'config', 'diff-tree', 'hash-object', 'log', 'ls-tree', 'merge', 'merge-tree', 'push', 'rebase', 'reflog', 'show', 'var', 'update-index', 'branch', 'bundle', 'cat-file', 'clone', 'commit-tree', 'diff', 'diff-files', 'diff-index', 'fetch', 'for-each-ref', 'fsck', 'ls-files', 'ls-remote', 'merge-base', 'read-tree', 'remote', 'reset', 'rev-list', 'rev-parse', 'status', 'symbolic-ref', 'update-ref', 'worktree', 'write-tree']);
 
 // A submodule is a repo of its own, with its own config (.git/modules/<name>/
 // config, or a .git inside it), and the settings above only switch off what
@@ -415,7 +415,7 @@ function* objectChecks(roots: readonly string[], history: boolean): Generator<st
   const snapshots = [...ids];
   if (history && ids.length > 1) {
     const r = yield ['merge-base', '--all', ...ids];
-    if (!r.ok) throw new Error('Cannot verify the merge bases.');
+    if (!r.ok && r.code !== 1) throw new Error('Cannot verify the merge bases.');
     snapshots.push(...r.stdout.trim().split('\n').filter(Boolean));
   }
   let commits = ids;
@@ -484,4 +484,53 @@ export function verifyGitObjectsSync(dir: string, roots: readonly string[] = ['H
     const args = step.value, input = args[0] === 'cat-file' ? args.pop() : undefined;
     step = checks.next(untrustedGitRunSync(dir, args, { input, bytes: true }));
   }
+}
+
+// A byte read used as executable formatter configuration must prove its
+// complete commit/tree path, not just trust cat-file's object filename.
+export async function verifiedGitBlob(dir: string, spec: string): Promise<Buffer | undefined> {
+  const colon = spec.indexOf(':');
+  if (colon < 1) throw new Error('A verified blob needs an object and path.');
+  const parts = spec.slice(colon + 1).split('/');
+  if (parts.some((p) => !p || p === '.' || p === '..')) throw new Error('Invalid verified blob path.');
+  const resolved = await untrustedGit(dir, ['rev-parse', '--verify', '--end-of-options', spec.slice(0, colon)]);
+  if (!resolved.ok) return undefined;
+  let id = resolved.stdout.trim();
+  const read = async (type: string, oid: string): Promise<Buffer | undefined> => {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) throw new Error('Invalid verified object ID.');
+    const r = await untrustedGit(dir, ['cat-file', type, oid], { bytes: true });
+    if (!r.ok || !r.bytes) return undefined;
+    const got = createHash(oid.length === 40 ? 'sha1' : 'sha256').update(`${type} ${r.bytes.length}\0`).update(r.bytes).digest('hex');
+    if (got !== oid) throw new Error(`The release object ${oid} does not hash to its ID.`);
+    return r.bytes;
+  };
+  let tree: Buffer | undefined;
+  for (let count = 0; count < 16; count++) {
+    const t = await untrustedGit(dir, ['cat-file', '-t', id]);
+    if (!t.ok) return undefined;
+    const type = t.stdout.trim(), data = await read(type, id);
+    if (!data) return undefined;
+    if (type === 'tag') { id = /^object ([0-9a-f]+)\n/.exec(data.toString('utf8'))?.[1] ?? ''; continue; }
+    if (type === 'commit') {
+      id = /^tree ([0-9a-f]+)\n/.exec(data.toString('utf8'))?.[1] ?? '';
+      tree = await read('tree', id);
+    } else if (type === 'tree') tree = data;
+    break;
+  }
+  for (const [index, part] of parts.entries()) {
+    if (!tree) return undefined;
+    let at = 0, found: { id: string; dir: boolean } | undefined;
+    while (at < tree.length) {
+      const space = tree.indexOf(32, at), nul = tree.indexOf(0, space + 1), end = nul + 1 + id.length / 2;
+      if (space < at || nul < space || end > tree.length) throw new Error('Malformed verified tree.');
+      if (tree.subarray(space + 1, nul).equals(Buffer.from(part))) found = { id: tree.subarray(nul + 1, end).toString('hex'), dir: tree.subarray(at, space).toString('ascii') === '40000' };
+      at = end;
+    }
+    if (!found) return undefined;
+    id = found.id;
+    if (index === parts.length - 1) return found.dir ? undefined : read('blob', id);
+    if (!found.dir) return undefined;
+    tree = await read('tree', id);
+  }
+  return undefined;
 }

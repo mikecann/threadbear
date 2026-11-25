@@ -5,7 +5,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { tmpDir } from '../helpers/fakes.ts';
-import { verifyGitObjects, verifyGitObjectsSync } from '../../src/safe-git.ts';
+import { TreeFormatter } from '../../src/format-replay.ts';
+import { verifyGitObjects, verifyGitObjectsSync, untrustedGit } from '../../src/safe-git.ts';
 
 function repo() {
   const dir = tmpDir();
@@ -32,3 +33,26 @@ for (const kind of ['blob', 'tree', 'commit']) {
     assert.throws(() => verifyGitObjectsSync(dir), /verification|hash|release|resolve/i);
   });
 }
+
+test('Git resolution does not execute a planted current-directory git.exe', async () => {
+  const { dir } = repo();
+  fs.writeFileSync(path.join(dir, 'git.exe'), 'invalid executable\n');
+  const result = await untrustedGit(dir, ['rev-parse', '--show-toplevel']);
+  assert.ok(result.ok, result.stderr); assert.equal(fs.realpathSync(result.stdout.trim()), fs.realpathSync(dir));
+});
+
+test('format replay refuses a forged formatter script blob before executing it', async () => {
+  const { dir, git } = repo();
+  fs.mkdirSync(path.join(dir, 'src')); fs.writeFileSync(path.join(dir, 'src/a.ts'), 'original\n');
+  fs.writeFileSync(path.join(dir, 'format.mjs'), 'export const original = true;\n');
+  git('add', '.'); git('commit', '-qm', 'formatter');
+  const commit = git('rev-parse', 'HEAD'), tree = git('rev-parse', 'HEAD^{tree}'), id = git('rev-parse', 'HEAD:format.mjs');
+  const marker = path.join(dir, 'ran');
+  const payload = Buffer.from(`import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'ran');`);
+  const object = Buffer.concat([Buffer.from(`blob ${payload.length}\0`), payload]);
+  const file = path.join(dir, '.git/objects', id.slice(0, 2), id.slice(2));
+  fs.chmodSync(file, 0o644); fs.writeFileSync(file, deflateSync(object));
+  const formatter = new TreeFormatter(dir, [{ commit, entry: { subject: 'Format', command: 'node format.mjs', paths: ['src'], config: ['format.mjs'] } }]);
+  await assert.rejects(formatter.format(tree), /does not hash to its ID/);
+  assert.equal(fs.existsSync(marker), false);
+});

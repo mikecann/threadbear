@@ -57,15 +57,16 @@ function apply(dir, msg) {
     }
     const wanted = b(['write-tree']).toString().trim();
     const identityEnv = Object.fromEntries(Object.entries(process.env).filter(([k, v]) => /^GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)$/.test(k) && v !== undefined));
-    const name = git(top, ['var', 'GIT_AUTHOR_IDENT'], { env: identityEnv }).replace(/ \d+ [+-]\d+$/, '');
-    const identity = /^(.*) <([^<>]+)>$/.exec(name);
-    if (!identity) throw new Error('Set your git author name and email before merging.');
-    env.GIT_AUTHOR_NAME = env.GIT_COMMITTER_NAME = identity[1];
-    env.GIT_AUTHOR_EMAIL = env.GIT_COMMITTER_EMAIL = identity[2];
+    for (const role of ['AUTHOR', 'COMMITTER']) {
+      const name = git(top, ['var', `GIT_${role}_IDENT`], { env: identityEnv }).replace(/ \d+ [+-]\d+$/, '');
+      const identity = /^(.*) <([^<>]+)>$/.exec(name);
+      if (!identity) throw new Error('Set your git author name and email before merging.');
+      env[`GIT_${role}_NAME`] = identity[1]; env[`GIT_${role}_EMAIL`] = identity[2];
+    }
     const made = b(['commit-tree', wanted, '-p', base, '-p', commit, '-m', msg]).toString().trim();
     b(['update-ref', 'refs/heads/prepared', made]);
     git(top, ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', bare, 'refs/heads/prepared'], { network: 'bundle' });
-    verifyRepositoryObjects(top);
+    verifyRepositoryObjects(top, [made]);
     if (git(top, ['rev-parse', 'HEAD']) !== head) throw new Error('The branch moved while preparing the merge; retry.');
     git(top, ['merge', '--ff-only', '--no-edit', made]);
     if (git(top, ['rev-parse', 'HEAD^{tree}']) !== wanted) throw new Error('The final merge differs from the isolated preview tree.');

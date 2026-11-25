@@ -107,3 +107,10 @@ test('a scheme-less local path spelling GitHub is not a checked network upstream
   git(work, 'remote', 'set-url', 'origin', 'github.com/mikecann/threadbear.git');
   assert.equal(checkedUpstream({ repo: work, mikesRepo: 'https://github.com/mikecann/threadbear.git' }).checked, false);
 });
+
+test('a validated upstream URL cannot be shadowed by a configured remote of that name', (t) => {
+  const { work } = setup(t); const url = 'https://github.com/mikecann/threadbear.git';
+  git(work, 'remote', 'set-url', 'origin', url);
+  git(work, 'config', `remote.${url}.url`, '.');
+  assert.equal(checkedUpstream({ repo: work, mikesRepo: url }).checked, false);
+});

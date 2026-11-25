@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { untrustedGit } from './safe-git.ts';
+import { untrustedGit, verifiedGitBlob } from './safe-git.ts';
 
 export const FORMAT_LIST = '.git-blame-ignore-revs';
 
@@ -135,7 +135,11 @@ export async function substitutes(cwd: string): Promise<string | undefined> {
 // which carry the owner's own commits.
 
 
-export function git(cwd: string, args: string[], extra: NodeJS.ProcessEnv = {}): Promise<Run> {
+export async function git(cwd: string, args: string[], extra: NodeJS.ProcessEnv = {}): Promise<Run> {
+  if (args[0] === 'show' && args.length === 2 && args[1].includes(':')) {
+    const bytes = await verifiedGitBlob(cwd, args[1]);
+    return bytes ? { ok: true, code: 0, stdout: bytes.toString('utf8'), stderr: '' } : { ok: false, code: 1, stdout: '', stderr: 'The requested verified blob is absent.' };
+  }
   const env = Object.fromEntries(Object.entries(extra).filter((v): v is [string, string] => v[1] !== undefined));
   return untrustedGit(cwd, args, { env, timeoutMs: 10 * 60_000 });
 }
@@ -443,8 +447,7 @@ async function stdinGit(cwd: string, args: string[], input: string, extra: NodeJ
 }
 
 async function gitBuffer(cwd: string, object: string): Promise<Buffer | undefined> {
-  const r = await untrustedGit(cwd, ['cat-file', 'blob', object], { bytes: true, timeoutMs: 60_000 });
-  return r.ok ? r.bytes : undefined;
+  return verifiedGitBlob(cwd, object);
 }
 
 // Whether every folder on the way to `rel` under `root` is a real folder

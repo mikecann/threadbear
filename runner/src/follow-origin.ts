@@ -97,7 +97,7 @@ export async function followOrigin(checkout: string): Promise<OriginResult> {
   const out: OriginResult = { ref: ORIGIN_MAIN, ...(fetchProblem ? { problem: fetchProblem } : {}) };
   const local = await rev(checkout, LOCAL_MAIN);
   if (!local || local === tip) return out;
-  try { await verifyGitObjects(checkout, [tip]); }
+  try { await verifyGitObjects(checkout, [local, tip], true); }
   catch (e) { return { problem: { kind: 'stuck', message: cleanGitError(String(e)) } }; }
   const fastForward = await run(checkout, ['merge-base', '--is-ancestor', local, tip]);
   if (!fastForward.ok) return { ...out, problem: await divergedProblem(checkout, tip) };
