@@ -40,3 +40,25 @@ test('prepared merge installs exactly the isolated preview despite malicious fil
   assert.equal(fs.readFileSync(path.join(repo, 'a'), 'utf8'), 'main\ntwo\nthree\nfour\nrelease\n');
   assert.equal(fs.existsSync(marker), false);
 });
+
+import { deflateSync } from 'node:zlib';
+
+test('prepared merge verifies a newly merged output blob before changing HEAD', () => {
+  const root = tmpDir(), repo = path.join(root, 'repo'); fs.mkdirSync(repo);
+  const g = (...args: string[]) => { const r = spawnSync('git', ['-C', repo, '-c', 'commit.gpgSign=false', ...args], { env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  const sh = (file: string, ...args: string[]) => spawnSync(SHELL[0], [shPath(file), ...args], { cwd: repo, env, encoding: 'utf8' });
+  g('init', '-qb', 'main'); fs.writeFileSync(path.join(repo, 'a'), 'one\ntwo\nthree\nfour\nfive\n');
+  g('add', '.'); g('commit', '-qm', 'base'); g('branch', 'release');
+  fs.writeFileSync(path.join(repo, 'a'), 'main\ntwo\nthree\nfour\nfive\n'); g('commit', '-qam', 'main');
+  const before = g('rev-parse', 'HEAD'); g('checkout', '-q', 'release');
+  fs.writeFileSync(path.join(repo, 'a'), 'one\ntwo\nthree\nfour\nrelease\n'); g('commit', '-qam', 'release');
+  const release = g('rev-parse', 'HEAD'); g('checkout', '-q', 'main');
+  const dir = path.join(root, 'preview'); const p = sh(preview, '--prepare', shPath(dir), release); assert.equal(p.status, 0, p.stderr);
+  const id = spawnSync('git', ['-C', repo, 'hash-object', '--stdin'], { env, input: 'main\ntwo\nthree\nfour\nrelease\n', encoding: 'utf8' }).stdout.trim();
+  const poison = path.join(repo, '.git/objects', id.slice(0, 2), id.slice(2)); fs.mkdirSync(path.dirname(poison), { recursive: true });
+  const payload = Buffer.from('substituted\n');
+  fs.writeFileSync(poison, deflateSync(Buffer.concat([Buffer.from(`blob ${payload.length}\0`), payload])));
+  const applied = sh(prepared, shPath(dir), '-m', 'Bring it in');
+  assert.notEqual(applied.status, 0); assert.match(applied.stderr, /does not hash to its ID/);
+  assert.equal(g('rev-parse', 'HEAD'), before); assert.equal(fs.readFileSync(path.join(repo, 'a'), 'utf8'), 'main\ntwo\nthree\nfour\nfive\n');
+});
