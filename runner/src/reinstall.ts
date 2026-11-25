@@ -24,6 +24,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
 
@@ -89,6 +90,7 @@ type Saved = {
 // The job to start, for spawnJob (tests replace it).
 export type JobSpec = {
   label: string;
+  program?: string;
   args: string[];
   env: Record<string, string>;
   logFile: string;
@@ -99,7 +101,7 @@ export type JobSpec = {
 export type ReinstallDeps = {
   home: string;
   // The checkout this release was built from (release.checkout), whose
-  // install-runner.sh runs. Undefined: a runner from a checkout, which
+  // committed main is staged from a verified private copy. Undefined: a runner from a checkout, which
   // doesn't run releases, so nothing to do.
   checkout?: string;
   clock: Clock;
@@ -199,7 +201,7 @@ const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 // TB_REINSTALL_RESULT, and isn't started again.
 export function jobPlist(job: JobSpec): string {
   const wrap = '"$@"; echo $? > "$TB_REINSTALL_RESULT"';
-  const args = ['/bin/bash', '-c', wrap, 'reinstall', '/bin/bash', ...job.args];
+  const args = ['/bin/bash', '-c', wrap, 'reinstall', job.program ?? '/bin/bash', ...job.args];
   const env = Object.entries(job.env).map(([k, v]) => `\t\t<key>${xml(k)}</key>\n\t\t<string>${xml(v)}</string>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -239,7 +241,7 @@ export function spawnJob(job: JobSpec, platform: NodeJS.Platform = process.platf
     const unit = `${job.label}.service`;
     run('systemctl', ['--user', 'reset-failed', unit]);
     const props = Object.entries(job.env).map(([k, v]) => `--setenv=${k}=${v}`);
-    const r = run('systemd-run', ['--user', '--collect', `--unit=${unit}`, `--working-directory=${job.dir}`, `--property=StandardOutput=append:${job.logFile}`, `--property=StandardError=append:${job.logFile}`, ...props, '/bin/bash', '-c', '"$@"; echo $? > "$TB_REINSTALL_RESULT"', 'reinstall', '/bin/bash', ...job.args]);
+    const r = run('systemd-run', ['--user', '--collect', `--unit=${unit}`, `--working-directory=${job.dir}`, `--property=StandardOutput=append:${job.logFile}`, `--property=StandardError=append:${job.logFile}`, ...props, '/bin/bash', '-c', '"$@"; echo $? > "$TB_REINSTALL_RESULT"', 'reinstall', job.program ?? '/bin/bash', ...job.args]);
     return r.status === 0 ? undefined : (r.stderr || r.error?.message || `systemd-run exited ${r.status}`).trim();
   }
   if (platform !== 'darwin') return `reinstalling by itself isn't done on ${platform}`;
@@ -475,7 +477,12 @@ export class Reinstaller {
     fs.rmSync(this.resultFile, { force: true });
     const logFile = reinstallLogPath(home);
     fs.appendFileSync(logFile, `\n--- ${new Date(this.deps.clock.now()).toISOString()} staging the LaunchAgent\n`);
-    const job: JobSpec = { label: `${jobLabel(env, platform)}.reinstall`, args: installArgs(checkout, home, env, platform), env: jobEnv(env, this.resultFile), logFile, resultFile: this.resultFile, dir: this.dir };
+    // Start with code from this running release, never an import from the
+    // original checkout. The helper verifies and materializes main before
+    // the installer or any of its working-tree dependencies can execute.
+    const helper = fileURLToPath(new URL('./reinstall-source.ts', import.meta.url));
+    const args = [helper, checkout, path.join(this.dir, 'source'), ...installArgs(checkout, home, env, platform).slice(1)];
+    const job: JobSpec = { label: `${jobLabel(env, platform)}.reinstall`, program: 'node', args, env: jobEnv(env, this.resultFile), logFile, resultFile: this.resultFile, dir: this.dir };
     this.saved = { key, requested: this.saved.requested, startedAt: new Date(this.deps.clock.now()).toISOString(), label: job.label };
     this.aliveCache = undefined;
     const err = (this.deps.spawnJob ?? spawnJob)(job, platform);

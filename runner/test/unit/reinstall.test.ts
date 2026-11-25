@@ -53,7 +53,9 @@ test('it stages by itself as soon as main is ahead, busy threads or not', () => 
   assert.equal(t.jobs.length, 1);
   assert.equal(r.status()?.state, 'running');
   assert.equal(t.jobs[0].label, 'com.mikerosoft.threadbear.runner.reinstall');
-  assert.equal(t.jobs[0].args[0], '/Users/me/dev/threadbear/runner/scripts/install-runner.sh');
+  assert.equal(t.jobs[0].program, 'node');
+  assert.match(t.jobs[0].args[0], /reinstall-source\.ts$/);
+  assert.equal(t.jobs[0].args[1], '/Users/me/dev/threadbear');
   assert.equal(t.jobs[0].args.at(-1), '--stage', 'stages: stops nothing, so it never waits for an idle moment');
 });
 
