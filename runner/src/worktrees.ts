@@ -6,7 +6,7 @@
 // the thread; tb (cli.ts) runs land.
 //
 // Everything here runs real git. Nothing ever pushes.
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,7 +16,7 @@ import { plainShell } from './system-tools.ts';
 import type { WorktreePatch } from './patches.ts';
 import { inBackground } from './background.ts';
 import { mainCheckoutOf as linkedMainCheckout } from './patch-trust.ts';
-import { untrustedGitArgs } from './safe-git.ts';
+import { untrustedGit } from './safe-git.ts';
 import { carryAcross, formatChanges, crossings, mergeAcross, remakeOwn, touchesFormatted, TreeFormatter, type FormatCommit } from './format-replay.ts';
 import { LAND_TIMES_FILE, isCarried, joinQueue, leaveQueue, queueDir, readEntry, readRunning, ridesFree, setRunning, typicalCheckSeconds, waiting, waitingLine, writeEntry, type QueueEntry } from './land-queue.ts';
 
@@ -77,17 +77,9 @@ export const gitLimits = { timeoutMs: 5 * 60_000 };
 // repo's own config can't start an fsmonitor program (safe-git.ts). Killed
 // past gitLimits, which makes it a failure (`ok: false`).
 export function git(cwd: string, args: string[], extraEnv: NodeJS.ProcessEnv = {}): Promise<GitResult> {
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX']) delete env[k];
-  return new Promise((resolve) => {
-    execFile('git', untrustedGitArgs(cwd, args), { env, maxBuffer: 16 * 1024 * 1024, timeout: gitLimits.timeoutMs, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
-      // Killed (past the limit) is -1, never 1: callers read git's own 1 as
-      // an answer ("no such ref", "not an ancestor").
-      const e = err as { code?: unknown; signal?: unknown } | null;
-      const code = !e ? 0 : typeof e.code === 'number' ? e.code : e.signal ? -1 : 1;
-      resolve({ ok: !err, code, stdout: String(stdout), stderr: String(stderr) });
-    });
-  });
+  const env = Object.fromEntries(Object.entries(extraEnv).filter((v): v is [string, string] => v[1] !== undefined));
+  const network = ['fetch', 'push', 'clone'].includes(args[0] ?? '') ? 'remote' as const : undefined;
+  return untrustedGit(cwd, args, { env, network, timeoutMs: gitLimits.timeoutMs });
 }
 
 async function gitOut(cwd: string, args: string[], extraEnv?: NodeJS.ProcessEnv): Promise<string | undefined> {

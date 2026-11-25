@@ -22,27 +22,33 @@
 //     repo       the checkout
 //     mikesRepo  Mike's repo's URL, in any form git takes
 //   returns { checked: true, remote } or { checked: false, why }
-import { spawnSync } from 'node:child_process';
+import { gitResult, refuseSubstitutes } from '../runner/scripts/deploy-git.mjs';
 
 // The same key setup compares remotes by: host/owner/name, lower case.
 export const repoKey = (url) => url.trim().replace(/^git@([^:]+):/, '$1/').replace(/^[a-z+]+:\/\/(?:[^@/]+@)?/, '').replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
 
 function git(repo, args, timeout = 30_000) {
-  const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
-  return { ok: r.status === 0, out: (r.stdout ?? '').trim() };
+  const r = gitResult(repo, args, { timeoutMs: timeout, network: args[0] === 'fetch' ? 'remote' : undefined });
+  return { ok: r.ok, out: r.stdout.trim() };
 }
 
 export function checkedUpstream({ repo, mikesRepo }) {
+  try { refuseSubstitutes(repo); } catch (e) { return { checked: false, why: e.message }; }
   const head = git(repo, ['rev-parse', '--verify', '-q', 'HEAD^{commit}']);
   if (!head.ok) return { checked: false, why: 'no commit checked out' };
   const mikes = repoKey(mikesRepo);
+  const networkUrl = (s) => /^(?:https:\/\/|ssh:\/\/|git@)/i.test(s);
   const remotes = git(repo, ['remote']).out.split('\n').filter(Boolean)
-    .filter((name) => { const url = git(repo, ['config', '--get', `remote.${name}.url`]); return url.ok && repoKey(url.out) === mikes; });
+    .flatMap((name) => {
+      const url = git(repo, ['config', '--get-all', `remote.${name}.url`]);
+      const urls = url.out.split('\n').filter(Boolean);
+      return url.ok && urls.length === 1 && repoKey(urls[0]) === mikes && (networkUrl(urls[0]) || !networkUrl(mikesRepo) && urls[0] === mikesRepo) ? [{ name, url: urls[0] }] : [];
+    });
   if (!remotes.length) return { checked: false, why: "no remote is Mike's repo" };
   let fetched = false;
-  for (const remote of remotes) {
+  for (const { name: remote, url } of remotes) {
     const main = `refs/remotes/${remote}/main`;
-    if (!git(repo, ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', remote, `+refs/heads/main:${main}`], 120_000).ok) continue;
+    if (!git(repo, ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', url, `+refs/heads/main:${main}`], 120_000).ok) continue;
     fetched = true;
     if (git(repo, ['merge-base', '--is-ancestor', head.out, main]).ok) return { checked: true, remote };
   }

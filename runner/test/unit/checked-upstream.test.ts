@@ -10,7 +10,6 @@ import { test } from 'node:test';
 // @ts-expect-error: a plain .mjs script, no types
 import { checkedUpstream } from '../../../scripts/checked-upstream.mjs';
 
-const MIKES = 'https://github.com/mikecann/threadbear.git';
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
@@ -33,64 +32,63 @@ function setup(t: { after: (f: () => void) => void }) {
   git(work, 'add', '.');
   git(work, 'commit', '-q', '-m', 'one');
   git(work, 'push', '-q', 'origin', 'main');
-  // The remote says Mike's URL, and insteadOf sends its fetches here.
-  git(work, 'config', `url.${mikes}.insteadOf`, MIKES);
-  git(work, 'remote', 'set-url', 'origin', MIKES);
+  // The test's upstream is this local bare repo. Rewrites in a checkout
+  // are lower trust and are deliberately refused (Daybreak 188).
   return { work, mikes };
 }
 
 test("Mike's code as his repo has it leaves the checks out", (t) => {
-  const { work } = setup(t);
-  assert.deepEqual(checkedUpstream({ repo: work, mikesRepo: MIKES }), { checked: true, remote: 'origin' });
+  const { work, mikes } = setup(t);
+  assert.deepEqual(checkedUpstream({ repo: work, mikesRepo: mikes }), { checked: true, remote: 'origin' });
 });
 
 test("a branch of Mike's other than main runs them", (t) => {
-  const { work } = setup(t);
+  const { work, mikes } = setup(t);
   git(work, 'checkout', '-q', '-b', 'cloud/try');
   fs.writeFileSync(path.join(work, 'runner', 'c.ts'), 'c\n');
   git(work, 'add', '.');
   git(work, 'commit', '-q', '-m', 'unlanded');
   git(work, 'push', '-q', 'origin', 'cloud/try');
-  assert.equal(checkedUpstream({ repo: work, mikesRepo: MIKES }).checked, false);
+  assert.equal(checkedUpstream({ repo: work, mikesRepo: mikes }).checked, false);
 });
 
 test('a commit of your own runs them', (t) => {
-  const { work } = setup(t);
+  const { work, mikes } = setup(t);
   fs.writeFileSync(path.join(work, 'runner', 'b.ts'), 'b\n');
   git(work, 'add', '.');
   git(work, 'commit', '-q', '-m', 'mine');
-  assert.equal(checkedUpstream({ repo: work, mikesRepo: MIKES }).checked, false);
+  assert.equal(checkedUpstream({ repo: work, mikesRepo: mikes }).checked, false);
 });
 
 test("a fork: upstream is Mike's, fetched when nothing is", (t) => {
-  const { work } = setup(t);
+  const { work, mikes } = setup(t);
   git(work, 'remote', 'rename', 'origin', 'upstream');
   git(work, 'remote', 'add', 'origin', 'https://github.com/someone/threadbear.git');
   for (const ref of git(work, 'for-each-ref', '--format=%(refname)', 'refs/remotes/upstream/').split('\n').filter(Boolean)) git(work, 'update-ref', '-d', ref);
-  assert.deepEqual(checkedUpstream({ repo: work, mikesRepo: MIKES }), { checked: true, remote: 'upstream' });
+  assert.deepEqual(checkedUpstream({ repo: work, mikesRepo: mikes }), { checked: true, remote: 'upstream' });
 });
 
 test("a main of someone else's left under Mike's remote isn't believed", (t) => {
-  const { work } = setup(t);
+  const { work, mikes } = setup(t);
   fs.writeFileSync(path.join(work, 'runner', 'd.ts'), 'd\n');
   git(work, 'add', '.');
   git(work, 'commit', '-q', '-m', "the fork's");
   git(work, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-  assert.equal(checkedUpstream({ repo: work, mikesRepo: MIKES }).checked, false);
+  assert.equal(checkedUpstream({ repo: work, mikesRepo: mikes }).checked, false);
 });
 
 test("a fetch that fails runs them", (t) => {
   const { work, mikes } = setup(t);
   fs.rmSync(mikes, { recursive: true, force: true });
-  const r = checkedUpstream({ repo: work, mikesRepo: MIKES });
+  const r = checkedUpstream({ repo: work, mikesRepo: mikes });
   assert.equal(r.checked, false);
   assert.match(r.why, /couldn't fetch/);
 });
 
 test("no remote of Mike's runs them", (t) => {
-  const { work } = setup(t);
+  const { work, mikes } = setup(t);
   git(work, 'remote', 'set-url', 'origin', 'https://github.com/someone/else.git');
-  const r = checkedUpstream({ repo: work, mikesRepo: MIKES });
+  const r = checkedUpstream({ repo: work, mikesRepo: mikes });
   assert.equal(r.checked, false);
   assert.match(r.why, /no remote is Mike's/);
 });

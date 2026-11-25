@@ -24,12 +24,13 @@
 // at the bottom), which a fork also runs to bring in a release with a format
 // commit in it (docs/bringing-in-updates.md). Only node's own modules, so a
 // fork that doesn't have this file yet can run the release's copy of it.
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { untrustedGit } from './safe-git.ts';
 
 export const FORMAT_LIST = '.git-blame-ignore-revs';
 
@@ -98,12 +99,11 @@ export function parseFormatList(text: string): FormatEntry[] {
 
 type Run = { ok: boolean; code: number; stdout: string; stderr: string };
 
-const GIT_SAFE = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'advice.graftFileDeprecated=false'];
 
 function cleanEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   // Ones that point git at some other repo or index (set inside a git hook).
-  // And config handed down from a `git -c` or a hook, which would beat GIT_SAFE.
+  // And config handed down from a `git -c` or a hook, which would beat command-line settings.
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_PREFIX', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT']) delete env[k];
   for (const k of Object.keys(env)) if (/^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(k)) delete env[k];
   // Replacement objects and grafts off, after the caller's: an id is that
@@ -133,16 +133,11 @@ export async function substitutes(cwd: string): Promise<string | undefined> {
 // checkout's objects git reads a commit's tree and parents from in place of
 // the commit (Codex's review of Daybreak 180). Not for tb land's replays,
 // which carry the owner's own commits.
-let noCommitGraph = false;
+
 
 export function git(cwd: string, args: string[], extra: NodeJS.ProcessEnv = {}): Promise<Run> {
-  return new Promise((resolve) => {
-    execFile('git', [...GIT_SAFE, ...(noCommitGraph ? ['-c', 'core.commitGraph=false'] : []), '-C', cwd, ...args], { env: cleanEnv(extra), maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
-      const e = err as { code?: unknown; signal?: unknown } | null;
-      const code = !e ? 0 : typeof e.code === 'number' ? e.code : e.signal ? -1 : 1;
-      resolve({ ok: !err, code, stdout: String(stdout), stderr: String(stderr) });
-    });
-  });
+  const env = Object.fromEntries(Object.entries(extra).filter((v): v is [string, string] => v[1] !== undefined));
+  return untrustedGit(cwd, args, { env, timeoutMs: 10 * 60_000 });
 }
 
 async function out(cwd: string, args: string[], extra?: NodeJS.ProcessEnv): Promise<string> {
@@ -441,21 +436,15 @@ export class TreeFormatter {
   }
 }
 
-function stdinGit(cwd: string, args: string[], input: string, extra: NodeJS.ProcessEnv): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const child = execFile('git', [...GIT_SAFE, ...(noCommitGraph ? ['-c', 'core.commitGraph=false'] : []), '-C', cwd, ...args], { env: cleanEnv(extra), maxBuffer: 16 * 1024 * 1024, timeout: 10 * 60_000, killSignal: 'SIGKILL' }, (err, _o, stderr) =>
-      err ? reject(new Error(`git ${args.join(' ')}: ${String(stderr).trim()}`)) : resolve(),
-    );
-    child.stdin?.end(input);
-  });
+async function stdinGit(cwd: string, args: string[], input: string, extra: NodeJS.ProcessEnv): Promise<void> {
+  const env = Object.fromEntries(Object.entries(extra).filter((v): v is [string, string] => v[1] !== undefined));
+  const r = await untrustedGit(cwd, args, { env, input, timeoutMs: 10 * 60_000 });
+  if (!r.ok) throw new Error(`git ${args.join(' ')}: ${r.stderr.trim()}`);
 }
 
-function gitBuffer(cwd: string, object: string): Promise<Buffer | undefined> {
-  return new Promise((resolve) => {
-    execFile('git', [...GIT_SAFE, ...(noCommitGraph ? ['-c', 'core.commitGraph=false'] : []), '-C', cwd, 'cat-file', 'blob', object], { env: cleanEnv(), encoding: 'buffer', maxBuffer: 64 * 1024 * 1024, timeout: 60_000, killSignal: 'SIGKILL' }, (err, stdout) =>
-      resolve(err ? undefined : stdout),
-    );
-  });
+async function gitBuffer(cwd: string, object: string): Promise<Buffer | undefined> {
+  const r = await untrustedGit(cwd, ['cat-file', 'blob', object], { bytes: true, timeoutMs: 60_000 });
+  return r.ok ? r.bytes : undefined;
 }
 
 // Whether every folder on the way to `rel` under `root` is a real folder
@@ -984,7 +973,7 @@ async function cli(argv: string[]): Promise<number> {
     }
     const mi = argv.indexOf('-m');
     const message = mi > 0 ? argv[mi + 1] : undefined;
-    noCommitGraph = true;
+
     const substituted = await substitutes(top);
     if (substituted) {
       say(substituted);

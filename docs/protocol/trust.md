@@ -936,3 +936,22 @@ A client shows what it can: a `url` panel in a web view, an `image` panel
 by asking `panels.render` now and then while it's on screen, a `list`
 panel the same way (when it's shown and every 15 seconds while it is),
 and an unknown `kind` as a page if it has a `url`.
+
+### Git used for worktrees and deployment
+
+Worktree creation, landing and format replay use the same hostile-repository Git
+boundary as moves: no configured hooks, filters, signing or merge programs run.
+A configured merge driver is replaced by Git's text merge. Repository-scoped
+conditional includes are refused: they can add a driver only after a new
+worktree exists. Owner-global configuration remains the owner's choice. Network operations
+refuse repository-local URL rewrites and HTTP configuration; move those settings
+to the owner's global configuration when needed. Setup's upstream check uses
+that boundary too.
+
+A prepared release merge recomputes its tree in a fresh bare repository without
+configuration or attributes, applies the settled conflict blobs there, and
+fast-forwards to a commit of exactly that tree. Deployment refuses replacement
+refs and grafts, reads the selected commit's original blobs with commit-graphs
+disabled, hashes every traversed commit/tree/blob against its object ID, and
+verifies the installed snapshot's SHA-256 before recording it in
+release.json. Archive export attributes cannot change which files are installed.

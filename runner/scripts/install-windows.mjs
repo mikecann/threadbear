@@ -24,6 +24,7 @@
 // Started from Keith's (platima) install-windows.mjs: the PATH handling and
 // the tb.cmd text are his.
 
+import { gitResult, releaseMatches } from './deploy-git.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -146,17 +147,10 @@ function whoAmI() {
 }
 
 function headCommit() {
-  const r = spawnSync('git', ['-C', RUNNER_DIR, 'rev-parse', 'HEAD'], { encoding: 'utf8', windowsHide: true });
-  return r.status === 0 ? r.stdout.trim() : undefined;
+  const r = gitResult(RUNNER_DIR, ['rev-parse', 'HEAD']);
+  return r.ok ? r.stdout.trim() : undefined;
 }
 
-function releaseCommit(dir, id) {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(dir, 'releases', id, 'release.json'), 'utf8')).commit;
-  } catch {
-    return undefined;
-  }
-}
 
 async function main() {
   const { values: v } = parseArgs({
@@ -226,7 +220,7 @@ async function main() {
 
   const head = headCommit();
   const current = readCurrentLink(dir);
-  const keep = current && head && releaseCommit(dir, current) === head;
+  const keep = current && head && releaseMatches(RUNNER_DIR, path.join(dir, 'releases', current), head);
   const running = taskExists(task);
   console.log(
     [

@@ -489,11 +489,6 @@ reload() {
   load
 }
 
-# The commit a release was built from, or nothing for a dirty build.
-release_commit() {
-  "$NODE" -e 'try { const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(r.dirty ? "" : String(r.commit || "")); } catch {}' "$1"
-}
-
 # Points current back at a release, with the same helpers deploy-runner.sh
 # uses (from this checkout's launch.mjs, already checked above).
 point_current() {
@@ -664,10 +659,10 @@ else
   # back out (or ship what a feature branch had), so current is only kept
   # when it was built from HEAD.
   [ ! -L "$RDIR/current" ] || OLD_CURRENT="$(basename "$(readlink "$RDIR/current")")"
-  HEAD_COMMIT="$(git -C "$RUNNER_DIR" rev-parse HEAD 2>/dev/null || true)"
+  HEAD_COMMIT="$("$NODE" "$RUNNER_DIR/scripts/deploy-git.mjs" "$RUNNER_DIR" rev-parse HEAD 2>/dev/null || true)"
   if [ "$STAGE" = 1 ]; then
     echo "Leaving release ${OLD_CURRENT:-?} as it is; the runner's updater keeps releases up to date."
-  elif [ -n "$OLD_CURRENT" ] && [ -n "$HEAD_COMMIT" ] && [ "$(release_commit "$RDIR/current/release.json")" = "$HEAD_COMMIT" ]; then
+  elif [ -n "$OLD_CURRENT" ] && [ -n "$HEAD_COMMIT" ] && "$NODE" "$RUNNER_DIR/scripts/deploy-git.mjs" --matches-release "$RUNNER_DIR" "$RDIR/current" "$HEAD_COMMIT"; then
     echo "Keeping release $OLD_CURRENT, which was built from HEAD."
   else
     [ -z "$OLD_CURRENT" ] || echo "Release $OLD_CURRENT wasn't built from HEAD, so building one that is."

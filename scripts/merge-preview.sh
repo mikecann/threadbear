@@ -28,7 +28,11 @@ if [ "${1:-}" = "--prepare" ]; then
 fi
 commit=${1:?usage: scripts/merge-preview.sh [--prepare <dir>] <commit> [base]}
 base=${2:-refs/heads/main}
-top=$(git rev-parse --show-toplevel)
+helper_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+helper="$helper_root/runner/scripts/deploy-git.mjs"
+node_bin=${THREADBEAR_NODE:-node}
+top=$("$node_bin" "$helper" "$PWD" rev-parse --show-toplevel)
+"$node_bin" "$helper" --verify-objects "$top" "$base" "$commit"
 # Replacement objects and grafts off, and a checkout with either refused:
 # git reads a refs/replace/ entry or info/grafts in place of the object an
 # id names, so the release's signed commit could merge as another, unsigned
@@ -39,10 +43,7 @@ top=$(git rev-parse --show-toplevel)
 # too (a protocol's own setting in the repo's config beats protocol.allow).
 export GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1
 unset GIT_GRAFT_FILE GIT_REPLACE_REF_BASE
-here() {
-  git -C "$top" -c protocol.allow=never -c protocol.ext.allow=never -c protocol.fd.allow=never -c protocol.file.allow=never \
-    -c protocol.git.allow=never -c protocol.http.allow=never -c protocol.https.allow=never -c protocol.ssh.allow=never "$@"
-}
+here() { "$node_bin" "$helper" "$top" "$@"; }
 common=$(here rev-parse --path-format=absolute --git-common-dir)
 if [ -n "$(here for-each-ref --count=1 --format='%(refname)' refs/replace/)" ] || [ -e "$common/info/grafts" ]; then
   echo "This checkout has git replacement refs (refs/replace/) or grafts ($common/info/grafts), which could have git read other objects in place of the release's: remove them (git replace -d, or that file) first." >&2
@@ -77,11 +78,7 @@ fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tb-merge-preview.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT TERM
 # Nothing of anyone's config: not this repo's, the user's or the system's.
-bare() {
-  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_TEMPLATE_DIR -u GIT_GRAFT_FILE \
-    HOME="$tmp" XDG_CONFIG_HOME="$tmp" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_ATTR_NOSYSTEM=1 \
-    git "$@"
-}
+bare() { "$node_bin" "$helper" --isolated "$tmp" "$@"; }
 # No template either: init.templateDir or GIT_TEMPLATE_DIR could copy in a
 # config and info/attributes naming a driver (Codex's third look).
 bare init -q --bare --template= "--object-format=$format" "$tmp/r"
@@ -94,6 +91,7 @@ status=0
 clean --attr-source="$empty" merge-tree --write-tree --name-only --messages "$base_id" "$commit_id" > "$tmp/out" || status=$?
 cat "$tmp/out"
 tree=$(head -n 1 "$tmp/out")
+if [ -n "$prepare" ]; then printf '%s\n' "$tree" > "$prepare/tree"; fi
 echo
 if [ "$status" -eq 1 ]; then echo "It clashes in the files above."; elif [ "$status" -ne 0 ]; then echo "git merge-tree failed ($status)."; exit "$status"; else echo "It merges cleanly."; fi
 # A clean merge leaves an empty list, so merge-prepared.sh merges it too:

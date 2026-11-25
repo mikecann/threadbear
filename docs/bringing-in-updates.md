@@ -116,12 +116,11 @@ its clashes settled, merge there with:
 scripts/merge-prepared.sh "${TMPDIR:-/tmp}/tb-bring-in-<thread id>" -m "Bring in Mike's release <date>"
 ```
 
-It catches the branch up to the main the preview used, merges, and puts
-the settled files in. If main has moved on since, or a settled file still
-has markers, it changes nothing and says so: run the preview with
-`--prepare` again and settle only what's new. If git clashes in a file the
-preview didn't settle, it stops with the merge unfinished and names it:
-settle that in the worktree and `git commit --no-edit`.
+It recomputes the preview in a fresh bare repository with no configuration or
+attributes, puts the settled file bytes into that tree, and fast-forwards to
+a merge commit of exactly that tree. No checkout's hooks, filters, signing
+programs or merge drivers run. If main moved, a settled file still has
+markers, or the clashes differ, it changes nothing and asks for a fresh preview.
 
 It merges the commit as its id names it: git's replacement objects and
 grafts (`refs/replace/`, `.git/info/grafts`) can have git read a different,
@@ -135,7 +134,7 @@ prepared folder (git older than 2.40, which the preview needs), check
 isn't there, then merge with both off:
 
 ```sh
-GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null git -c core.commitGraph=false merge --no-ff -m "Bring in Mike's release <date>" <commit>
+node runner/scripts/deploy-git.mjs . merge --no-ff -m "Bring in Mike's release <date>" <commit>
 ```
 
 Always a merge, never a rebase or a cherry-pick: Mike's commits have to
@@ -167,8 +166,11 @@ release's commit as its id names it (stop if `git for-each-ref
 refs/replace/` prints anything or `.git/info/grafts` is there: section 4):
 
 ```sh
-git --no-replace-objects -c core.commitGraph=false show <commit>:runner/src/format-replay.ts > "${TMPDIR:-/tmp}/format-replay.ts"
-node "${TMPDIR:-/tmp}/format-replay.ts" --merge <commit> -m "Bring in Mike's release <date>"
+replay_dir=$(mktemp -d "${TMPDIR:-/tmp}/tb-format.XXXXXX")
+for file in format-replay.ts safe-git.ts platform.ts; do
+  git --no-replace-objects -c core.commitGraph=false -c log.showSignature=false show --no-ext-diff --no-textconv "<commit>:runner/src/$file" > "$replay_dir/$file"
+done
+node "$replay_dir/format-replay.ts" --merge <commit> -m "Bring in Mike's release <date>"
 ```
 
 Your own branches made before it then land across it by themselves:

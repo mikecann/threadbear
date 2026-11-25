@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { pointCurrent, readCurrentLink, readState, releaseExists, runnerJsonBroken, writeState } from '../launch.mjs';
 import { connectRpc } from './rpc-client.mjs';
+import { git, gitResult, refuseSubstitutes, snapshotCommit, snapshotDigest, RELEASE_PATHS } from './deploy-git.mjs';
 import { endTask, restartCommandText, schtasks, taskArgs, taskExists, taskName } from './windows-task.mjs';
 import { ChecksUnavailable, Fail, SLEPT_EXIT, SleptThrough, UNAVAILABLE_EXIT, checkHostsFrom, checkSlept, nodeBeforeLaunch, packagesInstalled, remoteChecks, sleepCount, smokeHello, smokeTimedOut, step, unitTests } from './deploy-steps.mjs';
 // THREADBARE_* was the old name for these variables (config.ts, adoptOldNames).
@@ -77,7 +78,6 @@ const LINUX = process.platform === 'linux';
 // stands in for the plist here.
 const WINDOWS = process.platform === 'win32';
 // What a release holds from runner/, besides node_modules and release.json.
-const RELEASE_PATHS = ['src', 'bin', 'package.json', 'package-lock.json', '.npmrc'];
 const KEEP_RELEASES = 5;
 const HEALTH_MS = 30_000;
 // How long a release that came up has to stay up before the deploy says so
@@ -715,26 +715,21 @@ function alive(pid) {
   }
 }
 
-function git(cwd, args, opts = {}) {
-  const r = spawnSync('git', ['-C', cwd, ...args], { encoding: opts.encoding ?? 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (r.status !== 0) throw new Fail(`git ${args.join(' ')} failed: ${String(r.stderr).trim()}`);
-  return opts.encoding === 'buffer' ? r.stdout : r.stdout.trim();
-}
-
 function gitInfo(c) {
+  refuseSubstitutes(c.runnerDir);
   const root = git(c.runnerDir, ['rev-parse', '--show-toplevel']);
   // Only files that end up in the release count as uncommitted changes:
   // tests, scripts and docs don't change what runs (and a worktree's
   // node_modules symlink shows up as untracked).
   const changes = git(c.runnerDir, ['status', '--porcelain', '--untracked-files=all', '--', ...RELEASE_PATHS]);
-  const main = spawnSync('git', ['-C', c.runnerDir, 'rev-parse', '--verify', '-q', 'refs/heads/main'], { encoding: 'utf8' });
+  const main = gitResult(c.runnerDir, ['rev-parse', '--verify', '-q', 'refs/heads/main']);
   return {
     root,
     prefix: git(c.runnerDir, ['rev-parse', '--show-prefix']),
     commit: git(c.runnerDir, ['rev-parse', 'HEAD']),
     short: git(c.runnerDir, ['rev-parse', '--short', 'HEAD']),
     branch: git(c.runnerDir, ['rev-parse', '--abbrev-ref', 'HEAD']),
-    main: main.status === 0 ? main.stdout.trim() : null,
+    main: main.ok ? main.stdout.trim() : null,
     changes: changes ? changes.split('\n') : [],
   };
 }
@@ -746,7 +741,7 @@ function branchProblem(c, g) {
   if (g.main === g.commit) return null;
   const where = `HEAD (${g.short}, ${g.branch === 'HEAD' ? 'no branch' : `branch ${g.branch}`})`;
   if (!g.main) return `${where} can't be compared with main: there's no main branch in this checkout.`;
-  const ancestor = (a, b) => spawnSync('git', ['-C', c.runnerDir, 'merge-base', '--is-ancestor', a, b]).status === 0;
+  const ancestor = (a, b) => gitResult(c.runnerDir, ['merge-base', '--is-ancestor', a, b]).ok;
   if (ancestor(g.commit, g.main)) return `${where} is behind main, so this release would take out work that's already merged.`;
   if (ancestor(g.main, g.commit)) return `${where} has commits that aren't on main; the next deploy from main would drop them again.`;
   return `${where} and main have each moved on; this release would ship unmerged work and leave out some of main.`;
@@ -756,8 +751,8 @@ function branchProblem(c, g) {
 // src/update.ts computes the same for main, so a commit that only touches
 // tests, scripts or docs isn't an update.
 function releaseTree(g) {
-  const r = spawnSync('git', ['-C', g.root, 'ls-tree', 'HEAD', '--', ...RELEASE_PATHS.map((p) => g.prefix + p)], { encoding: 'utf8' });
-  if (r.status !== 0) return undefined;
+  const r = gitResult(g.root, ['ls-tree', g.commit, '--', ...RELEASE_PATHS.map((p) => g.prefix + p)]);
+  if (!r.ok) return undefined;
   const hashes = r.stdout.split('\n').filter(Boolean).map((line) => line.split(/\s+/)[2]);
   return hashes.length ? hashes.join('+') : undefined;
 }
@@ -802,18 +797,7 @@ function checks(c, g) {
 }
 
 function snapshotHead(c, g, dest) {
-  const wanted = RELEASE_PATHS.map((p) => g.prefix + p);
-  // Only paths HEAD has, or git archive refuses the whole lot.
-  const present = git(g.root, ['ls-tree', '--name-only', 'HEAD', '--', ...wanted]).split('\n').filter(Boolean);
-  const tar = path.join(dest, '.snapshot.tar');
-  git(g.root, ['archive', '--format=tar', `--output=${tar}`, 'HEAD', '--', ...present]);
-  const strip = g.prefix.split('/').filter(Boolean).length;
-  // Windows' own bsdtar by its full path: a GNU tar on the PATH (Git's)
-  // reads C:\ as a remote host.
-  const tarBin = WINDOWS ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
-  const r = spawnSync(tarBin, ['-xf', tar, '-C', dest, '--strip-components', String(strip)], { encoding: 'utf8' });
-  fs.rmSync(tar, { force: true });
-  if (r.status !== 0) throw new Fail(`Couldn't unpack the snapshot: ${r.stderr.trim()}`);
+  return snapshotCommit(g.root, g.prefix, g.commit, dest, RELEASE_PATHS);
 }
 
 // --allow-dirty: the files as they are, tracked or new (ignored ones and
@@ -874,17 +858,21 @@ function build(c, id, g, dirty) {
   fs.mkdirSync(tmp);
   cleanups.push(drop);
   say(`Building ${id} from ${dirty ? 'the working tree (uncommitted changes)' : `${g.short} (HEAD)`}...`);
+  let snapshotSha256;
   if (dirty) snapshotWorkingTree(c, tmp);
-  else snapshotHead(c, g, tmp);
+  else snapshotSha256 = snapshotHead(c, g, tmp);
   if (!fs.existsSync(path.join(tmp, 'src', 'main.ts'))) throw new Fail(`The snapshot has no src/main.ts; is ${c.runnerDir} the runner?`);
   installPackages(c, tmp);
+  const actualDigest = snapshotDigest(tmp, RELEASE_PATHS);
+  if (snapshotSha256 && actualDigest !== snapshotSha256) throw new Fail('The installed snapshot differs from the verified commit blobs.');
+  snapshotSha256 = actualDigest;
   // checkout, prefix and tree are for the runner following main by itself
   // (src/update.ts); a dirty build has no tree, since its files aren't HEAD's.
   const tree = dirty ? undefined : releaseTree(g);
   fs.writeFileSync(
     path.join(tmp, 'release.json'),
     JSON.stringify(
-      { id, commit: g.commit, branch: g.branch, dirty, builtAt: new Date().toISOString(), node: process.versions.node, checkout: c.follow ?? g.root, prefix: g.prefix, ...(tree ? { tree } : {}) },
+      { id, snapshotSha256, commit: g.commit, branch: g.branch, dirty, builtAt: new Date().toISOString(), node: process.versions.node, checkout: c.follow ?? g.root, prefix: g.prefix, ...(tree ? { tree } : {}) },
       null,
       2,
     ) + '\n',

@@ -174,6 +174,10 @@ test("untrustedGit never looks inside a submodule, whatever the repo's config sa
     ['ls-files', '-z', '--others'],
     ['read-tree', 'HEAD'],
     ['reset', '--quiet'],
+    ['rebase', 'HEAD'],
+    ['merge', 'HEAD'],
+    ['commit', '--allow-empty', '-m', 'probe'],
+    ['cherry-pick', 'HEAD'],
   ];
   for (const [i, args] of calls.entries()) {
     stale(i + 1);
@@ -214,10 +218,11 @@ test('untrustedGit runs no diff.external, and only the commands it has been look
   const plain = await untrustedGit(repo, ['diff', 'HEAD'], quiet);
   assert.ok(plain.ok && plain.stdout.includes('+b'), 'a plain diff is git\'s own');
   assert.equal(fs.existsSync(marker), false, 'diff');
-  for (const args of [['log', '-p'], ['show', 'HEAD'], ['merge', 'HEAD'], ['stash'], ['worktree', 'add', path.join(root, 'w')], ['submodule', 'status'], []]) {
+  for (const args of [['stash'], ['submodule', 'status'], []]) {
     const out = await untrustedGit(repo, args, quiet);
     assert.equal(out.ok, false, `git ${args.join(' ')} is refused`);
   }
+  for (const args of [['log', '-p'], ['show', 'HEAD'], ['merge', 'HEAD']]) assert.ok((await untrustedGit(repo, args, quiet)).ok);
   assert.ok((await untrustedGit(repo, ['worktree', 'list', '--porcelain'], quiet)).ok);
   assert.equal(fs.existsSync(marker), false);
   assert.throws(() => untrustedGitSync(repo, ['diff']), /listings/);

@@ -15,6 +15,7 @@
 // <home>/secrets/convex-self-hosted.env instead (src/convex-admin.ts). What
 // it last deployed is in <home>/backend.json. Node built-ins only, like
 // deploy.mjs (convex-admin.ts is too).
+import { git, refuseSubstitutes, snapshotCommit } from './deploy-git.mjs';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -45,12 +46,6 @@ const SITE_PATHS = ['web', 'package.json', 'package-lock.json', 'vendor'];
 const EXPORT_PATHS = ['convex', 'convex.json', 'web', 'package.json', 'package-lock.json', '.npmrc', 'vendor'];
 
 const say = (msg) => console.log(msg);
-
-function git(repo, args) {
-  const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (r.status !== 0) throw new Fail(`git ${args.join(' ')} failed: ${String(r.stderr).trim()}`);
-  return r.stdout.trim();
-}
 
 // The object hashes of the paths at the commit, joined: the same idea as a
 // runner release's tree (deploy.mjs releaseTree).
@@ -226,6 +221,7 @@ function main(argv) {
   }
   const state = readJson(stateFile);
   const repo = path.resolve(v.repo ?? git(import.meta.dirname, ['rev-parse', '--show-toplevel']));
+  refuseSubstitutes(repo);
   const commit = git(repo, ['rev-parse', v.commit ?? 'HEAD']);
   const short = commit.slice(0, 7);
   const want = { functions: treeOf(repo, commit, FUNCTION_PATHS), site: treeOf(repo, commit, SITE_PATHS) };
@@ -288,15 +284,7 @@ function main(argv) {
   const exportAt = (rev) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'threadbear-backend-'));
     process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
-    // Only the paths that commit has: git archive fails on a missing one, and an
-    // older commit (or a fork) may have no .npmrc (cross-lab review, 10 Nov 2026).
-    const present = spawnSync('git', ['-C', repo, 'ls-tree', '--name-only', rev, '--', ...EXPORT_PATHS], { encoding: 'utf8' });
-    if (present.status !== 0) throw new Fail(`git ls-tree failed: ${String(present.stderr).trim()}`);
-    const paths = present.stdout.split('\n').filter(Boolean);
-    const archive = spawnSync('git', ['-C', repo, 'archive', '--format=tar', rev, '--', ...paths], { maxBuffer: 512 * 1024 * 1024 });
-    if (archive.status !== 0) throw new Fail(`git archive failed: ${String(archive.stderr).trim()}`);
-    const untar = spawnSync('tar', ['-x', '-C', dir], { input: archive.stdout });
-    if (untar.status !== 0) throw new Fail(`tar failed: ${String(untar.stderr).trim()}`);
+    snapshotCommit(repo, '', rev, dir, EXPORT_PATHS);
     return dir;
   };
   const tmp = exportAt(commit);

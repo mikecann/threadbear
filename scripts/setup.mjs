@@ -71,6 +71,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { checkedUpstream, repoKey } from './checked-upstream.mjs';
+import { gitResult } from '../runner/scripts/deploy-git.mjs';
 import { isJoining, joinSteps, runnerKeyPlan } from './runner-key-plan.mjs';
 import { ADMIN_URL, BACKEND_IMAGE, backendContainer, DASHBOARD_IMAGE, DATA_VOLUME, mustSeeTailnetOff, offTailnetStep, oldAddressStep, origins, OWN_ADDRESSES_FILE, ownAddresses, pinnedImage, PORTS, reachOf, selfHostedPlan, servedOn, tailnetPendingFiles } from './self-hosted-plan.mjs';
 import { ConvexAdminError, convexEnv, readConvexAdmin, SELF_HOSTED_ENV_FILE } from '../runner/src/convex-admin.ts';
@@ -152,6 +153,11 @@ const todo = (s) => say(`  → ${s}`);
 const note = (s) => say(`  · ${s}`);
 
 function run(cmd, args, opts = {}) {
+  if (cmd === 'git') {
+    const r = gitResult(opts.cwd ?? repo, args);
+    if (opts.stdio === 'inherit') { process.stdout.write(r.stdout); process.stderr.write(r.stderr); }
+    return { ...r, status: r.code };
+  }
   return spawnSync(cmd, args, { cwd: repo, encoding: 'utf8', ...opts });
 }
 function runOrFail(what, cmd, args, opts = {}) {
@@ -295,7 +301,10 @@ function yourCopy() {
     if (login === 'mikecann') ok("this is Mike's own repo");
     else if (dry) todo(login ? `gh repo fork --remote: fork it to ${login}'s GitHub, origin becomes the fork and upstream Mike's` : "git remote rename origin upstream (no GitHub login, so no fork)");
     else if (login) {
-      runOrFail('Forking the repo', 'gh', ['repo', 'fork', '--remote', '--remote-name', 'origin']);
+      // gh must not mutate this checkout's refs through its own raw Git.
+      runOrFail('Forking the repo', 'gh', ['repo', 'fork', MIKES_REPO, '--remote=false', '--clone=false'], { cwd: os.tmpdir() });
+      runOrFail('Renaming origin to upstream', 'git', ['remote', 'rename', 'origin', 'upstream']);
+      runOrFail('Adding the fork as origin', 'git', ['remote', 'add', 'origin', `https://github.com/${login}/threadbear.git`]);
       ok(`forked to ${login}'s GitHub as origin; Mike's repo is upstream`);
     } else {
       runOrFail('Renaming origin to upstream', 'git', ['remote', 'rename', 'origin', 'upstream']);

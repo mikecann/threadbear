@@ -491,7 +491,7 @@ export async function releaseGitConfig(cwd: string, env: NodeJS.ProcessEnv, opts
     const redirect = entries.find((e) => !TRUSTED_SCOPES.has(e.scope) && (/^(url|http)\./.test(e.key) || /^remote\.[\s\S]*:[\s\S]*\.[^.]+$/.test(e.key)));
     if (redirect) throw new Error(`this checkout's own git config changes where or how git reaches a remote (${JSON.stringify(redirect.key.slice(0, 80))}), so release git won't reach one from it; remove that setting`);
   }
-  const out = [...repoProofConfig(entries, opts.network === 'remote' ? 'remote' : opts.network === 'local' ? 'bundle' : undefined), ...RELEASE_CONFIG];
+  const out = [...repoProofConfig(entries, opts.network === 'remote' ? 'remote' : opts.network === 'local' ? 'bundle' : undefined, opts.files === true), ...RELEASE_CONFIG];
   // repoProofConfig lets a remote be a folder too (a thread's move needs
   // that); a release's never is.
   if (opts.network === 'remote' && !opts.files) out.push('-c', 'protocol.file.allow=never');

@@ -1,5 +1,21 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { noHooksPath } from './platform.ts';
+import os from 'node:os';
+import fs from 'node:fs';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+
+// Standalone Windows setup does not inherit main.ts's executable-search
+// guard. Resolve Git from absolute PATH entries, never the working folder.
+export function gitProgram(): string {
+  if (process.platform !== 'win32') return 'git';
+  for (const dir of (process.env.PATH ?? process.env.Path ?? '').split(path.delimiter)) {
+    if (!path.isAbsolute(dir)) continue;
+    const file = path.join(dir, 'git.exe');
+    try { if (fs.statSync(file).isFile()) return file; } catch { /* Try the next PATH entry. */ }
+  }
+  throw new Error('Git for Windows is not on the absolute PATH. Install it before continuing.');
+}
 
 // git in a folder Threadbear hasn't trusted, or whose .git it didn't make.
 // A folder from a zip, a tarball or a shared drive can carry its own
@@ -50,7 +66,7 @@ export const LISTING_GIT_CONFIG: readonly string[] = [...UNTRUSTED_GIT_CONFIG, .
 export function untrustedGitSync(dir: string, args: readonly string[]): string {
   // Only listings: nothing here switches filters off (ls-files never runs one).
   if (!LISTINGS.has(args[0] ?? '')) throw new Error(`untrustedGitSync is for listings, not git ${args[0]}`);
-  return execFileSync('git', [...LISTING_GIT_CONFIG, '-C', dir, ...args], {
+  return execFileSync(gitProgram(), [...LISTING_GIT_CONFIG, '-C', dir, ...args], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
     timeout: 10_000,
@@ -103,12 +119,13 @@ export type UntrustedGitOptions = {
   // For the whole call, reading the repo's config included.
   timeoutMs?: number;
   bytes?: boolean;
+  input?: string | Buffer;
 };
 
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -156,8 +173,9 @@ export function settable(key: string): string {
 }
 
 // The -c settings for `entries` (a repo's config as git reads it): see above.
-export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote'): string[] {
+export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote', filesForTests = false): string[] {
   const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', `core.hooksPath=${noHooksPath()}`, ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
+  for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^includeif\./i.test(e.key)) throw new Error('This repo has conditional git includes. Move them to your global git config before Threadbear changes worktrees.');
   const drivers = new Set<string>();
   const hooks = new Set<string>();
   const allowed = network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [];
@@ -168,6 +186,11 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     // (Gemini's review of Daybreak 179, as for hooks below).
     const p = /^protocol\.([\s\S]*)\.allow$/.exec(e.key);
     if (p && !allowed.includes(p[1]!) && !PROTOCOL_NAMES.includes(p[1]!)) out.push('-c', `${settable(e.key)}=never`);
+    const sub = /^submodule\.([\s\S]*)\.[^.]+$/.exec(e.key);
+    if (sub) out.push('-c', `${settable(`submodule.${sub[1]}.ignore`)}=all`);
+    const m = /^merge\.([\s\S]*)\.driver$/.exec(e.key);
+    if (m) out.push('-c', `${settable(e.key)}=git merge-file --marker-size=%L -- %A %O %B`);
+    if (network === 'remote' && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && /^(url\.|http\.)/.test(e.key)) throw new Error(`This repo's transport config (${e.key}) must move to your global git config before Threadbear can fetch or push.`);
     const f = /^filter\.([\s\S]*)\.[^.]+$/.exec(e.key);
     if (f) drivers.add(`filter.${f[1]}`);
     const d = /^diff\.([\s\S]*)\.(command|textconv)$/.exec(e.key);
@@ -201,14 +224,15 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   return out;
 }
 
-function execGit(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs: number, bytes = false): Promise<UntrustedGitResult> {
+function execGit(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs: number, bytes = false, input?: string | Buffer): Promise<UntrustedGitResult> {
   return new Promise((resolve) => {
-    execFile('git', args as string[], { cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL', encoding: 'buffer' }, (err, stdout, stderr) => {
+    const child = execFile(gitProgram(), args as string[], { cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL', encoding: 'buffer' }, (err, stdout, stderr) => {
       const e = err as { code?: unknown; signal?: unknown } | null;
       const code = !e ? 0 : typeof e.code === 'number' ? e.code : e.signal ? -1 : 1;
       const out = Buffer.isBuffer(stdout) ? stdout : Buffer.from(String(stdout));
       resolve({ ok: !err, code, stdout: out.toString('utf8'), stderr: String(stderr), ...(bytes ? { bytes: out } : {}) });
     });
+    child.stdin?.end(input);
   });
 }
 
@@ -218,16 +242,21 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
   // An empty GIT_ASKPASS stops git asking any program, core.askPass too.
   // No lazy fetch even for a fetch: a local origin's upload-pack inherits
   // it, and would otherwise fetch what it lacks through its own config.
-  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', ...opts.env };
+  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_EDITOR: ':', GIT_SEQUENCE_EDITOR: ':', ...opts.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: os.devNull, GIT_ATTR_NOSYSTEM: '1' };
   // A clone or fetch of a big repo can take a while.
   const timeout = opts.timeoutMs ?? (opts.network === 'remote' ? 30 * 60_000 : 5 * 60_000);
-  const [sub, ...rest] = args;
-  // Only what the runner's callers run (move-git.ts, runner/moves.ts,
-  // loose-ends.ts), each looked at for what a repo's config could make it
-  // run: a new one is added here once it has been (Muse's review, 11 Nov
-  // 2026: log, show, merge, stash and the like reach submodules or diff
-  // programs these settings don't cover).
-  if (!sub || !SUBCOMMANDS.has(sub) || (sub === 'worktree' && rest[0] !== 'list')) return { ok: false, code: 1, stdout: '', stderr: `untrustedGit doesn't run git ${[sub, sub === 'worktree' ? rest[0] : undefined].filter(Boolean).join(' ')}: nobody has looked at what a repo's config could make it run.` };
+  const extra: string[] = [];
+  let at = 0;
+  while (at < args.length) {
+    if (args[at] === '-c' && args[at + 1]) { extra.push('-c', args[at + 1]!); at += 2; }
+    else if (/^--attr-source=[0-9a-f]{40,64}$/.test(args[at]!) || args[at]!.startsWith('--work-tree=')) extra.push(args[at++]!);
+    else break;
+  }
+  const [sub, ...rest] = args.slice(at);
+  // Commands used by moves, worktrees, format replay and deployment. Each
+  // is covered by the configuration and per-command overrides below. Stash
+  // and submodule commands remain out: they have their own execution paths.
+  if (!sub || !SUBCOMMANDS.has(sub)) return { ok: false, code: 1, stdout: '', stderr: `untrustedGit doesn't run git ${[sub, sub === 'worktree' ? rest[0] : undefined].filter(Boolean).join(' ')}: nobody has looked at what a repo's config could make it run.` };
   // The same variables as the command, so it reads the config the command will.
   const started = Date.now();
   const listed = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...opts.env }, Math.min(10_000, timeout), true);
@@ -240,16 +269,64 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
   } catch (e) {
     return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
   }
-  const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : [];
+  const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network === 'remote' && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
   const inside = NO_SUBMODULES[sub] ?? [];
   // What's left of the caller's time, when it gave one.
   const left = opts.timeoutMs === undefined ? timeout : Math.max(1, timeout - (Date.now() - started));
-  return execGit(dir, [...config, '-C', dir, sub, ...inside, ...pack, ...rest], env, left, opts.bytes);
+  return execGit(dir, [...config, ...extra, '-C', dir, sub, ...inside, ...pack, ...rest], env, left, opts.bytes, opts.input);
+}
+
+function execGitSync(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs: number, bytes = false, input?: string | Buffer): UntrustedGitResult {
+  try {
+    const out = execFileSync(gitProgram(), args as string[], { cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL', input, stdio: ['pipe', 'pipe', 'pipe'] });
+    return { ok: true, code: 0, stdout: out.toString('utf8'), stderr: '', ...(bytes ? { bytes: out } : {}) };
+  } catch (error) {
+    const e = error as { status?: number; stdout?: Buffer; stderr?: Buffer; message?: string };
+    return { ok: false, code: e.status ?? -1, stdout: e.stdout?.toString('utf8') ?? '', stderr: e.stderr?.toString('utf8') || e.message || 'git failed' };
+  }
+}
+
+export function untrustedGitRunSync(dir: string, args: readonly string[], opts: UntrustedGitOptions = {}): UntrustedGitResult {
+  // An empty GIT_ASKPASS stops git asking any program, core.askPass too.
+  // No lazy fetch even for a fetch: a local origin's upload-pack inherits
+  // it, and would otherwise fetch what it lacks through its own config.
+  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_EDITOR: ':', GIT_SEQUENCE_EDITOR: ':', ...opts.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: os.devNull, GIT_ATTR_NOSYSTEM: '1' };
+  // A clone or fetch of a big repo can take a while.
+  const timeout = opts.timeoutMs ?? (opts.network === 'remote' ? 30 * 60_000 : 5 * 60_000);
+  const extra: string[] = [];
+  let at = 0;
+  while (at < args.length) {
+    if (args[at] === '-c' && args[at + 1]) { extra.push('-c', args[at + 1]!); at += 2; }
+    else if (/^--attr-source=[0-9a-f]{40,64}$/.test(args[at]!) || args[at]!.startsWith('--work-tree=')) extra.push(args[at++]!);
+    else break;
+  }
+  const [sub, ...rest] = args.slice(at);
+  // Commands used by moves, worktrees, format replay and deployment. Each
+  // is covered by the configuration and per-command overrides below. Stash
+  // and submodule commands remain out: they have their own execution paths.
+  if (!sub || !SUBCOMMANDS.has(sub)) return { ok: false, code: 1, stdout: '', stderr: `untrustedGit doesn't run git ${[sub, sub === 'worktree' ? rest[0] : undefined].filter(Boolean).join(' ')}: nobody has looked at what a repo's config could make it run.` };
+  // The same variables as the command, so it reads the config the command will.
+  const started = Date.now();
+  const listed = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...opts.env }, Math.min(10_000, timeout), true);
+  // Outside a repo it still lists the owner's own config (empty is 0 too);
+  // a config git can't parse fails the listing, and so this.
+  if (!listed.ok) return { ok: false, code: listed.code || 1, stdout: '', stderr: `couldn't read the repo's git config: ${listed.stderr.trim() || `git config exited ${listed.code}`}` };
+  let config: string[];
+  try {
+    config = repoProofConfig(parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout)), opts.network);
+  } catch (e) {
+    return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
+  }
+  const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network === 'remote' && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
+  const inside = NO_SUBMODULES[sub] ?? [];
+  // What's left of the caller's time, when it gave one.
+  const left = opts.timeoutMs === undefined ? timeout : Math.max(1, timeout - (Date.now() - started));
+  return execGitSync(dir, [...config, ...extra, '-C', dir, sub, ...inside, ...pack, ...rest], env, left, opts.bytes, opts.input);
 }
 
 // What untrustedGit runs. `git submodule` isn't one: it runs git in each
 // submodule with that submodule's own config.
-const SUBCOMMANDS = new Set(['add', 'branch', 'bundle', 'cat-file', 'clone', 'commit-tree', 'diff', 'diff-files', 'diff-index', 'fetch', 'for-each-ref', 'ls-files', 'ls-remote', 'merge-base', 'read-tree', 'remote', 'reset', 'rev-list', 'rev-parse', 'status', 'symbolic-ref', 'update-ref', 'worktree', 'write-tree']);
+const SUBCOMMANDS = new Set(['add', 'checkout', 'checkout-index', 'cherry-pick', 'clean', 'commit', 'config', 'diff-tree', 'hash-object', 'log', 'ls-tree', 'merge', 'merge-tree', 'push', 'rebase', 'reflog', 'show', 'var', 'update-index', 'branch', 'bundle', 'cat-file', 'clone', 'commit-tree', 'diff', 'diff-files', 'diff-index', 'fetch', 'for-each-ref', 'fsck', 'ls-files', 'ls-remote', 'merge-base', 'read-tree', 'remote', 'reset', 'rev-list', 'rev-parse', 'status', 'symbolic-ref', 'update-ref', 'worktree', 'write-tree']);
 
 // A submodule is a repo of its own, with its own config (.git/modules/<name>/
 // config, or a .git inside it), and the settings above only switch off what
@@ -268,12 +345,105 @@ const DIFF: readonly string[] = [...IGNORE, '--no-ext-diff'];
 const NO_RECURSE: readonly string[] = ['--no-recurse-submodules'];
 const NO_SUBMODULES: Record<string, readonly string[]> = {
   status: IGNORE,
+  merge: ['--no-verify-signatures', '--no-gpg-sign'],
+  rebase: ['--no-gpg-sign'],
+  commit: ['--no-gpg-sign'],
+  'cherry-pick': ['--no-gpg-sign'],
+  push: ['--recurse-submodules=no', '--signed=false'],
+  show: ['--no-show-signature', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all'],
+  log: ['--no-show-signature', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all'],
+  'diff-tree': DIFF,
+  checkout: NO_RECURSE,
   diff: DIFF,
   'diff-index': DIFF,
   'diff-files': DIFF,
   fetch: NO_RECURSE,
-  clone: NO_RECURSE,
+  clone: [...NO_RECURSE, '--template='],
   reset: NO_RECURSE,
   'read-tree': NO_RECURSE,
   'ls-files': NO_RECURSE,
 };
+
+// Verify only the snapshots about to be read, in bounded batches. Merge
+// verification also checks ancestor commit headers and merge-base snapshots,
+// without hashing every historical version of every file.
+function* objectChecks(roots: readonly string[], history: boolean): Generator<string[], void, UntrustedGitResult> {
+  const ids: string[] = [];
+  for (const root of roots) {
+    const r = yield ['rev-parse', '--verify', '--end-of-options', `${root}^{commit}`];
+    if (!r.ok || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(r.stdout.trim())) throw new Error('Cannot resolve the release commit for object verification.');
+    ids.push(r.stdout.trim());
+  }
+  const snapshots = [...ids];
+  if (history && ids.length > 1) {
+    const r = yield ['merge-base', '--all', ...ids];
+    if (!r.ok) throw new Error('Cannot verify the merge bases.');
+    snapshots.push(...r.stdout.trim().split('\n').filter(Boolean));
+  }
+  let commits = ids;
+  if (history) {
+    const r = yield ['rev-list', ...ids];
+    if (!r.ok) throw new Error('Cannot list the release history for verification.');
+    commits = r.stdout.trim().split('\n').filter(Boolean);
+  }
+  const r = yield ['rev-list', '--objects', '--no-object-names', '--no-walk', ...snapshots];
+  if (!r.ok) throw new Error('Cannot list the release snapshot for verification.');
+  const objects = [...new Set([...commits, ...r.stdout.trim().split('\n').filter(Boolean)])];
+  if (objects.length > 200_000 || objects.some((id) => !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(id))) throw new Error('The release object list is invalid or too large.');
+  const verified = new Map<string, string>();
+  const refs: { id: string; type: string }[] = [];
+  const treesNeeded = new Set(snapshots);
+  for (let at = 0; at < objects.length; at += 32) {
+    const batch = objects.slice(at, at + 32);
+    const r = yield ['cat-file', '--batch', batch.join('\n') + '\n'];
+    if (!r.ok || !r.bytes) throw new Error('Cannot read the release objects for verification.');
+    const bytes = r.bytes; let pos = 0;
+    for (const expected of batch) {
+      const nl = bytes.indexOf(10, pos);
+      const header = bytes.subarray(pos, nl).toString('ascii');
+      const m = /^([0-9a-f]+) (commit|tree|blob|tag) (\d+)$/.exec(header);
+      if (nl < pos || !m || m[1] !== expected) throw new Error('Malformed release object batch.');
+      const size = Number(m[3]), end = nl + 1 + size;
+      if (!Number.isSafeInteger(size) || end >= bytes.length || bytes[end] !== 10) throw new Error('Truncated release object batch.');
+      const data = bytes.subarray(nl + 1, end); pos = end + 1;
+      const got = createHash(expected.length === 40 ? 'sha1' : 'sha256').update(`${m[2]} ${size}\0`).update(data).digest('hex');
+      if (got !== expected) throw new Error(`The release object ${expected} does not hash to its ID.`);
+      verified.set(expected, m[2]!);
+      if (m[2] === 'commit') {
+        const head = data.toString('utf8').split('\n\n', 1)[0]!;
+        const tree = /^tree ([0-9a-f]+)$/m.exec(head)?.[1];
+        if (!tree) throw new Error('A release commit has no tree.');
+        if (treesNeeded.has(expected)) refs.push({ id: tree, type: 'tree' });
+        if (history) for (const parent of head.matchAll(/^parent ([0-9a-f]+)$/gm)) refs.push({ id: parent[1]!, type: 'commit' });
+      } else if (m[2] === 'tree') {
+        let i = 0;
+        while (i < data.length) {
+          const space = data.indexOf(32, i), nul = data.indexOf(0, space + 1), next = nul + 1 + expected.length / 2;
+          if (space < i || nul < space || next > data.length) throw new Error('Malformed release tree.');
+          const mode = data.subarray(i, space).toString('ascii');
+          if (mode !== '160000') refs.push({ id: data.subarray(nul + 1, next).toString('hex'), type: mode === '40000' || mode === '040000' ? 'tree' : 'blob' });
+          i = next;
+        }
+      }
+    }
+    if (pos !== bytes.length) throw new Error('Extra bytes in release object batch.');
+  }
+  for (const ref of refs) if (verified.get(ref.id) !== ref.type) throw new Error(`A release ${ref.type} object was not verified: ${ref.id}`);
+}
+
+export async function verifyGitObjects(dir: string, roots: readonly string[] = ['HEAD'], history = false): Promise<void> {
+  const checks = objectChecks(roots, history);
+  let step = checks.next();
+  while (!step.done) {
+    const args = step.value, input = args[0] === 'cat-file' ? args.pop() : undefined;
+    step = checks.next(await untrustedGit(dir, args, { input, bytes: true }));
+  }
+}
+export function verifyGitObjectsSync(dir: string, roots: readonly string[] = ['HEAD'], history = false): void {
+  const checks = objectChecks(roots, history);
+  let step = checks.next();
+  while (!step.done) {
+    const args = step.value, input = args[0] === 'cat-file' ? args.pop() : undefined;
+    step = checks.next(untrustedGitRunSync(dir, args, { input, bytes: true }));
+  }
+}
