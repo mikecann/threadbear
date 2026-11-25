@@ -92,3 +92,18 @@ test("no remote of Mike's runs them", (t) => {
   assert.equal(r.checked, false);
   assert.match(r.why, /no remote is Mike's/);
 });
+
+test('multiple remote URLs cannot make a local repository look like the checked upstream', (t) => {
+  const { work } = setup(t);
+  git(work, 'remote', 'set-url', 'origin', '.');
+  git(work, 'config', '--add', 'remote.origin.url', 'https://github.com/mikecann/threadbear.git');
+  assert.equal(checkedUpstream({ repo: work, mikesRepo: 'https://github.com/mikecann/threadbear.git' }).checked, false);
+});
+
+test('a scheme-less local path spelling GitHub is not a checked network upstream', (t) => {
+  const { work } = setup(t);
+  const fake = path.join(work, 'github.com/mikecann/threadbear.git'); fs.mkdirSync(path.dirname(fake), { recursive: true });
+  git(work, 'init', '-q', '--bare', '-b', 'main', fake); git(work, 'push', '-q', fake, 'main');
+  git(work, 'remote', 'set-url', 'origin', 'github.com/mikecann/threadbear.git');
+  assert.equal(checkedUpstream({ repo: work, mikesRepo: 'https://github.com/mikecann/threadbear.git' }).checked, false);
+});

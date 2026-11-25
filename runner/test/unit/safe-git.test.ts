@@ -184,6 +184,12 @@ test("untrustedGit never looks inside a submodule, whatever the repo's config sa
     await untrustedGit(repo, args, { env: { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
     assert.equal(ran(), false, `${args.join(' ')} ran the submodule's filter`);
   }
+  await untrustedGit(repo, ['cherry-pick', '--abort']);
+  g(repo, 'config', '--remove-section', 'submodule.vendor');
+  g(repo, 'config', '--file', '.gitmodules', 'submodule.vendor.ignore', 'none');
+  stale(30);
+  await untrustedGit(repo, ['cherry-pick', 'HEAD']);
+  assert.equal(ran(), false, 'a name declared only in .gitmodules stays out too');
   // git submodule is git in each submodule, by design: refused outright.
   const r = await untrustedGit(repo, ['submodule', 'foreach', `${payload} </dev/null`]);
   assert.equal(r.ok, false);

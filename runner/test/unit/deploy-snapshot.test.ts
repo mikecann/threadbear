@@ -83,3 +83,24 @@ test('installer reuse requires clean metadata and a digest matching the original
   write({}); fs.writeFileSync(path.join(dest, 'src/main.ts'), 'changed');
   assert.equal(api.releaseMatches(path.join(repo, 'runner'), dest, commit), false);
 });
+
+test('snapshot validation refuses a case alias of a symlink before any destination writes', () => {
+  const { root, repo, g } = fixture(); const outside = path.join(root, 'outside'); fs.mkdirSync(outside);
+  const blob = (text: string) => execFileSync('git', ['-C', repo, 'hash-object', '-w', '--stdin'], { input: text, encoding: 'utf8' }).trim();
+  const tree = (text: string) => execFileSync('git', ['-C', repo, 'mktree'], { input: text, encoding: 'utf8' }).trim();
+  const payload = blob('payload\n'), link = blob(outside);
+  const nested = tree(`100644 blob ${payload}\tmarker\n`);
+  const src = tree(`120000 blob ${link}\tA\n040000 tree ${nested}\ta\n`);
+  const runner = tree(`040000 tree ${src}\tsrc\n`), top = tree(`040000 tree ${runner}\trunner\n`);
+  const commit = g('commit-tree', top, '-m', 'case collision'); const dest = path.join(root, 'snapshot'); fs.mkdirSync(dest);
+  assert.throws(() => api.snapshotCommit(repo, 'runner/', commit, dest, ['src']), /Colliding release paths/);
+  assert.deepEqual(fs.readdirSync(dest), []); assert.deepEqual(fs.readdirSync(outside), []);
+});
+
+test('installers copy the launch module from verified commit blobs rather than dirty files', () => {
+  const { root, repo, g } = fixture();
+  fs.writeFileSync(path.join(repo, 'runner/launch.mjs'), 'export const original = true;\n'); g('add', '.'); g('commit', '-qm', 'launcher');
+  fs.writeFileSync(path.join(repo, 'runner/launch.mjs'), 'throw new Error("dirty");\n');
+  const to = path.join(root, 'installed.mjs'); api.copyVerifiedLauncher(path.join(repo, 'runner'), to);
+  assert.equal(fs.readFileSync(to, 'utf8'), 'export const original = true;\n');
+});

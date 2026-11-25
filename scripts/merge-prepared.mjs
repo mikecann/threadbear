@@ -16,7 +16,8 @@ function apply(dir, msg) {
   if (main.ok && !gitResult(top, ['merge-base', '--is-ancestor', main.stdout.trim(), base]).ok) throw new Error('main has moved on since the preview: run the preview again.');
   const head = git(top, ['rev-parse', 'HEAD']);
   if (!gitResult(top, ['merge-base', '--is-ancestor', head, base]).ok) throw new Error("This branch is not where the preview had main: run the preview again.");
-  const clashes = read('clashes').split('\n').filter(Boolean);
+  const clashes = fs.existsSync(path.join(dir, 'clashes.json')) ? JSON.parse(read('clashes.json')) : read('clashes').split('\n').filter(Boolean);
+  if (!Array.isArray(clashes) || clashes.some((f) => typeof f !== 'string')) throw new Error('Invalid preview clashes.');
   const settled = new Map();
   for (const f of clashes) {
     if (path.isAbsolute(f) || f.includes('\\') || f.split('/').some((p) => !p || p === '.' || p === '..')) throw new Error(`Unsafe clashing path: ${f}`);
@@ -42,7 +43,7 @@ function apply(dir, msg) {
     const empty = b(['hash-object', '-w', '-t', 'tree', '--stdin'], '').toString().trim();
     const merged = b([`--attr-source=${empty}`, 'merge-tree', '--write-tree', '--name-only', '-z', base, commit], undefined, [0, 1]).toString('utf8').split('\0');
     const tree = merged.shift().trim();
-    if (fs.existsSync(path.join(dir, 'tree')) && read('tree') !== tree) throw new Error('The isolated tree differs from the preview: run the preview again.');
+    if (!fs.existsSync(path.join(dir, 'tree')) || read('tree') !== tree) throw new Error('The isolated tree differs from the preview: run the preview again.');
     const actual = [];
     for (const f of merged) { if (!f) break; actual.push(f); }
     if (JSON.stringify([...actual].sort()) !== JSON.stringify([...clashes].sort())) throw new Error('The isolated merge has different clashes: run the preview again.');

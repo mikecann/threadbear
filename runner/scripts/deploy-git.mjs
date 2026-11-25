@@ -145,6 +145,37 @@ export function snapshotCommit(root, prefix, commit, dest, releasePaths) {
   return wanted;
 }
 
+export function savePreview(dir, bare, base, commit, empty) {
+  const run = (args) => {
+    const r = isolatedGit(path.dirname(bare), ['-C', bare, `--attr-source=${empty}`, ...args]);
+    if (r.status !== 0 && r.status !== 1) throw new Error(String(r.stderr));
+    return r;
+  };
+  const out = run(['merge-tree', '--write-tree', '--name-only', '-z', base, commit]);
+  const parts = out.stdout.toString('utf8').split('\0'); const tree = parts.shift().trim();
+  const clashes = []; for (const f of parts) { if (!f) break; clashes.push(f); }
+  fs.writeFileSync(path.join(dir, 'tree'), tree + '\n');
+  fs.writeFileSync(path.join(dir, 'clashes.json'), JSON.stringify(clashes));
+  fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
+  for (const f of clashes) {
+    validatePaths([[f]]);
+    const blob = run(['cat-file', 'blob', `${tree}:${f}`]);
+    if (blob.status !== 0) continue;
+    parents(path.join(dir, 'files'), f);
+    fs.writeFileSync(path.join(dir, 'files', f), blob.stdout, { flag: 'wx', mode: 0o600 });
+  }
+}
+
+export function copyVerifiedLauncher(runner, dest) {
+  const root = git(runner, ['rev-parse', '--show-toplevel']);
+  const prefix = git(runner, ['rev-parse', '--show-prefix']);
+  const commit = git(runner, ['rev-parse', '--verify', 'HEAD^{commit}']);
+  const rows = sourceEntries(root, prefix, commit, ['launch.mjs']);
+  if (rows.length !== 1 || rows[0][1] === '120000') throw new Error('The release launcher must be one committed regular file.');
+  const temp = `${dest}.${process.pid}-${crypto.randomUUID()}.tmp`;
+  try { fs.writeFileSync(temp, rows[0][2], { flag: 'wx', mode: 0o600 }); fs.renameSync(temp, dest); } finally { fs.rmSync(temp, { force: true }); }
+}
+
 export const RELEASE_PATHS = ['src', 'bin', 'package.json', 'package-lock.json', '.npmrc'];
 
 export function releaseMatches(runner, release, commit) {
@@ -161,6 +192,8 @@ export function releaseMatches(runner, release, commit) {
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   if (process.argv[2] === '--verify-objects') { try { verifyRepositoryObjects(process.argv[3], process.argv.slice(4).length ? process.argv.slice(4) : ['HEAD'], process.argv.slice(4).length > 1); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
   if (process.argv[2] === '--isolated') { const r = isolatedGit(process.argv[3], process.argv.slice(4)); process.stdout.write(r.stdout ?? ''); process.stderr.write(r.stderr ?? ''); process.exit(r.status ?? 1); }
+  if (process.argv[2] === '--save-preview') { try { savePreview(...process.argv.slice(3)); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
+  if (process.argv[2] === '--copy-launcher') { try { copyVerifiedLauncher(process.argv[3], process.argv[4]); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
   if (process.argv[2] === '--matches-release') process.exit(releaseMatches(process.argv[3], process.argv[4], process.argv[5]) ? 0 : 1);
   const r = gitResult(process.argv[2], process.argv.slice(3));
   process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exitCode = r.code < 0 ? 1 : r.code;

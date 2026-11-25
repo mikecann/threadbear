@@ -186,6 +186,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     // (Gemini's review of Daybreak 179, as for hooks below).
     const p = /^protocol\.([\s\S]*)\.allow$/.exec(e.key);
     if (p && !allowed.includes(p[1]!) && !PROTOCOL_NAMES.includes(p[1]!)) out.push('-c', `${settable(e.key)}=never`);
+    if (/^branch\.[\s\S]*\.mergeoptions$/.test(e.key)) out.push('-c', `${settable(e.key)}=`);
     const sub = /^submodule\.([\s\S]*)\.[^.]+$/.exec(e.key);
     if (sub) out.push('-c', `${settable(`submodule.${sub[1]}.ignore`)}=all`);
     const m = /^merge\.([\s\S]*)\.driver$/.exec(e.key);
@@ -222,6 +223,21 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     }
   }
   return out;
+}
+
+function modulesFile(root: string): string | undefined {
+  const file = path.join(root, '.gitmodules');
+  try {
+    const st = fs.lstatSync(file);
+    if (!st.isFile() || st.isSymbolicLink() || st.size > 1024 * 1024) throw new Error('This repository has an unsafe .gitmodules file.');
+    return file;
+  } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw e; }
+}
+function moduleEntries(data: Buffer): ConfigEntry[] {
+  return UTF8.decode(data).split('\0').filter(Boolean).map((part) => {
+    const n = part.indexOf('\n');
+    return { scope: 'local', key: n < 0 ? part : part.slice(0, n), value: n < 0 ? '' : part.slice(n + 1) };
+  });
 }
 
 function execGit(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs: number, bytes = false, input?: string | Buffer): Promise<UntrustedGitResult> {
@@ -265,12 +281,23 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
   if (!listed.ok) return { ok: false, code: listed.code || 1, stdout: '', stderr: `couldn't read the repo's git config: ${listed.stderr.trim() || `git config exited ${listed.code}`}` };
   let config: string[];
   try {
-    config = repoProofConfig(parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout)), opts.network);
+    const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
+    if (['merge', 'rebase', 'commit', 'cherry-pick'].includes(sub)) {
+      const root = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
+      const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
+      if (modules) {
+        const m = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--file', modules, '--list', '-z'], env, Math.min(10_000, timeout), true);
+        if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
+        entries.push(...moduleEntries(m.bytes));
+      }
+    }
+    config = repoProofConfig(entries, opts.network);
   } catch (e) {
     return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
   }
   const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network === 'remote' && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
-  const inside = NO_SUBMODULES[sub] ?? [];
+  const control = ['merge', 'rebase', 'cherry-pick'].includes(sub) && rest.some((a) => ['--abort', '--quit', '--continue', '--skip', '--edit-todo', '--show-current-patch'].includes(a));
+  const inside = control ? [] : (NO_SUBMODULES[sub] ?? []);
   // What's left of the caller's time, when it gave one.
   const left = opts.timeoutMs === undefined ? timeout : Math.max(1, timeout - (Date.now() - started));
   return execGit(dir, [...config, ...extra, '-C', dir, sub, ...inside, ...pack, ...rest], env, left, opts.bytes, opts.input);
@@ -313,12 +340,23 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
   if (!listed.ok) return { ok: false, code: listed.code || 1, stdout: '', stderr: `couldn't read the repo's git config: ${listed.stderr.trim() || `git config exited ${listed.code}`}` };
   let config: string[];
   try {
-    config = repoProofConfig(parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout)), opts.network);
+    const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
+    if (['merge', 'rebase', 'commit', 'cherry-pick'].includes(sub)) {
+      const root = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
+      const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
+      if (modules) {
+        const m = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--file', modules, '--list', '-z'], env, Math.min(10_000, timeout), true);
+        if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
+        entries.push(...moduleEntries(m.bytes));
+      }
+    }
+    config = repoProofConfig(entries, opts.network);
   } catch (e) {
     return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
   }
   const pack = opts.network === 'remote' && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network === 'remote' && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
-  const inside = NO_SUBMODULES[sub] ?? [];
+  const control = ['merge', 'rebase', 'cherry-pick'].includes(sub) && rest.some((a) => ['--abort', '--quit', '--continue', '--skip', '--edit-todo', '--show-current-patch'].includes(a));
+  const inside = control ? [] : (NO_SUBMODULES[sub] ?? []);
   // What's left of the caller's time, when it gave one.
   const left = opts.timeoutMs === undefined ? timeout : Math.max(1, timeout - (Date.now() - started));
   return execGitSync(dir, [...config, ...extra, '-C', dir, sub, ...inside, ...pack, ...rest], env, left, opts.bytes, opts.input);

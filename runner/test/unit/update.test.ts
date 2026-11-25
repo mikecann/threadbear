@@ -948,9 +948,9 @@ test('followOrigin: a stuck clone does not clear an hours-behind warning', async
 
 test('the follower compares the same release paths deploy.mjs records, or it rebuilds the same commit for ever', async () => {
   const { RELEASE_PATHS } = await import('../../src/update.ts');
-  const deploy = fs.readFileSync(new URL('../../scripts/deploy.mjs', import.meta.url), 'utf8');
+  const deploy = fs.readFileSync(new URL('../../scripts/deploy-git.mjs', import.meta.url), 'utf8');
   const m = deploy.match(/const RELEASE_PATHS = (\[[^\]]*\]);/);
-  assert.ok(m, 'deploy.mjs has RELEASE_PATHS');
+  assert.ok(m, 'deploy-git.mjs has RELEASE_PATHS');
   const recorded = JSON.parse(m[1].replace(/'/g, '"')) as string[];
   assert.deepEqual([...RELEASE_PATHS].sort(), [...recorded].sort());
 });
@@ -1126,7 +1126,7 @@ test("a build's own checks are no more than tb land's: the same steps, command a
   assert.deepEqual(head(run), ['node', './test/helpers/run-test-files.mjs'], "check.sh's run");
   assert.deepEqual(head(pkg.scripts.test), ['node', './test/helpers/run-test-files.mjs'], "package.json's test script");
   const deploySteps = fs.readFileSync(new URL('../../scripts/deploy-steps.mjs', import.meta.url), 'utf8');
-  const deploy = fs.readFileSync(new URL('../../scripts/deploy.mjs', import.meta.url), 'utf8');
+  const deploy = fs.readFileSync(new URL('../../scripts/deploy-git.mjs', import.meta.url), 'utf8');
   assert.match(deploySteps, /step\(name, checkSh, \['--runner'\]/);
   // Off Windows; there it runs less (test-windows.mjs leaves out the files
   // known to fail there), which a landing's full run still covers.

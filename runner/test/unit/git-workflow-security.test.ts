@@ -46,9 +46,11 @@ for (const [label, run] of [['worktree', worktreeGit], ['format', formatGit]] as
     assert.ok((await run(repo, ['checkout', '-q', 'topic'])).ok);
     assert.ok((await run(repo, ['log', '-1', '-p'])).ok);
     assert.ok((await run(repo, ['show', 'HEAD'])).ok);
+    const beforeRebase = g('rev-parse', 'HEAD');
     const rebased = await run(repo, ['rebase', 'main']);
     assert.equal(rebased.ok, false, 'the text conflict stays a conflict');
-    await run(repo, ['rebase', '--abort']);
+    const aborted = await run(repo, ['rebase', '--abort']);
+    assert.ok(aborted.ok, aborted.stderr); assert.equal(g('rev-parse', 'HEAD'), beforeRebase);
     assert.equal(fs.existsSync(marker), false, 'none of the configured programs ran');
     const sibling = path.join(root, 'sibling');
     assert.ok((await run(repo, ['worktree', 'add', '-b', 'other', sibling, 'main'])).ok);
@@ -90,5 +92,19 @@ test('signature-looking objects never invoke repository verification programs du
     assert.ok(merged.ok, merged.stderr);
     assert.equal(fs.existsSync(marker), false);
     g('reset', '--hard', parent);
+  }
+});
+
+test('format replay does not reintroduce inherited executable Git environment overrides', { skip: IS_WINDOWS }, async () => {
+  const { repo, g, hook, marker } = fixture();
+  fs.writeFileSync(path.join(repo, 'b'), 'later\n'); g('add', '.'); g('commit', '-qm', 'later');
+  const oldSequence = process.env.GIT_SEQUENCE_EDITOR, oldEditor = process.env.GIT_EDITOR;
+  try {
+    process.env.GIT_SEQUENCE_EDITOR = hook; process.env.GIT_EDITOR = hook;
+    const r = await formatGit(repo, ['rebase', '-i', 'HEAD~1']);
+    assert.ok(r.ok, r.stderr); assert.equal(fs.existsSync(marker), false);
+  } finally {
+    if (oldSequence === undefined) delete process.env.GIT_SEQUENCE_EDITOR; else process.env.GIT_SEQUENCE_EDITOR = oldSequence;
+    if (oldEditor === undefined) delete process.env.GIT_EDITOR; else process.env.GIT_EDITOR = oldEditor;
   }
 });

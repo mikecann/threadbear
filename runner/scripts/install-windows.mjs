@@ -24,7 +24,7 @@
 // Started from Keith's (platima) install-windows.mjs: the PATH handling and
 // the tb.cmd text are his.
 
-import { gitResult, releaseMatches } from './deploy-git.mjs';
+import { gitResult, releaseMatches, copyVerifiedLauncher } from './deploy-git.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -245,7 +245,7 @@ async function main() {
     const extra = ['--no-restart', ...(v['skip-checks'] ? ['--skip-checks'] : []), ...(v['allow-branch'] ? ['--allow-branch'] : [])];
     if (deploy(home, label, extra) !== 0) return 1;
   }
-  fs.copyFileSync(path.join(RUNNER_DIR, 'launch.mjs'), path.join(dir, 'launch.mjs'));
+  copyVerifiedLauncher(RUNNER_DIR, path.join(dir, 'launch.mjs'));
 
   const xml = path.join(dir, 'task.xml');
   writeXml(xml, taskXml({ node: process.execPath, launch: path.join(dir, 'launch.mjs'), home: home === path.resolve(defaultHome) ? undefined : home, port: v.port, log, user }));

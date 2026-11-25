@@ -29,6 +29,11 @@ test('prepared merge installs exactly the isolated preview despite malicious fil
   g('config', 'filter.evil.clean', `${hook}; cat`); g('config', 'filter.evil.smudge', `${hook}; cat`);
   const dir = path.join(root, 'prepared'); const p = sh(preview, '--prepare', shPath(dir), release);
   assert.equal(p.status, 0, p.stderr); const tree = p.stdout.split('\n')[0];
+  const before = g('rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(dir, 'tree'), '0'.repeat(40) + '\n');
+  const changed = sh(prepared, shPath(dir), '-m', 'Bring it in');
+  assert.notEqual(changed.status, 0); assert.match(changed.stderr, /differs from the preview/); assert.equal(g('rev-parse', 'HEAD'), before);
+  fs.writeFileSync(path.join(dir, 'tree'), tree + '\n');
   const done = sh(prepared, shPath(dir), '-m', 'Bring it in');
   assert.equal(done.status, 0, done.stderr + done.stdout);
   assert.equal(g('rev-parse', 'HEAD^{tree}'), tree);

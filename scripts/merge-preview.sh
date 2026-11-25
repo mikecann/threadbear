@@ -71,7 +71,7 @@ if [ -n "$prepare" ]; then
     exit 2
   fi
   rm -rf "$prepare/files"
-  rm -f "$prepare/clashes"
+  rm -f "$prepare/clashes" "$prepare/clashes.json" "$prepare/tree"
   printf '%s\n' "$base_id" > "$prepare/base"
   printf '%s\n' "$commit_id" > "$prepare/commit"
 fi
@@ -101,17 +101,7 @@ if [ -n "$prepare" ] && [ "$status" -eq 1 ]; then
   mkdir "$prepare/files"
   # The clashing paths: the lines after the tree id, up to the blank line.
   sed -n '2,/^$/p' "$tmp/out" | sed '/^$/d' | sort -u > "$prepare/clashes"
-  while IFS= read -r f; do
-    # Git never stores a path with a . or .. part or a leading /, but this
-    # one goes into a folder, so check anyway.
-    case "/$f/" in */../*|*/./*|//*) echo "--prepare: skipped an odd path: $f" >&2; continue ;; esac
-    mkdir -p "$prepare/files/$(dirname "$f")"
-    if ! clean cat-file blob "$tree:$f" > "$tmp/blob" 2>/dev/null; then
-      echo "--prepare: no merged copy of $f (deleted or moved on one side?); settle it after go." >&2
-      continue
-    fi
-    mv "$tmp/blob" "$prepare/files/$f"
-  done < "$prepare/clashes"
+  "$node_bin" "$helper" --save-preview "$prepare" "$tmp/r" "$base_id" "$commit_id" "$empty"
   echo
   echo "Wrote the clashing files, with conflict markers, under $prepare/files: settle them there."
 fi
@@ -174,7 +164,7 @@ while IFS="$(printf '\t')" read -r _ f subject; do
 done < "$tmp/sorted"
 oldest=$(head -n 1 "$tmp/sorted" | cut -f 2)
 if [ -n "$prepare" ] && [ -f "$prepare/clashes" ]; then
-  rm -rf "$prepare/files" "$prepare/clashes"
+  rm -rf "$prepare/files" "$prepare/clashes" "$prepare/clashes.json" "$prepare/tree"
   echo "(--prepare: nothing kept, as a release with a format commit merges with replay-over-format.sh: settle its clashes after go.)"
 fi
 echo "Clashes in the files they formatted are formatting only: after they say go, merge with"

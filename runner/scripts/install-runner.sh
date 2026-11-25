@@ -649,7 +649,7 @@ else
   # The copy that goes in, checked again in case the checkout changed
   # since the check above.
   NEW_LAUNCH="$RDIR/.launch-new.mjs"
-  cp "$RUNNER_DIR/launch.mjs" "$NEW_LAUNCH"
+  "$NODE" "$RUNNER_DIR/scripts/deploy-git.mjs" --copy-launcher "$RUNNER_DIR" "$NEW_LAUNCH"
   if ! check_launch "$NEW_LAUNCH"; then
     rm -f "$NEW_LAUNCH"
     echo "$RUNNER_DIR/launch.mjs doesn't load, so nothing was changed." >&2

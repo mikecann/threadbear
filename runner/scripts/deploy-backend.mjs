@@ -15,7 +15,7 @@
 // <home>/secrets/convex-self-hosted.env instead (src/convex-admin.ts). What
 // it last deployed is in <home>/backend.json. Node built-ins only, like
 // deploy.mjs (convex-admin.ts is too).
-import { git, refuseSubstitutes, snapshotCommit } from './deploy-git.mjs';
+import { git, refuseSubstitutes, snapshotCommit, snapshotDigest } from './deploy-git.mjs';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -281,13 +281,15 @@ function main(argv) {
   }
 
   if (unlocked) throw new Fail('No lockf or flock here to keep two backend deploys apart. Install flock (util-linux).');
+  const snapshots = new Map();
   const exportAt = (rev) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'threadbear-backend-'));
     process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
-    snapshotCommit(repo, '', rev, dir, EXPORT_PATHS);
+    snapshots.set(dir, snapshotCommit(repo, '', rev, dir, EXPORT_PATHS));
     return dir;
   };
   const tmp = exportAt(commit);
+  const snapshotSha256 = snapshots.get(tmp);
 
   // Only the key picks the deployment: anything left over from a checkout's
   // .env.local or a thread's environment could point somewhere else.
@@ -302,6 +304,7 @@ function main(argv) {
   };
   try {
     step('Installing packages', npm, ['ci', '--no-audit', '--no-fund', '--prefer-offline'], opts);
+    if (snapshotDigest(tmp, EXPORT_PATHS) !== snapshotSha256) throw new Fail('The installed backend snapshot differs from the verified commit blobs.');
   } catch (e) {
     failed('packages', e);
   }
@@ -362,7 +365,7 @@ function main(argv) {
     } catch (e) {
       failed('functions', e);
     }
-    writeJson(stateFile, { ...readJson(stateFile), functions: { tree: want.functions, commit, at: new Date().toISOString() }, failed: undefined, stepping: undefined });
+    writeJson(stateFile, { ...readJson(stateFile), functions: { tree: want.functions, commit, snapshotSha256, at: new Date().toISOString() }, failed: undefined, stepping: undefined });
     // A timer due while a machine was off failed its job: deliver it again,
     // a page of the week's scheduled jobs a run until the last. Recorded
     // until it has gone through, so an interrupted or failed run does it
@@ -395,7 +398,7 @@ function main(argv) {
     } catch (e) {
       failed('website', e);
     }
-    writeJson(stateFile, { ...readJson(stateFile), site: { tree: want.site, commit, at: new Date().toISOString(), ...(siteUrl ? { url: siteUrl } : {}), ...(siteAddress ? { address: siteAddress } : {}) }, failed: undefined });
+    writeJson(stateFile, { ...readJson(stateFile), site: { tree: want.site, commit, snapshotSha256, at: new Date().toISOString(), ...(siteUrl ? { url: siteUrl } : {}), ...(siteAddress ? { address: siteAddress } : {}) }, failed: undefined });
   }
   say(`Backend deployed at ${short} (${what}).`);
   return 0;
