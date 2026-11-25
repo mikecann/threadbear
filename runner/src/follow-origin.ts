@@ -13,11 +13,11 @@
 // thread had made on that machine's main. So a local commit can no longer hold
 // the runner back (it builds origin/main regardless), it's never thrown away,
 // and it's said loudly (tb status, the app's Updates panel, the runner row).
-import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readJsonSync } from './fsutil.ts';
 import { currentLink, readRelease } from './release.ts';
+import { untrustedGit, untrustedGitRunSync, verifyGitObjects } from './safe-git.ts';
 
 export const ORIGIN_MAIN = 'refs/remotes/origin/main';
 const LOCAL_MAIN = 'refs/heads/main';
@@ -52,21 +52,13 @@ export function cleanGitError(text: string): string {
 
 type Run = { ok: boolean; out: string; err: string };
 
-function run(cwd: string, args: string[]): Promise<Run> {
-  return new Promise((resolve) => {
-    execFile(
-      'git',
-      ['-C', cwd, ...args],
-      {
-        encoding: 'utf8',
-        maxBuffer: 16 * 1024 * 1024,
-        timeout: GIT_TIMEOUT_MS,
-        // Nobody's there to answer a prompt for a password or a host key.
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes' },
-      },
-      (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout).trim(), err: String(stderr).trim() || (err ? err.message : '') }),
-    );
+async function run(cwd: string, args: string[]): Promise<Run> {
+  const r = await untrustedGit(cwd, args, {
+    network: args[0] === 'fetch' ? 'remote' : undefined,
+    timeoutMs: GIT_TIMEOUT_MS,
+    env: { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' },
   });
+  return { ok: r.ok, out: r.stdout.trim(), err: r.stderr.trim() };
 }
 
 async function rev(cwd: string, ref: string): Promise<string | undefined> {
@@ -90,6 +82,12 @@ async function worktreeOnMain(checkout: string): Promise<string | undefined> {
 // fast-forward. Never rewrites or resets anything: a local commit or a local
 // edit is someone's work, and it stays where it is and gets said.
 export async function followOrigin(checkout: string): Promise<OriginResult> {
+  try {
+    const refs = await run(checkout, ['for-each-ref', '--count=1', '--format=%(refname)', 'refs/replace/']);
+    const common = await run(checkout, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (!refs.ok || !common.ok) throw new Error(refs.err || common.err || 'Could not read Git metadata.');
+    if (refs.out || fs.existsSync(path.join(common.out, 'info/grafts'))) throw new Error('This checkout has replacement refs or grafts; remove them before following origin.');
+  } catch (e) { return { problem: { kind: 'stuck', message: cleanGitError(String(e)) } }; }
   // Spelled out with the `+`, as a clone's fetch refspec can be narrower and
   // a rewritten main on GitHub shouldn't stop this one for good.
   const fetched = await run(checkout, ['fetch', '-q', 'origin', `+${LOCAL_MAIN}:${ORIGIN_MAIN}`]);
@@ -99,6 +97,8 @@ export async function followOrigin(checkout: string): Promise<OriginResult> {
   const out: OriginResult = { ref: ORIGIN_MAIN, ...(fetchProblem ? { problem: fetchProblem } : {}) };
   const local = await rev(checkout, LOCAL_MAIN);
   if (!local || local === tip) return out;
+  try { await verifyGitObjects(checkout, [tip]); }
+  catch (e) { return { problem: { kind: 'stuck', message: cleanGitError(String(e)) } }; }
   const fastForward = await run(checkout, ['merge-base', '--is-ancestor', local, tip]);
   if (!fastForward.ok) return { ...out, problem: await divergedProblem(checkout, tip) };
   const wt = await worktreeOnMain(checkout);
@@ -143,8 +143,8 @@ export async function oldestMissingAt(checkout: string, prefix: string, since: s
 // worktree as its checkout (deploy.mjs), and tb land names the main one.
 function repoOf(dir: string): string {
   let at = dir;
-  const r = spawnSync('git', ['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' });
-  if (r.status === 0 && r.stdout.trim()) at = r.stdout.trim();
+  const r = untrustedGitRunSync(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (r.ok && r.stdout.trim()) at = r.stdout.trim();
   try {
     return fs.realpathSync(at);
   } catch {

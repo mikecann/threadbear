@@ -10,7 +10,7 @@
 // tried again until something it builds or checks changes on main (a fix
 // to a test counts, though it changes nothing that runs), and a tree whose
 // release crashed at startup isn't tried again until main changes.
-import { execFile, spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +27,7 @@ import { machineTrouble } from './machine-trouble.ts';
 import { cleanGitError, followOrigin as fetchAndFollowOrigin, oldestMissingAt, type OriginResult } from './follow-origin.ts';
 import { LAND_TIMES_FILE } from './land-queue.ts';
 import { FETCH_TIMEOUT_MS, fetchableUrl, gitAsync as gitWithin, repoKey, UPLOAD_PACK } from './upstream.ts';
+import { untrustedGit, untrustedGitRunSync, verifyGitObjects } from './safe-git.ts';
 
 export const CHECK_INTERVAL_MS = 5 * 60_000;
 // After main's ref changes in the checkout (a commit or merge landing), the
@@ -258,8 +259,8 @@ function sameDir(a: string, b: string): boolean {
 }
 
 function git(cwd: string, args: string[]): string {
-  const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${String(r.stderr).trim()}`);
+  const r = untrustedGitRunSync(cwd, args);
+  if (!r.ok) throw new Error(`git ${args.join(' ')} failed: ${r.stderr.trim()}`);
   return r.stdout.trim();
 }
 
@@ -267,22 +268,35 @@ function git(cwd: string, args: string[]): string {
 // moves, and its fetch, checkout and clean take many seconds while the
 // disk is busy (a render, a backup): run synchronously they froze every
 // thread and the app's requests for that long.
-function gitAsync(cwd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile('git', ['-C', cwd, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) reject(new Error(`git ${args.join(' ')} failed: ${String(stderr).trim() || err.message}`));
-      else resolve(stdout.trim());
-    });
-  });
+async function gitAsync(cwd: string, args: string[]): Promise<string> {
+  const network = args[0] === 'clone' || args[0] === 'fetch' ? 'bundle' : undefined;
+  const r = await untrustedGit(cwd, args, { network });
+  if (!r.ok) throw new Error(`git ${args.join(' ')} failed: ${r.stderr.trim()}`);
+  return r.stdout.trim();
+}
+
+// A build may not interpret replacement refs or grafts as the requested
+// commit, nor execute checkout scripts whose object bytes were substituted.
+function refuseSubstitutes(cwd: string): void {
+  const refs = git(cwd, ['for-each-ref', '--count=1', '--format=%(refname)', 'refs/replace/']);
+  const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (refs || fs.existsSync(path.join(common, 'info/grafts'))) throw new Error('This update checkout has replacement refs or grafts; remove them before updating.');
+}
+
+async function refuseUpdateSubstitutes(cwd: string): Promise<void> {
+  const refs = await gitAsync(cwd, ['for-each-ref', '--count=1', '--format=%(refname)', 'refs/replace/']);
+  const common = await gitAsync(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (refs || fs.existsSync(path.join(common, 'info/grafts'))) throw new Error('This update checkout has replacement refs or grafts; remove them before updating.');
 }
 
 // The object hashes of the release paths at `rev`, joined: the same formula
 // deploy.mjs writes as `tree` in release.json. Undefined when `rev` isn't
 // in the repo or holds none of them.
 export function releaseTreeAt(repo: string, prefix: string, rev: string): string | undefined {
-  const r = spawnSync('git', ['-C', repo, 'ls-tree', rev, '--', ...RELEASE_PATHS.map((p) => prefix + p)], { encoding: 'utf8' });
-  if (r.status !== 0) return undefined;
-  return joinTreeHashes(r.stdout);
+  try {
+    refuseSubstitutes(repo);
+    return joinTreeHashes(git(repo, ['ls-tree', rev, '--', ...RELEASE_PATHS.map((p) => prefix + p)]));
+  } catch { return undefined; }
 }
 
 async function releaseTreeAtAsync(repo: string, prefix: string, rev: string): Promise<string | undefined> {
@@ -319,12 +333,17 @@ export function cloneArgs(checkout: string, dir: string): string[] {
 // is the checkout's own main unless the machine follows GitHub's
 // (follow-origin.ts).
 export async function syncClone(checkout: string, prefix: string, dir: string, ref = 'refs/heads/main'): Promise<MainInfo> {
+  await refuseUpdateSubstitutes(checkout);
   if (!fs.existsSync(path.join(dir, '.git'))) {
     await fs.promises.rm(dir, { recursive: true, force: true });
     await fs.promises.mkdir(path.dirname(dir), { recursive: true });
     await gitAsync(path.dirname(dir), cloneArgs(checkout, dir));
   }
+  await refuseUpdateSubstitutes(dir);
   await gitAsync(dir, ['fetch', '-q', checkout, ref]);
+  // Hash the snapshot that will actually be checked out and executed.
+  // Periodic identity reads need no full snapshot scan when nothing changes.
+  await verifyGitObjects(dir, ['FETCH_HEAD']);
   await gitAsync(dir, ['checkout', '-q', '-B', 'main', 'FETCH_HEAD']);
   // [folder in the clone, stamp file name]. The stamps are beside the
   // clone, not in it: git clean would take them out each time.
