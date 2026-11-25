@@ -62,3 +62,16 @@ test('prepared merge verifies a newly merged output blob before changing HEAD', 
   assert.notEqual(applied.status, 0); assert.match(applied.stderr, /does not hash to its ID/);
   assert.equal(g('rev-parse', 'HEAD'), before); assert.equal(fs.readFileSync(path.join(repo, 'a'), 'utf8'), 'main\ntwo\nthree\nfour\nfive\n');
 });
+
+test('preparing delete/modify conflicts records the surviving blob without aborting', () => {
+  const root = tmpDir(), repo = path.join(root, 'repo'); fs.mkdirSync(repo);
+  const g = (...args: string[]) => { const r = spawnSync('git', ['-C', repo, '-c', 'commit.gpgSign=false', ...args], { env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r.stdout.trim(); };
+  g('init', '-qb', 'main'); fs.writeFileSync(path.join(repo, 'a'), 'base\n'); g('add', '.'); g('commit', '-qm', 'base'); g('branch', 'release');
+  g('rm', 'a'); g('commit', '-qm', 'delete'); const before = g('rev-parse', 'HEAD');
+  g('checkout', '-q', 'release'); fs.writeFileSync(path.join(repo, 'a'), 'modified\n'); g('commit', '-qam', 'modify');
+  const release = g('rev-parse', 'HEAD'); g('checkout', '-q', 'main');
+  const dir = path.join(root, 'preview');
+  const p = spawnSync(SHELL[0], [shPath(preview), '--prepare', shPath(dir), release], { cwd: repo, env, encoding: 'utf8' });
+  assert.equal(p.status, 0, p.stderr); assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'clashes.json'), 'utf8')), ['a']);
+  assert.equal(fs.readFileSync(path.join(dir, 'files/a'), 'utf8'), 'modified\n'); assert.equal(g('rev-parse', 'HEAD'), before);
+});
