@@ -958,3 +958,10 @@ refs and grafts, reads the selected commit's original blobs with commit-graphs
 disabled, hashes every traversed commit/tree/blob against its object ID, and
 verifies the installed snapshot's SHA-256 before recording it in
 release.json. Archive export attributes cannot change which files are installed.
+
+Automatic updates verify both object identities and the materialized tracked files
+before executing deployment modules. Automatic launcher restaging starts a helper
+from the trusted running release, materializes committed main in
+`<home>/runner/reinstall/source`, and runs only that snapshot's installer with
+`--stage`. Uncommitted installer or launcher changes in the original checkout
+are not imported by this automatic path.
