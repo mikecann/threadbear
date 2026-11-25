@@ -943,12 +943,15 @@ Worktree creation, landing and format replay use the same hostile-repository Git
 boundary as moves: no configured hooks, filters, signing or merge programs run.
 A configured merge driver is replaced by Git's text merge. Repository-scoped
 conditional includes are refused: they can add a driver only after a new
-worktree exists. Owner-global configuration remains the owner's choice. Network operations
+worktree exists. Local settings must be passive or explicitly neutralized by this
+wrapper; unknown settings fail closed with guidance to move them to global
+configuration. Owner-global configuration remains the owner's choice. Network operations
 refuse repository-local URL rewrites and HTTP configuration; move those settings
 to the owner's global configuration when needed. Setup's upstream check uses
 that boundary too.
 
-A prepared release merge recomputes its tree in a fresh bare repository without
+A prepared release merge verifies tip/history and recursive merge-base objects,
+recomputes its stored preview tree in a fresh bare repository without
 configuration or attributes, applies the settled conflict blobs there, and
 fast-forwards to a commit of exactly that tree. Deployment refuses replacement
 refs and grafts, reads the selected commit's original blobs with commit-graphs
