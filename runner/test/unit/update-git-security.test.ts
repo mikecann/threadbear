@@ -83,3 +83,15 @@ for (const key of ['uploadpack', 'rewrite']) {
     assert.equal(fs.existsSync(f.marker), false);
   });
 }
+
+
+test('a reused update clone discards tracked script edits before automatic execution', async () => {
+  const f = fixture(); const clone = path.join(f.root, 'clone');
+  fs.mkdirSync(path.join(f.source, 'runner/scripts')); fs.writeFileSync(path.join(f.source, 'runner/scripts/deploy-backend.mjs'), 'export const original = true;\n');
+  f.git(f.source, 'add', '.'); f.git(f.source, 'commit', '-qm', 'deployment helper');
+  await syncClone(f.source, 'runner/', clone);
+  fs.writeFileSync(path.join(clone, 'runner/scripts/deploy-backend.mjs'), 'throw new Error("unverified working file");\n');
+  f.git(clone, 'config', 'core.longpaths', 'true'); // The Windows clone's own persistent setting.
+  f.advance(); await syncClone(f.source, 'runner/', clone);
+  assert.equal(fs.readFileSync(path.join(clone, 'runner/scripts/deploy-backend.mjs'), 'utf8'), 'export const original = true;\n');
+});

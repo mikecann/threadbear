@@ -78,7 +78,8 @@ test("179: the automatic check runs nothing the checkout's own git config names"
   git(w.theirs, 'config', 'remote.upstream.vcs', 'tbsentinel');
   const viaHelper = await withPath(bin, () => upstreamFor(w.theirs, w.home).check());
   assert.deepEqual(ranIn(ran), [], 'no remote helper ran');
-  assert.equal(viaHelper.release?.commit, real, viaHelper.reason ?? '');
+  assert.equal(viaHelper.state, 'failed');
+  assert.match(viaHelper.reason ?? '', /global git config/);
   git(w.theirs, 'config', '--unset', 'remote.upstream.vcs');
   git(w.theirs, 'config', 'protocol.ext.allow', 'always');
   git(w.theirs, 'config', `url.ext::sh -c ${sentinel(w.root, 'ext', ran)} #.insteadOf`, path.join(w.root, 'mike.git'));
@@ -327,7 +328,7 @@ test("179: a checkout whose config redirects a remote isn't used for network git
     git(w.theirs, 'config', key, value);
     const s = await upstreamFor(w.theirs, w.home, new FakeClock(LATER), { localRemotes: false }).check();
     assert.equal(s.state, 'failed', key);
-    assert.match(s.reason ?? '', /changes where or how git reaches a remote/, key);
+    assert.match(s.reason ?? '', /changes where or how git reaches a remote|global git config/, key);
   }
 });
 

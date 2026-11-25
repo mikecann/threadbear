@@ -27,7 +27,7 @@ import { machineTrouble } from './machine-trouble.ts';
 import { cleanGitError, followOrigin as fetchAndFollowOrigin, oldestMissingAt, type OriginResult } from './follow-origin.ts';
 import { LAND_TIMES_FILE } from './land-queue.ts';
 import { FETCH_TIMEOUT_MS, fetchableUrl, gitAsync as gitWithin, repoKey, UPLOAD_PACK } from './upstream.ts';
-import { untrustedGit, untrustedGitRunSync, verifyGitObjects } from './safe-git.ts';
+import { untrustedGit, untrustedGitRunSync, verifyGitObjects, verifyGitCheckout } from './safe-git.ts';
 
 export const CHECK_INTERVAL_MS = 5 * 60_000;
 // After main's ref changes in the checkout (a commit or merge landing), the
@@ -344,7 +344,7 @@ export async function syncClone(checkout: string, prefix: string, dir: string, r
   // Hash the snapshot that will actually be checked out and executed.
   // Periodic identity reads need no full snapshot scan when nothing changes.
   await verifyGitObjects(dir, ['FETCH_HEAD']);
-  await gitAsync(dir, ['checkout', '-q', '-B', 'main', 'FETCH_HEAD']);
+  await gitAsync(dir, ['checkout', '-q', '-f', '-B', 'main', 'FETCH_HEAD']);
   // [folder in the clone, stamp file name]. The stamps are beside the
   // clone, not in it: git clean would take them out each time.
   const installs: [string, string][] = [[prefix, 'installed-lock']];
@@ -352,6 +352,7 @@ export async function syncClone(checkout: string, prefix: string, dir: string, r
   // The root's node_modules is only /node_modules: an exclude without the
   // slash would keep every node_modules in the clone.
   await gitAsync(dir, ['clean', '-qfdx', ...installs.flatMap(([p]) => ['-e', `/${p}node_modules`])]);
+  await verifyGitCheckout(dir, 'FETCH_HEAD');
   for (const [p, name] of installs) {
     const modules = path.join(dir, p, 'node_modules');
     const lockFile = path.join(dir, p, 'package-lock.json');

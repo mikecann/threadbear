@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { tmpDir } from '../helpers/fakes.ts';
 import { TreeFormatter } from '../../src/format-replay.ts';
-import { verifyGitObjects, verifyGitObjectsSync, untrustedGit } from '../../src/safe-git.ts';
+import { verifyGitObjects, verifyGitObjectsSync, verifyGitCheckout, untrustedGit } from '../../src/safe-git.ts';
 
 function repo() {
   const dir = tmpDir();
@@ -73,4 +73,17 @@ test('recursive merge verification hashes the older base used to synthesize a vi
   fs.chmodSync(file, 0o644); fs.writeFileSync(file, deflateSync(data));
   await assert.rejects(verifyGitObjects(dir, [d, e], true), /does not hash/);
   assert.throws(() => verifyGitObjectsSync(dir, [d, e], true), /does not hash/);
+});
+
+
+test('materialized checkout verification rejects stale skipped files and symlink parents', async () => {
+  const { dir, git } = repo(); fs.mkdirSync(path.join(dir, 'src')); fs.writeFileSync(path.join(dir, 'src/script.mjs'), 'original');
+  git('add', '.'); git('commit', '-qm', 'script'); await verifyGitObjects(dir); await verifyGitCheckout(dir, 'HEAD');
+  git('update-index', '--skip-worktree', 'src/script.mjs'); fs.writeFileSync(path.join(dir, 'src/script.mjs'), 'stale executable');
+  await assert.rejects(verifyGitCheckout(dir, 'HEAD'), /differs from the verified snapshot/);
+  if (process.platform !== 'win32') {
+    const outside = tmpDir(); fs.writeFileSync(path.join(outside, 'script.mjs'), 'original');
+    fs.rmSync(path.join(dir, 'src'), { recursive: true }); fs.symlinkSync(outside, path.join(dir, 'src'));
+    await assert.rejects(verifyGitCheckout(dir, 'HEAD'), /parent is not a real directory/);
+  }
 });

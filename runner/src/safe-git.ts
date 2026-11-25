@@ -32,13 +32,13 @@ export function untrustedGitArgs(dir: string, args: readonly string[]): string[]
   return [...UNTRUSTED_GIT_CONFIG, '-C', dir, ...args];
 }
 
-// Keep only Git's commit identity variables. Other GIT_ variables set when the
-// runner was started from inside a git hook (or by hand) could point git
+// Keep Git's commit identities and its non-executable discovery ceiling.
+// Other GIT_ variables set when the runner was started from inside a git hook (or by hand) could point git
 // at another repo, or add config (GIT_CONFIG_COUNT, GIT_CONFIG_PARAMETERS)
 // that comes after the -c settings above.
 export function untrustedGitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...base };
-  for (const k of Object.keys(env)) if (/^GIT_/i.test(k) && !/^GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)$/.test(k)) delete env[k];
+  for (const k of Object.keys(env)) if (/^GIT_/i.test(k) && !/^GIT_(?:(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|CEILING_DIRECTORIES)$/.test(k)) delete env[k];
   return env;
 }
 
@@ -126,7 +126,7 @@ export type UntrustedGitOptions = {
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -176,8 +176,8 @@ export function settable(key: string): string {
 // Local settings must either be passive or have an explicit override below.
 // New Git options cannot silently add another repository-selected program.
 const LOCAL_KEYS = [
-  /^core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|checkstat|trustctime|worktree|sparsecheckout|sparsecheckoutcone|fsmonitor|untrackedcache|hookspath|sshcommand|askpass|alternaterefscommand|pager|attributesfile|commitgraph)$/,
-  /^remote\.[\s\S]+\.(url|pushurl|fetch|tagopt|prune|prunetags|gh-resolved|skipdefaultupdate|skipfetchall|uploadpack|receivepack|proxy|proxyauthmethod)$/,
+  /^core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|checkstat|trustctime|worktree|sparsecheckout|sparsecheckoutcone|fsmonitor|untrackedcache|hookspath|sshcommand|askpass|alternaterefscommand|pager|attributesfile|excludesfile|longpaths|commitgraph)$/,
+  /^remote\.[\s\S]+\.(url|pushurl|fetch|tagopt|prune|prunetags|gh-resolved|skipdefaultupdate|skipfetchall|promisor|partialclonefilter|uploadpack|receivepack|proxy|proxyauthmethod)$/,
   /^branch\.[\s\S]+\.(remote|merge|pushremote|rebase|description|mergeoptions)$/,
   /^extensions\.(worktreeconfig|objectformat|refstorage|partialclone)$/,
   /^user\.(name|email|signingkey)$/,
@@ -188,9 +188,11 @@ const LOCAL_KEYS = [
   /^hook\.[\s\S]*\.(command|event|enabled)$/,
   /^submodule\.[\s\S]*\.(url|path|active|ignore|branch|fetchrecursesubmodules)$/,
   /^protocol\.[\s\S]*\.allow$/,
+  /^protocol\.version$/,
+  /^(url|http)\.[\s\S]+$/,
   /^include\.path$/,
   /^lfs\.repositoryformatversion$/,
-  /^(pull\.(rebase|ff)|push\.(default|autosetupremote|gpgsign|recursesubmodules)|init\.(defaultbranch|templatedir)|fetch\.(prune|recursesubmodules)|rerere\.enabled|commit\.gpgsign|tag\.gpgsign|submodule\.recurse|gc\.auto|maintenance\.auto|merge\.(autostash|default|verifysignatures)|rebase\.(autostash|updaterefs|instructionformat)|sequence\.editor|format\.pretty|log\.showsignature|diff\.(external|ignoresubmodules)|status\.submodulesummary|advice\.graftfiledeprecated|fsck\.skiplist|safe\.barerepository)$/,
+  /^(pull\.(rebase|ff)|push\.(default|autosetupremote|gpgsign|recursesubmodules)|init\.(defaultbranch|templatedir)|fetch\.(prune|prunetags|recursesubmodules)|rerere\.enabled|commit\.gpgsign|tag\.gpgsign|submodule\.recurse|gc\.auto|maintenance\.auto|merge\.(autostash|default|verifysignatures)|rebase\.(autostash|updaterefs|instructionformat)|sequence\.editor|format\.pretty|log\.showsignature|diff\.(external|ignoresubmodules)|status\.submodulesummary|advice\.graftfiledeprecated|fsck\.skiplist|safe\.barerepository)$/,
   /^gpg\.(program|format|openpgp\.program|x509\.program|ssh\.(program|defaultkeycommand|allowedsignersfile|revocationfile))$/,
 ];
 
@@ -577,4 +579,32 @@ export async function verifiedGitBlob(dir: string, spec: string): Promise<Buffer
     tree = await read('tree', id);
   }
   return undefined;
+}
+
+// Object verification precedes checkout; verify the materialized tree too.
+// An old clone's index can retain skip-worktree bits or stale tracked files.
+export async function verifyGitCheckout(dir: string, root: string): Promise<void> {
+  const listed = await untrustedGit(dir, ['ls-tree', '-rz', '--full-tree', root], { bytes: true });
+  if (!listed.ok || !listed.bytes) throw new Error('Cannot list the checked-out snapshot.');
+  const parents = new Set<string>();
+  for (const entry of UTF8.decode(listed.bytes).split('\0').filter(Boolean)) {
+    const m = /^(100644|100755|120000|160000) (blob|commit) ([0-9a-f]{40,64})\t([\s\S]+)$/.exec(entry);
+    if (!m || !m[4]!.split('/').every((part) => part && part !== '.' && part !== '..' && !part.includes('\\'))) throw new Error('Invalid checkout path.');
+    const parts = m[4]!.split('/'); let parent = dir;
+    for (const part of parts.slice(0, -1)) {
+      parent = path.join(parent, part);
+      if (!parents.has(parent)) {
+        const st = fs.lstatSync(parent);
+        if (!st.isDirectory() || st.isSymbolicLink()) throw new Error('A checkout parent is not a real directory.');
+        parents.add(parent);
+      }
+    }
+    const file = path.join(dir, ...parts), mode = m[1], id = m[3]!;
+    if (mode === '160000') continue;
+    const st = fs.lstatSync(file);
+    const data = mode === '120000' && st.isSymbolicLink() ? Buffer.from(fs.readlinkSync(file)) : st.isFile() && !st.isSymbolicLink() ? fs.readFileSync(file) : undefined;
+    if (!data || (mode === '120000') !== st.isSymbolicLink() || process.platform !== 'win32' && mode !== '120000' && Boolean(st.mode & 0o111) !== (mode === '100755')) throw new Error('The checkout file kind differs from the verified snapshot.');
+    const hash = createHash(id.length === 40 ? 'sha1' : 'sha256').update(`blob ${data.length}\0`).update(data).digest('hex');
+    if (hash !== id) throw new Error(`The checked-out file ${m[4]} differs from the verified snapshot.`);
+  }
 }
