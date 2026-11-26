@@ -591,11 +591,16 @@ function currentId(c) {
 // known, rather than one current named that never started.
 // activated tells launch.mjs to count crashes of this release from now on
 // only, so a forced rollback onto one that crashed earlier gets fresh tries.
-function activate(c, id, previous) {
+function activate(c, id, previous, automatic = false) {
   const state = readState(c.dir);
   const was = currentId(c);
+  const at = new Date().toISOString();
+  const stagedUpdate = automatic && was ? { release: id, from: was, at } : undefined;
+  // Only the updater expects to finish an activation interrupted here. A
+  // manual reactivation of this same release must clear that evidence first.
+  if (stagedUpdate || state.stagedUpdate?.release === id) writeState(c.dir, { ...state, stagedUpdate });
   pointCurrent(c.dir, id);
-  saveState(c, { ...state, current: id, previous: previous ?? was ?? state.previous, activated: { release: id, at: new Date().toISOString() } }, id);
+  saveState(c, { ...state, current: id, previous: previous ?? was ?? state.previous, activated: { release: id, at }, stagedUpdate }, id);
   say(`current now points at ${id}${was ? ` (was ${was})` : ''}.`);
 }
 
@@ -1517,7 +1522,7 @@ async function deploy(c, v, waitMs) {
   const cur = currentId(c);
   if (live.running && cur && cur !== live.running) say(`Replacing release ${cur}, which never started; the runner is on ${live.running}.`);
   const before = { current: live.running ?? cur, previous: state.previous };
-  activate(c, id, live.running ?? cur);
+  activate(c, id, live.running ?? cur, v['no-restart'] && process.env.THREADBEAR_DEPLOY_UPDATER === '1');
   let code = 0;
   if (v['no-restart']) say('Not restarting (--no-restart).');
   else code = await restartAndCheck(c, v, id, before, waitMs);

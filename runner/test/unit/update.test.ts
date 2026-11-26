@@ -10,7 +10,7 @@ import { nullLogger } from '../../src/log.ts';
 import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, MACHINE_WAIT_MS, MAX_MACHINE_TRIES, MAX_SLEPT_TRIES, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, buildTreeAt, landChecked, passedLandCheck, LAND_CHECK_COMMANDS, LAND_CHECK_STEPS, type UpdateDeps } from '../../src/update.ts';
 import { APP_STAGED_REASON } from '../../src/reinstall.ts';
 import { LAND_TIMES_FILE } from '../../src/land-queue.ts';
-import type { ReleaseJson } from '../../src/release.ts';
+import { readState, type ReleaseJson } from '../../src/release.ts';
 import { noFileWatches, patiently } from '../helpers/patience.ts';
 
 const running = { id: 'r1', tree: 'a+b+c+d' };
@@ -220,6 +220,104 @@ test('a change to main is built and a restart asked for; the next check sees the
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
   assert.equal(h.deploys, 1);
+  assert.equal(h.restarts.length, 1);
+});
+
+// State left by an automatic deploy that finished the checks and changed
+// current, but died before it could finish recording the activation.
+function interruptedActivation(h: Harness, automatic = true): void {
+  const dir = path.join(h.home, 'runner');
+  const next = path.join(dir, 'releases', 'r2');
+  const at = '2026-11-25T12:00:00.000Z';
+  fs.mkdirSync(path.join(next, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(next, 'src', 'main.ts'), '');
+  fs.writeFileSync(path.join(next, 'release.json'), JSON.stringify({ id: 'r2', commit: h.main.commit, builtAt: at, dirty: false, node: '24' }));
+  if (automatic) {
+    fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ ...readState(h.home), stagedUpdate: { release: 'r2', from: 'r1', at } }));
+  }
+  const current = path.join(dir, 'current');
+  fs.unlinkSync(current);
+  fs.symlinkSync(path.join('releases', 'r2'), current);
+}
+
+test('a deploy child that dies just after switching current leaves a restart to recover once', async () => {
+  let h: Harness;
+  h = harness({}, {
+    deploy: async () => {
+      h.deploys++;
+      interruptedActivation(h);
+      return { ok: false, error: 'stopped by SIGKILL' };
+    },
+  });
+
+  await h.u.check();
+  await h.u.check();
+
+  assert.equal(h.u.status().state, 'waiting');
+  assert.equal(h.u.status().release, 'r2');
+  assert.deepEqual(h.restarts.map((p) => p.release), ['r2']);
+  assert.equal(h.deploys, 1, 'the release already passed its checks');
+  assert.deepEqual(h.notices, []);
+  assert.ok(!fs.existsSync(updateFilePath(h.home)), 'the verified release is not a failed build');
+  const state = readState(h.home);
+  assert.equal(state?.current, 'r2');
+  assert.equal(state?.previous, 'r1', 'manual rollback still goes to the running release');
+  assert.equal(state?.activated?.release, 'r2');
+});
+
+test('a restart already pending is kept for the staged release', async () => {
+  const h = harness();
+  interruptedActivation(h);
+  h.pending = true;
+
+  await h.u.check();
+
+  assert.equal(h.deploys, 0);
+  assert.deepEqual(h.restarts, []);
+});
+
+test('the next check recovers a staged update once the deploy has stopped', async () => {
+  const h = harness();
+  interruptedActivation(h);
+  const lock = path.join(h.home, 'runner', 'deploy.lock');
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
+
+  await h.u.check();
+  assert.deepEqual(h.restarts, []);
+  assert.equal(readState(h.home)?.current, 'r1', 'the deploy still owns the activation');
+
+  fs.rmSync(lock, { recursive: true });
+  await h.u.check();
+  assert.equal(h.restarts.length, 1);
+  assert.equal(h.deploys, 0);
+
+  // An explicit cancellation, even if putting current back failed.
+  h.pending = false;
+  await h.u.check();
+  assert.equal(h.restarts.length, 1);
+});
+
+test('a release manually left on current is not started by the updater', async () => {
+  const h = harness();
+  interruptedActivation(h, false);
+
+  await h.u.check();
+
+  assert.equal(h.deploys, 0);
+  assert.deepEqual(h.restarts, []);
+});
+
+test('a release that crash-looped is not recovered if the launcher could not switch current back', async () => {
+  const h = harness();
+  interruptedActivation(h);
+  const file = path.join(h.home, 'runner', 'state.json');
+  fs.writeFileSync(file, JSON.stringify({ ...readState(h.home), rolledBack: { from: 'r2', to: 'r1', at: '2026-11-25T12:03:00.000Z' } }));
+
+  await h.u.check();
+
+  assert.equal(h.deploys, 0);
+  assert.deepEqual(h.restarts, []);
 });
 
 test('a failed build or backend deploy goes to a fix thread instead of the notice, and to the notice when that fails', async () => {
@@ -1141,7 +1239,7 @@ test('runDeploy leaves the checks out only when asked to', async () => {
   fs.mkdirSync(path.join(root, 'runner', 'releases', 'r9'), { recursive: true });
   fs.symlinkSync(path.join('releases', 'r9'), path.join(root, 'runner', 'current'));
   const args = path.join(root, 'args.json');
-  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(args)}, JSON.stringify(process.argv.slice(2)));\n`);
+  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import fs from 'node:fs';\nif (process.env.THREADBEAR_DEPLOY_UPDATER !== '1') process.exit(1);\nfs.writeFileSync(${JSON.stringify(args)}, JSON.stringify(process.argv.slice(2)));\n`);
   const read = () => JSON.parse(fs.readFileSync(args, 'utf8')) as string[];
   assert.deepEqual(await runDeploy(root, root, path.join(root, 'build.log'), root), { ok: true, id: 'r9' });
   assert.deepEqual(read(), ['--no-restart', '--home', root, '--follow', root]);

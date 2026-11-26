@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
-import { currentLink, readRelease, readState, type ReleaseJson } from './release.ts';
+import { currentLink, readRelease, readState, releaseExists, statePath, type ReleaseJson } from './release.ts';
 import type { RestartResult } from './restart.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { APP_STAGED_REASON, launcherKey, RUNS_NODE_REASON, stagedAppPath } from './reinstall.ts';
@@ -28,6 +28,7 @@ import { cleanGitError, followOrigin as fetchAndFollowOrigin, oldestMissingAt, t
 import { LAND_TIMES_FILE } from './land-queue.ts';
 import { FETCH_TIMEOUT_MS, fetchableUrl, gitAsync as gitWithin, repoKey, UPLOAD_PACK } from './upstream.ts';
 import { NEUTRAL_ATTRIBUTES, untrustedGit, untrustedGitRunSync, verifyGitObjects, verifyGitCheckout } from './safe-git.ts';
+import { pidExists } from './proc.ts';
 
 export const CHECK_INTERVAL_MS = 5 * 60_000;
 // After main's ref changes in the checkout (a commit or merge landing), the
@@ -610,6 +611,7 @@ export function runDeploy(runnerDir: string, home: string, logFile: string, foll
   return new Promise((resolve) => {
     const env: Record<string, string | undefined> = {};
     for (const [k, v] of Object.entries(process.env)) if (!/^THREADB(EAR|ARE)_/.test(k)) env[k] = v;
+    env.THREADBEAR_DEPLOY_UPDATER = '1';
     let fd: number;
     try {
       fd = fs.openSync(logFile, 'w');
@@ -796,6 +798,7 @@ export class RunnerUpdater {
     const wasFailed = this.state === 'failed';
     this.state = 'checking';
     try {
+      if (this.recoverActivation(release.id)) return { action: 'nothing', why: 'a release of main has already been staged' };
       const dir = path.join(updateDir(home), 'src');
       this.followsOrigin = this.deps.followsOrigin?.() ?? false;
       const origin = this.followsOrigin ? await (this.deps.fetchOrigin ?? fetchAndFollowOrigin)(release.checkout) : undefined;
@@ -892,6 +895,7 @@ export class RunnerUpdater {
       const tries = !result.ok && (result.slept || result.unavailable) ? (this.slept?.tree === builds ? this.slept.tries : 0) + 1 : 0;
       this.slept = tries ? { tree: builds, tries } : undefined;
       if (!result.ok) {
+        if (this.recoverActivation(release.id)) return decision;
         if (result.transient && tries < MAX_SLEPT_TRIES) {
           log.info('could not build main now; trying again later', { error: result.error, ...(tries ? { sleptTries: tries } : {}) });
           this.state = 'idle';
@@ -933,11 +937,7 @@ export class RunnerUpdater {
         );
         return decision;
       }
-      this.releaseBuilt = result.id;
-      this.state = 'waiting';
-      this.through(main.commit);
-      const res = this.deps.restart({ release: result.id, reason: `Updating to main at ${main.short}: ${main.subject}`, backgroundWaitMs: BACKGROUND_WAIT_MS });
-      log.info('release of main built; restart asked for', { release: result.id, commit: main.short, waitingFor: res.waitingFor });
+      this.restartOnto(result.id, main.commit, `Updating to main at ${main.short}: ${main.subject}`);
       return decision;
     } catch (e) {
       // Git trouble in the clone, say: logged, and tried again next time.
@@ -955,6 +955,51 @@ export class RunnerUpdater {
       this.busy = false;
       this.deps.onChange?.();
     }
+  }
+
+  // A switched link alone can be a manual deploy with --no-restart. The
+  // deploy script records the automatic activation before changing the
+  // link, so even a kill between the link and state writes is recoverable.
+  private recoverActivation(running: string): boolean {
+    const { home } = this.deps;
+    const current = currentLink(home);
+    if (!current || current === running) return false;
+    const state = readState(home);
+    const staged = state?.stagedUpdate;
+    if (!state || staged?.release !== current || staged.from !== running || state.rolledBack?.from === current) return false;
+    const release = readRelease(path.join(home, 'runner', 'releases', current));
+    if (release?.id !== current || typeof release.commit !== 'string' || !releaseExists(home, current)) return false;
+
+    this.reason = undefined;
+    if (this.deps.pendingRestart()) {
+      this.state = 'waiting';
+      return true;
+    }
+    // A pending restart may have been explicitly cancelled. If the link
+    // could not be reverted, still honour the cancellation.
+    const deployPid = readJsonSync<number>(path.join(home, 'runner', 'deploy.lock', 'pid'));
+    if (this.releaseBuilt === current || (deployPid && Number.isInteger(deployPid) && deployPid > 0 && pidExists(deployPid))) {
+      this.state = 'idle';
+      return true;
+    }
+    if (state.current !== current) {
+      // The deploy reached the link swap but not the state write. Keep the
+      // running release as the one to go back to, as activate would have.
+      const next = { ...state, current, previous: running, activated: { release: current, at: staged.at } };
+      atomicWriteFileSync(statePath(home), JSON.stringify(next, null, 2) + '\n');
+    }
+    this.restartOnto(current, release.commit, `Finishing an interrupted update to ${current}`);
+    return true;
+  }
+
+  private restartOnto(release: string, commit: string, reason: string): void {
+    this.state = 'waiting';
+    this.reason = undefined;
+    this.through(commit);
+    if (this.deps.pendingRestart()) return;
+    const res = this.deps.restart({ release, reason, backgroundWaitMs: BACKGROUND_WAIT_MS });
+    if (res.scheduled) this.releaseBuilt = release;
+    this.deps.log.info('release of main built; restart asked for', { release, commit, waitingFor: res.waitingFor });
   }
 
   // Still sick after MACHINE_WAIT_MS: a failure like any other from here on.
