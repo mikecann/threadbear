@@ -42,6 +42,8 @@ import type * as pushTargets from "../pushTargets.js";
 import type * as pushText from "../pushText.js";
 import type * as redaction from "../redaction.js";
 import type * as relay from "../relay.js";
+import type * as rsvpArtifacts from "../rsvpArtifacts.js";
+import type * as rsvpPage from "../rsvpPage.js";
 import type * as runnerAccess from "../runnerAccess.js";
 import type * as share from "../share.js";
 import type * as shareCard from "../shareCard.js";
@@ -94,6 +96,8 @@ declare const fullApi: ApiFromModules<{
   pushText: typeof pushText;
   redaction: typeof redaction;
   relay: typeof relay;
+  rsvpArtifacts: typeof rsvpArtifacts;
+  rsvpPage: typeof rsvpPage;
   runnerAccess: typeof runnerAccess;
   share: typeof share;
   shareCard: typeof shareCard;

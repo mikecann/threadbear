@@ -269,6 +269,17 @@ export const appSchema = defineSchema({
     html: v.string(),
     source: v.optional(v.string()),
   }).index('by_slug', ['slug']).index('by_source', ['source']),
+  rsvpArtifacts: defineTable({
+    slug: v.string(),
+    title: v.string(),
+    details: v.string(),
+  }).index('by_slug', ['slug']),
+  artifactRsvps: defineTable({
+    invitation: v.id('rsvpArtifacts'),
+    request: v.string(),
+    name: v.string(),
+    attendance: v.union(v.literal('yes'), v.literal('no')),
+  }).index('by_invitation_request', ['invitation', 'request']),
   // One row per runner (the Mac, Tinker Desk later), written every minute.
   // A phone treats one not seen for 3 minutes as offline.
   runners: defineTable({

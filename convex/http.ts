@@ -15,8 +15,9 @@ import { PHONE_UPLOADS } from './phone';
 import { takeUpload } from './uploads';
 import { safeDecode, withCard } from './shareCard';
 import { promoteRoute } from './boxImage';
-import { cappedJson } from './httpJson';
+import { cappedJson, cappedText } from './httpJson';
 import { ARTIFACT_PATH, artifactPage, artifactSlug } from './artifactPage';
+import { RSVP_PATH, rsvpResponse, rsvpSlug } from './rsvpPage';
 
 const http = httpRouter();
 
@@ -26,6 +27,42 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const slug = artifactSlug(new URL(request.url).pathname);
     return artifactPage(slug ? await ctx.runQuery(internal.sync.hostedArtifact, { slug }) : null);
+  }),
+});
+
+http.route({
+  pathPrefix: RSVP_PATH,
+  method: 'GET',
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const slug = rsvpSlug(url.pathname);
+    const invitation = slug ? await ctx.runQuery(internal.rsvpArtifacts.invitation, { slug }) : null;
+    return rsvpResponse(slug ?? '', invitation, url.searchParams.get('saved') === '1' ? 'saved' : null);
+  }),
+});
+
+http.route({
+  pathPrefix: RSVP_PATH,
+  method: 'POST',
+  handler: httpAction(async (ctx, request) => {
+    const slug = rsvpSlug(new URL(request.url).pathname);
+    if (!slug) return rsvpResponse('', null);
+    const invitation = await ctx.runQuery(internal.rsvpArtifacts.invitation, { slug });
+    if (!invitation) return rsvpResponse(slug, null);
+    if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/x-www-form-urlencoded') {
+      return rsvpResponse(slug, invitation, 'invalid');
+    }
+    const body = await cappedText(request, 2048);
+    if (!body || body === 'tooBig') return rsvpResponse(slug, invitation, 'invalid');
+    const fields = new URLSearchParams(body.text);
+    const name = fields.get('name');
+    const attendance = fields.get('attendance');
+    const requestId = fields.get('request');
+    if (!name || !requestId || (attendance !== 'yes' && attendance !== 'no')) return rsvpResponse(slug, invitation, 'invalid');
+    const result = await ctx.runMutation(internal.rsvpArtifacts.submit, { slug, name, attendance, request: requestId });
+    if (result === 'missing') return rsvpResponse(slug, null);
+    if (result !== 'saved') return rsvpResponse(slug, invitation, result);
+    return new Response(null, { status: 303, headers: { Location: RSVP_PATH + slug + '?saved=1', 'Cache-Control': 'no-store' } });
   }),
 });
 
