@@ -152,6 +152,9 @@ test("a check that changes files on the merge doesn't count for it", async () =>
 
 // A push GitHub refuses for some other reason than having moved (a rule on
 // the branch, credentials) is said as it is: no merge, no second check.
+// (A local origin with a hook is refused before git runs at all, as a push
+// to it would run the hook: safe-git.ts, checkTransfer. Either way it's a
+// refused push.)
 test("a push refused while GitHub hasn't moved is said, with no merge made", async () => {
   const fx = withOrigin();
   write(fx.bare, { 'hooks/pre-receive': '#!/bin/sh\necho "protected branch" >&2\nexit 1\n' });

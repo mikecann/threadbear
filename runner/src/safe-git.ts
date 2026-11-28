@@ -410,6 +410,9 @@ function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
     if (e.scope === 'command' || TRUSTED_SCOPES.has(e.scope)) continue;
     if (/^includeif\./i.test(e.key)) throw refuse(`the repository at ${gitDir} has conditional git includes.`);
     if (e.key === 'extensions.partialclone' || /^remote\.[\s\S]+\.promisor$/.test(e.key)) throw refuse(`the repository at ${gitDir} says it's a partial clone, which git can fetch into by itself, running what its config names.`);
+    // upload-pack's own settings: none runs a program from a repo's config
+    // (git takes uploadpack.packObjectsHook only from the owner's own).
+    if (/^uploadpack\./.test(e.key)) continue;
     if (push && RUNS_ON_PUSH.test(e.key)) throw refuse(`the repository at ${gitDir} names a program in its git config (${e.key}), which a push would run.`);
     if (!LOCAL_KEYS.some((p) => p.test(e.key))) throw refuse(`the repository at ${gitDir} has a git setting (${e.key}) Threadbear hasn't been checked for; move it to your global git config.`);
   }
