@@ -638,3 +638,35 @@ test("a local clone ignores the repo's http settings; Threadbear's own neutral i
   fs.writeFileSync(path.join(dest, '.git', 'info', 'attributes'), NEUTRAL_ATTRIBUTES);
   assert.ok((await untrustedGit(dest, ['merge', '--ff-only', 'HEAD'])).ok);
 });
+
+// A local transfer allows only the file transport, so the repo's http.*
+// settings it skips can't reach a lazy fetch over https either; a mirror
+// clone is a normal local endpoint; and an option's value is a path only for
+// the options that take one, so --force-with-lease=x:<oid> and -o k:v aren't
+// read as drive-relative paths (Gemini's final review, 28 Nov 2026).
+test('local transfers allow only the file transport; mirrors and option values with colons pass', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const common = path.join(dest, '.git');
+  g(dest, 'config', 'http.proxy', 'http://example.invalid:1');
+  const trace = path.join(root, 'trace');
+  const r = await untrustedGit(common, ['clone', '-q', '--shared', '--no-checkout', common, path.join(root, 'check')], { network: 'remote', env: { GIT_TRACE2_EVENT: trace } });
+  assert.ok(r.ok, r.stderr);
+  const starts = fs.readFileSync(trace, 'utf8').split('\n').filter((l) => /"event":"start"/.test(l)).map((l) => (JSON.parse(l) as { argv: string[] }).argv);
+  const clone = starts.find((a) => a.includes('clone')) ?? [];
+  assert.ok(clone.includes('protocol.https.allow=never') && !clone.includes('protocol.https.allow=always'), clone.join(' '));
+  g(dest, 'config', '--unset', 'http.proxy');
+  const mirror = path.join(root, 'mirror.git');
+  g(root, 'clone', '-q', '--mirror', dest, mirror);
+  for (const args of [['fetch', '-q', mirror, 'main'], ['push', '-q', mirror, 'HEAD:refs/heads/from-dest']]) {
+    const m = await untrustedGit(dest, args, { network: 'remote' });
+    assert.ok(m.ok, `${args[0]} with a mirror: ${m.stderr}`);
+  }
+  const origin = repoAt(path.join(root, 'origin.git'), { bare: true });
+  g(dest, 'remote', 'add', 'origin', origin);
+  g(dest, 'push', '-q', 'origin', 'main');
+  const oid = execFileSync('git', ['-C', dest, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  for (const args of [['push', '-q', `--force-with-lease=main:${oid}`, 'origin', 'main'], ['push', '-q', '-o', 'k:v', 'origin', 'main'], ['fetch', '-q', '-o', 'k:v', 'origin']]) {
+    const p = await untrustedGit(dest, args, { network: 'remote' });
+    assert.doesNotMatch(p.stderr, /Threadbear refused/, args.join(' '));
+  }
+});

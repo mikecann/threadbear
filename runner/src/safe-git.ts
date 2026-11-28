@@ -508,6 +508,9 @@ function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
     // upload-pack's own settings: none runs a program from a repo's config
     // (git takes uploadpack.packObjectsHook only from the owner's own).
     if (/^uploadpack\./.test(e.key)) continue;
+    // A mirror clone is a normal repository to fetch from or push to; its
+    // mirror setting only shapes its own pushes.
+    if (/^remote\.[\s\S]+\.mirror$/.test(e.key)) continue;
     // upload-pack runs Threadbear's own settings (serverCommand), but a
     // source naming a program anyway isn't read from either.
     if (e.key === 'core.alternaterefscommand') throw refuse(`the repository at ${gitDir} names a program in its git config (${e.key}).`);
@@ -576,6 +579,7 @@ function namesAServer(sub: string, arg: string): boolean {
   return sub === 'clone' && /^-[^-]*u/.test(arg);
 }
 
+const PATH_OPTIONS = new Set(['--reference', '--reference-if-able']);
 type TransferWords = { positionals: string[]; values: string[]; known: boolean; all: boolean; multiple: boolean };
 function readTransfer(sub: string, rest: readonly string[]): TransferWords {
   const grammar = TRANSFER_GRAMMAR[sub]!;
@@ -590,11 +594,13 @@ function readTransfer(sub: string, rest: readonly string[]): TransferWords {
     // (Gemini's fifth break-it review).
     const long = /^--(?:no-)?([a-z-]+)(=|$)/.exec(a)?.[1];
     if (sub === 'push' && long && long.length >= 3 && 'repo'.startsWith(long)) throw refuse("it doesn't take push's --repo; name the repository instead.");
-    if (grammar.values.has(a)) { if (i + 1 < rest.length) out.values.push(rest[++i]!); continue; }
+    // Only a value that names a repository (clone's --reference) is read as
+    // one: --force-with-lease=x:<oid> or -o k:v isn't a path (Gemini's final review).
+    if (grammar.values.has(a)) { if (i + 1 < rest.length) { i++; if (PATH_OPTIONS.has(a)) out.values.push(rest[i]!); } continue; }
     if (a === '--all') out.all = true;
     if (a === '--multiple') out.multiple = true;
     const eq = a.indexOf('=');
-    if (eq > 0) out.values.push(a.slice(eq + 1));
+    if (eq > 0 && PATH_OPTIONS.has(a.slice(0, eq))) out.values.push(a.slice(eq + 1));
     if (!grammar.flags.test(a)) out.known = false;
   }
   return out;
@@ -841,7 +847,12 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
     }
     // A transfer that's local doesn't use the repo's http.* settings (a big
     // repo's http.postBuffer), so only a network one is refused for them.
-    config = repoProofConfig(transport === 'local' ? entries.filter((e) => TRUSTED_SCOPES.has(e.scope) || !/^http\./.test(e.key)) : entries, opts.network);
+    // A local transfer needs only the file transport, so that's all it's
+    // allowed (a lazy fetch over https included: Gemini's final review), and
+    // the repo's http.* settings, which then reach nothing, don't stop it (a
+    // big repo's http.postBuffer).
+    if (transport === 'local') env.GIT_ALLOW_PROTOCOL = 'file';
+    config = transport === 'local' ? repoProofConfig(entries.filter((e) => TRUSTED_SCOPES.has(e.scope) || !/^http\./.test(e.key)), 'bundle') : repoProofConfig(entries, opts.network);
   } catch (e) {
     return { result: { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) } };
   }

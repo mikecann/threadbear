@@ -101,12 +101,13 @@ MAIN="$(cgit -C "$CHECKOUT" rev-parse --verify -q refs/heads/main)" || { echo "$
 echo "Staging main ($(cgit -C "$CHECKOUT" rev-parse --short "$MAIN")) from $CHECKOUT into $NEXT_DIR"
 
 # A clone of the checkout, moved to its main: only the files that changed get
-# new times, so the build is incremental wherever it happens. --no-local:
+# new times, so the build is incremental wherever it happens. Main only (it
+# builds nothing else). --no-local:
 # objects come as a pack that git checks against their ids, never as the
 # checkout's own files linked across.
 if [[ ! -d "$SRC/.git" ]]; then
   rm -rf "$SRC"
-  cgit clone -q --no-checkout --no-local --template= --upload-pack="$UPLOAD_PACK" "$CHECKOUT" "$SRC"
+  cgit clone -q --no-checkout --no-local --single-branch --branch main --template= --upload-pack="$UPLOAD_PACK" "$CHECKOUT" "$SRC"
 fi
 cgit -C "$SRC" fetch -q --upload-pack="$UPLOAD_PACK" "$CHECKOUT" "refs/heads/main"
 cgit -C "$SRC" checkout -q --detach FETCH_HEAD
