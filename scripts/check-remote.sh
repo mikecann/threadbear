@@ -65,6 +65,17 @@ BASE_REL=".cache/threadbear-check"
 # on one line and the columns the same on macOS and Linux.
 free_cmd='df -Pk . 2>/dev/null | awk "END { print \$4 }"'
 
+# The copy as a repo of its own, its one commit the files as sent. With no
+# global or system git config: the host's own filters and hooks (git-lfs's,
+# a hook.<name>.command) aren't the copy's to run, though its .gitattributes
+# could pick them (Gemini's review of 187/188, 27 Nov 2026).
+commit_copy() {
+  (cd "$1" && export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_ATTR_NOSYSTEM=1 \
+    && git init -q -b main --template= \
+    && git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null add -A \
+    && git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c commit.gpgSign=false -c user.name=check -c user.email=check@localhost commit -qm "check copy")
+}
+
 # ---- On the check host: scripts/check-remote.sh --on-host <id> [options]
 if [ "${1:-}" = "--on-host" ]; then
   id="$2"
@@ -168,8 +179,7 @@ if [ "${1:-}" = "--on-host" ]; then
 
   # A git repo of its own, on main, as some tests run git in the repo
   # (deploy-backend.mjs reads HEAD). Its one commit is the copy as sent.
-  (cd "$src" && git init -q -b main --template= && git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null add -A && git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c commit.gpgSign=false -c user.name=check -c user.email=check@localhost commit -qm "check copy") \
-    || { echo "Couldn't make the copy a git repo." >&2; exit 1; }
+  commit_copy "$src" || { echo "Couldn't make the copy a git repo." >&2; exit 1; }
 
   # node_modules per package-lock, kept between runs (the newest three of
   # each). npm ci only when the lockfile is new.

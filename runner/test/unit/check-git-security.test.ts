@@ -58,6 +58,31 @@ test('check cache releaseIn rejects replacement refs and substituted objects', (
   assert.equal(releaseIn(f.root), undefined);
 });
 
+// Mike's own copy never takes a release's word, however its origin is
+// written: a doubled slash, an ssh host alias, another ssh user or a local
+// path all once read as a fork (Gemini's review of 187/188, 27 Nov 2026).
+test("check cache releaseIn trusts a release only in a fork whose origin it can read, never Mike's however written", () => {
+  const f = fixture();
+  f.git('remote', 'add', 'origin', 'https://example.test/fork.git');
+  f.git('update-ref', 'refs/threadbear/upstream/2026-11-25', 'HEAD');
+  assert.ok(releaseIn(f.root), 'a fork on a readable address does');
+  for (const url of [
+    'git@github.com:/mikecann/threadbear.git',
+    'https://github.com//mikecann/threadbear.git',
+    'git@gh-work:mikecann/threadbear.git',
+    'mike@github.com:mikecann/threadbear.git',
+    'ssh://git@ssh.github.com/MikeCann/Threadbear/',
+    '/Users/someone/dev/threadbear',
+    './threadbear',
+    'file:///Users/someone/dev/threadbear',
+    'git://github.com/someone/threadbear.git',
+    'https://example.test:8443/someone/threadbear.git',
+  ]) {
+    f.git('remote', 'set-url', 'origin', url);
+    assert.equal(releaseIn(f.root), undefined, url);
+  }
+});
+
 test('remoteChecks disables upstream release test-skipping during deployment', () => {
   const root = tmpDir();
   fs.writeFileSync(path.join(root, 'check.sh'), '#!/bin/bash\n');
@@ -103,4 +128,30 @@ test('check-remote.sh full upload flow never executes repository fsmonitor or fi
   const r = s.run('h1', 3600);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.equal(fs.existsSync(marker), false, 'planted git helper must never run during check-remote.sh');
+});
+
+// The check host makes the copy a repo of its own. Its own global git config
+// isn't the copy's to use: a filter or hook defined there (git-lfs's, say),
+// picked by the copy's .gitattributes, ran on the copy's files (Gemini's
+// review of 187/188, 27 Nov 2026).
+test("the check host's copy is committed without the host's own git config", { skip: IS_WINDOWS }, () => {
+  const root = tmpDir();
+  const marker = path.join(root, 'host-filter-ran');
+  const trap = path.join(root, 'trap.sh');
+  fs.writeFileSync(trap, `#!/bin/sh\nprintf ran >> '${marker}'\ncat\n`, { mode: 0o755 });
+  const hooks = path.join(root, 'hooks');
+  fs.mkdirSync(hooks);
+  fs.writeFileSync(path.join(hooks, 'pre-commit'), `#!/bin/sh\nprintf ran >> '${marker}'\n`, { mode: 0o755 });
+  const global = path.join(root, 'host-gitconfig');
+  fs.writeFileSync(global, `[filter "trap"]\n\tclean = ${trap}\n\trequired = true\n[core]\n\thooksPath = ${hooks}\n[hook "audit"]\n\tcommand = ${trap}\n\tevent = pre-commit\n`);
+  const copy = path.join(root, 'copy');
+  fs.mkdirSync(copy);
+  fs.writeFileSync(path.join(copy, '.gitattributes'), 'a.txt filter=trap\n');
+  fs.writeFileSync(path.join(copy, 'a.txt'), 'copied\n');
+  const source = fs.readFileSync(path.resolve(import.meta.dirname, '../../../scripts/check-remote.sh'), 'utf8');
+  const fn = /^commit_copy\(\) \{[\s\S]*?^\}/m.exec(source)?.[0];
+  assert.ok(fn, 'the host commits the copy through commit_copy');
+  execFileSync('/bin/bash', ['-c', `${fn}\ncommit_copy "$1"`, 'test', copy], { env: { ...process.env, GIT_CONFIG_GLOBAL: global }, stdio: 'pipe' });
+  assert.equal(execFileSync('git', ['-C', copy, 'show', 'HEAD:a.txt'], { encoding: 'utf8' }), 'copied\n', 'committed as the files are');
+  assert.equal(fs.existsSync(marker), false, "the host's own filter or hook ran on the copy");
 });

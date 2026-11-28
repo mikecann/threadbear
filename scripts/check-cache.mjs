@@ -519,21 +519,32 @@ export function testKeys(root, tree, files, { withFiles = false } = {}) {
 // (origin is mikecann/threadbear): his release is a commit of his main, so
 // it would vouch for his own unchecked work, and his checks run in full.
 
-const MIKES_REPO = 'github.com/mikecann/threadbear';
-// github.com/mikecann/threadbear, however the URL is written (as
-// scripts/checked-upstream.mjs's repoKey).
-export function repoKey(value) {
+// A fork's origin as host/owner/repo, or '' when it isn't a plain https or
+// ssh address (scp-style included) with a clean path: a local path, another
+// protocol, a port, a query, an empty or dotted path part. Mike's copy is
+// told apart by its path alone, whatever the host or ssh user, as an ssh
+// host alias (git@gh-work:mikecann/threadbear) reaches GitHub too: a list of
+// the ways Mike's address can be written can't be complete (Gemini's review
+// of 187/188, 27 Nov 2026: a doubled slash and a local path both read as a
+// fork), so anything that isn't plainly someone else's isn't a fork.
+export function forkKey(value) {
   const text = value.trim();
-  const scp = /^git@([^:/?#]+):([^?#]+)$/.exec(text);
-  if (scp) return `${scp[1]}/${scp[2]}`.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
-  if (/^[a-z+]+:\/\//i.test(text)) {
-    try {
-      const url = new URL(text);
-      if (!['https:', 'ssh:'].includes(url.protocol) || url.search || url.hash || url.port || url.password || !url.hostname || /%/.test(url.pathname)) return '';
-      return `${url.hostname}${url.pathname}`.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
-    } catch { return ''; }
+  let host, pathname;
+  const scp = /^(?:[A-Za-z0-9._~+-]+@)?([A-Za-z0-9][A-Za-z0-9.-]*):([^:]+)$/.exec(text);
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) {
+    let url;
+    try { url = new URL(text); } catch { return ''; }
+    if (!['https:', 'ssh:'].includes(url.protocol) || url.search || url.hash || url.port || url.password || !url.hostname || /%/.test(url.pathname)) return '';
+    host = url.hostname; pathname = url.pathname;
+  } else if (scp && !scp[2].startsWith('/')) {
+    host = scp[1]; pathname = scp[2];
+  } else {
+    return '';
   }
-  return text.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+  const parts = pathname.replace(/^\//, '').replace(/\/$/, '').replace(/\.git$/i, '').split('/');
+  if (parts.some((p) => !p || p === '.' || p === '..' || !/^[A-Za-z0-9._-]+$/.test(p))) return '';
+  const key = `${host}/${parts.join('/')}`.toLowerCase();
+  return /(^|\/)mikecann\/threadbear$/.test(key) ? '' : key;
 }
 
 // The newest verified release already in HEAD: { name, tree } or undefined.
@@ -545,7 +556,7 @@ export function releaseIn(root) {
   // copy, and a check host's copy (no origin), never take a release's word.
   const origin = git(['config', '--get-all', 'remote.origin.url']);
   const urls = origin.ok ? origin.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : [];
-  if (urls.length !== 1 || !repoKey(urls[0]) || repoKey(urls[0]) === MIKES_REPO) return undefined;
+  if (urls.length !== 1 || !forkKey(urls[0])) return undefined;
   // refs/threadbear/upstream/ holds the releases the runner checked the
   // signature of (runner/src/upstream.ts).
   const r = git(['for-each-ref', '--merged', 'HEAD', '--sort=-refname', '--count=1', '--format=%(refname)', 'refs/threadbear/upstream/']);
