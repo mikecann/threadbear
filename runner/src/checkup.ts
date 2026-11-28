@@ -33,7 +33,7 @@ import { LAND_TIMES_FILE } from './land-queue.ts';
 import type { PatchInfo } from './protocol.ts';
 import { scrubText } from './redaction.ts';
 import { readState as readReleaseState } from './release.ts';
-import { LISTING_GIT_CONFIG, untrustedGitEnv } from './safe-git.ts';
+import { LISTING_GIT_CONFIG, LISTING_GIT_ENV, untrustedGitEnv } from './safe-git.ts';
 import { errorKind } from './sentry.ts';
 import { RELEASE_NAME, repoKey, signersPath, TAG_PREFIX, UPSTREAM_REFS, verifiedRelease, type SignedTag } from './upstream.ts';
 
@@ -474,7 +474,7 @@ export function scrubForPosting(text: string, home = os.homedir(), user = os.use
 // review, 22 Nov).
 // Grafts and the commit-graph off too, and no fetching or hooks, as for the
 // release check itself (Gemini's review of Daybreak 180, 24 Nov 2026).
-const GIT_ENV = { ...untrustedGitEnv(), GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: '/dev/null', GIT_NO_LAZY_FETCH: '1' };
+const GIT_ENV = { ...untrustedGitEnv(), GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: '/dev/null', ...LISTING_GIT_ENV };
 const GIT_CONFIG = [...LISTING_GIT_CONFIG, '-c', 'core.commitGraph=false', '-c', 'advice.graftFileDeprecated=false'];
 
 function git(cwd: string, args: string[]): string | undefined {

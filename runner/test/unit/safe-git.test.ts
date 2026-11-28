@@ -8,7 +8,7 @@ import { claudeCommands } from '../../src/claude-trust.ts';
 import { trackedNodeModules } from '../../src/tracked-packages.ts';
 import { git as worktreeGit } from '../../src/worktrees.ts';
 import { changedFiles } from '../../src/move-git.ts';
-import { untrustedGit, untrustedGitSync, untrustedGitEnv, parseConfigListBytes, repoProofConfig } from '../../src/safe-git.ts';
+import { untrustedGit, untrustedGitSync, untrustedGitEnv, parseConfigListBytes, repoProofConfig, LISTING_GIT_CONFIG, LISTING_GIT_ENV } from '../../src/safe-git.ts';
 
 // A folder that arrived with its own .git (a zip, a shared drive), whose
 // .git/config names an fsmonitor program. Nothing the runner does before
@@ -278,5 +278,44 @@ test('unknown local Git settings fail closed while owner-global settings remain 
   assert.doesNotThrow(() => repoProofConfig([{ scope: 'global', key: 'future.program', value: 'payload' }]));
   for (const network of ['bundle', 'remote'] as const) for (const key of ['remote.origin.proxy', 'remote.origin.proxyAuthMethod']) {
     assert.throws(() => repoProofConfig([{ scope: 'local', key: key.toLowerCase(), value: 'attacker' }], network), /transport config/);
+  }
+});
+
+// A git older than 2.44 (or without the backport) ignores GIT_NO_LAZY_FETCH,
+// and a protocol the repo allows itself (protocol.<name>.allow) beats
+// protocol.allow=never: its own transport helper ran. GIT_ALLOW_PROTOCOL
+// beats every config (Gemini's break-it review of 187/188, 28 Nov 2026).
+test("a listing's settings refuse a transport the repo allows itself, even where lazy fetch isn't switched off", { skip: process.platform === 'win32' }, () => {
+  const { repo } = lazy();
+  const root = path.dirname(repo);
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin);
+  const marker = path.join(root, 'helper-ran');
+  fs.writeFileSync(path.join(bin, 'git-remote-tbtest'), `#!/bin/sh\necho ran >> '${marker}'\nexit 1\n`, { mode: 0o755 });
+  const g = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { stdio: 'pipe' });
+  g('config', 'remote.origin.url', 'tbtest::x');
+  g('config', 'protocol.tbtest.allow', 'always');
+  const env = { ...untrustedGitEnv(), PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+  try { execFileSync('git', [...LISTING_GIT_CONFIG, '-C', repo, 'ls-files', '-s'], { stdio: 'pipe', env }); } catch { /* it fails to fetch */ }
+  assert.ok(fs.existsSync(marker), "without the listing's environment the repo's helper runs, so the check below means something");
+  fs.rmSync(marker);
+  const { GIT_NO_LAZY_FETCH: _off, ...older } = LISTING_GIT_ENV;
+  try { execFileSync('git', [...LISTING_GIT_CONFIG, '-C', repo, 'ls-files', '-s'], { stdio: 'pipe', env: { ...env, ...older } }); } catch { /* it fails to fetch */ }
+  assert.equal(fs.existsSync(marker), false);
+});
+
+// Tools write settings of their own into a repo's config (VS Code's
+// branch.<name>.vscode-merge-base, gh's branch.<name>.github-pr-*), which a
+// closed list of settings refused, stopping worktrees and landings in
+// Mike's own repos (Gemini's break-it review, 28 Nov 2026). Settings that
+// run nothing go through; ones that could run a program or move a transfer
+// still don't.
+test('settings tools write go through; ones that could run a program or redirect a fetch still fail closed', () => {
+  const local = (key: string, value = 'x') => ({ scope: 'local', key, value });
+  for (const key of ['branch.feature/x.vscode-merge-base', 'branch.main.github-pr-owner-number', 'branch.main.gh-merge-base', 'submodule.active', 'core.fscache', 'core.sharedrepository', 'merge.conflictstyle', 'advice.detachedhead', 'remote.pushdefault', 'lfs.https://example.invalid/x.git/info/lfs.locksverify', 'alias.st', 'rerere.autoupdate', 'pull.rebase']) {
+    assert.doesNotThrow(() => repoProofConfig([local(key)]), key);
+  }
+  for (const key of ['core.gitproxy', 'remote.origin.vcs', 'fetch.bundleuri', 'transfer.bundleuri', 'pager.log', 'some.thing.command', 'notes.displayref.helper', 'web.browser', 'sendemail.smtpserver']) {
+    assert.throws(() => repoProofConfig([local(key)]), /must move/, key);
   }
 });

@@ -944,8 +944,11 @@ boundary as moves: no configured hooks, filters, signing or merge programs run.
 A configured merge driver is replaced by Git's text merge. Repository-scoped
 conditional includes are refused: they can add a driver only after a new
 worktree exists. Local settings must be passive or explicitly neutralized by this
-wrapper; unknown settings fail closed with guidance to move them to global
-configuration. Owner-global configuration remains the owner's choice. Network operations
+wrapper: a setting in a section whose settings run nothing here (`branch.*`,
+`core.*`, `lfs.*` and the like, as tools write them) passes unless its name
+says it names a program or moves a transfer (`*command`, `*helper`, `*proxy`,
+`*hook`, `*bundleuri`); any other setting fails closed with guidance to move it
+to global configuration. Owner-global configuration remains the owner's choice. Network operations
 refuse repository-local URL rewrites and HTTP configuration; move those settings
 to the owner's global configuration when needed. Setup's upstream check uses
 that boundary too.
@@ -957,7 +960,10 @@ hooks. Before any transfer the wrapper reads every repository the command could
 open: each word of the command and each option's value, and for a fetch, push
 or ls-remote every remote the repo has (including `.git/remotes` and
 `.git/branches` ones), found as Git finds them (`~/` under HOME, `file://`
-decoded, each `.git` suffix Git tries, `.git` files followed). It refuses the
+decoded, trailing slashes dropped, each `.git` suffix Git tries, `.git` files
+followed; a `file://` address with `?`, `#` or `%` is refused). A fetch or push
+whose repository is a path or address uses no remote, so then only it is read.
+It refuses the
 transfer when one says it's a partial clone, has conditional includes or a
 setting it hasn't been checked for, or, for a push target, has a hook or a
 setting that names a program. Another user's `~name` path isn't followed, so it

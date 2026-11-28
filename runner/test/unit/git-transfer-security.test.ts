@@ -187,3 +187,41 @@ test('a .gitmodules version brought in or taken out by a type change is still re
   assert.ok(moduleHistoryBlobs(raw).includes(blob), raw);
   assert.equal(moduleHistoryBlobs(raw).length, 1, 'only the regular-file version, never a link target');
 });
+
+// Git strips trailing slashes before trying its suffixes, keeps a file://
+// address's ? and # as part of the path, and lets the OS resolve `..`
+// through a link (Gemini's break-it review of 187/188, 28 Nov 2026).
+test('a trailing slash, a file:// address with ?, # or % and a .. through a link are read as git reads them', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const home = path.join(root, 'home');
+  const bare = repoAt(path.join(root, 'evil.git'), { bare: true });
+  const homeBare = repoAt(path.join(home, 'hevil.git'), { bare: true });
+  makeHostile(bare); makeHostile(homeBare);
+  const saved = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    for (const word of [`${root}/evil/`, `${root}/evil//`, `file://${root}/evil/`, '~/hevil/']) await refusedBoth(dest, ['fetch', '-q', word, 'main'], word);
+  } finally {
+    if (saved === undefined) delete process.env.HOME; else process.env.HOME = saved;
+  }
+  for (const word of [`file://${root}/odd#x`, `file://${root}/odd?x`, `file://${root}/odd%41`]) await refusedBoth(dest, ['fetch', '-q', word, 'main'], word);
+  fs.mkdirSync(path.join(root, 'a', 'b'), { recursive: true });
+  fs.symlinkSync(path.join(root, 'a', 'b'), path.join(root, 'link'));
+  makeHostile(repoAt(path.join(root, 'a', 'sym.git'), { bare: true }));
+  await refusedBoth(dest, ['fetch', '-q', `${root}/link/../sym`, 'main'], '.. through a link');
+});
+
+// Fetching from a named path doesn't use the repo's remotes, so a remote
+// that couldn't be fetched from doesn't stop it (merge-prepared.mjs fetches
+// its own temporary repo, the update clone its checkout).
+test('a fetch from a named repository is not stopped by an unrelated remote', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const src = repoAt(path.join(root, 'src'));
+  const other = repoAt(path.join(root, 'other'));
+  makeHostile(other);
+  g(dest, 'remote', 'add', 'other', other);
+  const r = await untrustedGit(dest, ['fetch', '-q', '--no-tags', src, 'main'], { network: 'bundle' });
+  assert.ok(r.ok, r.stderr);
+  await refusedBoth(dest, ['fetch', '-q', 'other'], 'fetching the hostile remote itself');
+  await refusedBoth(dest, ['fetch', '-q', '--some-option-it-does-not-know', src, 'main'], 'an option it does not know still checks every remote');
+});

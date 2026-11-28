@@ -60,6 +60,14 @@ function protocols(allowed: readonly string[]): string[] {
 const NO_FETCH: readonly string[] = protocols([]);
 const LISTINGS = new Set(['ls-files', 'rev-parse']);
 export const LISTING_GIT_CONFIG: readonly string[] = [...UNTRUSTED_GIT_CONFIG, ...NO_FETCH, '-c', `core.hooksPath=${noHooksPath()}`];
+// And the environment a listing runs with. A protocol a repo allows itself
+// (protocol.<name>.allow, any name) beats protocol.allow=never, and a git
+// that ignores GIT_NO_LAZY_FETCH (before 2.44, unless patched) ran the
+// repo's own transport helper for a missing object; GIT_ALLOW_PROTOCOL
+// beats every config, so with a name no transport has, none is allowed
+// (Gemini's break-it review of 187/188, 28 Nov 2026). No prompt or askpass
+// program either, should a transport start anyway.
+export const LISTING_GIT_ENV: Readonly<Record<string, string>> = { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: 'none', GIT_ASKPASS: '', GIT_TERMINAL_PROMPT: '0' };
 
 // A git listing in `dir`, read whole: what claude-trust and tracked-packages
 // use to see what a folder holds before it's trusted. Throws as
@@ -72,7 +80,7 @@ export function untrustedGitSync(dir: string, args: readonly string[]): string {
     stdio: ['ignore', 'pipe', 'ignore'],
     timeout: 10_000,
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1' },
+    env: { ...untrustedGitEnv(), ...LISTING_GIT_ENV },
   });
 }
 
@@ -197,6 +205,21 @@ const LOCAL_KEYS = [
   /^gpg\.(program|format|openpgp\.program|x509\.program|ssh\.(program|defaultkeycommand|allowedsignersfile|revocationfile))$/,
 ];
 
+// Beyond those, tools write settings of their own into a repo's config
+// (VS Code's branch.<name>.vscode-merge-base, gh's branch.<name>.github-pr-*,
+// git-lfs's lfs.<url>.*), and refusing every name not listed above stopped
+// worktrees and landings in ordinary repos (Gemini's break-it review of
+// 187/188, 28 Nov 2026). So a setting in a section whose settings run nothing
+// in the commands untrustedGit runs goes through too, unless its name says
+// it names a program or moves a transfer. Any other section still fails
+// closed (pager.*, sendemail.*, web.*, a tool's own section).
+const PASSIVE_SECTIONS = /^(advice|alias|am|apply|blame|branch|checkout|color|column|commit|core|diff|feature|fetch|format|gc|gui|help|i18n|index|init|interactive|lfs|log|maintenance|merge|notes|pack|pretty|pull|push|rebase|receive|remote|repack|rerere|status|submodule|tag|transfer|uploadpack|user|worktree)\./;
+const NAMES_A_PROGRAM = /(command|cmd|program|helper|hook|proxy|exec|vcs|bundleuri)$/;
+function localKeyOk(key: string): boolean {
+  if (LOCAL_KEYS.some((p) => p.test(key))) return true;
+  return PASSIVE_SECTIONS.test(key) && !NAMES_A_PROGRAM.test(key.slice(key.lastIndexOf('.') + 1));
+}
+
 // The -c settings for `entries` (a repo's config as git reads it): see above.
 export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote', filesForTests = false): string[] {
   const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', `core.hooksPath=${noHooksPath()}`, ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
@@ -206,7 +229,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   const submodules = new Set<string>();
   const allowed = network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [];
   for (const e of entries) {
-    if (e.scope !== 'command' && !TRUSTED_SCOPES.has(e.scope) && !LOCAL_KEYS.some((p) => p.test(e.key)) && !(filesForTests && /^url\./.test(e.key))) throw new Error(`This repo's git setting (${e.key}) must move to your global git config before Threadbear can run git here.`);
+    if (e.scope !== 'command' && !TRUSTED_SCOPES.has(e.scope) && !localKeyOk(e.key) && !(filesForTests && /^url\./.test(e.key))) throw new Error(`This repo's git setting (${e.key}) must move to your global git config before Threadbear can run git here.`);
     // A protocol the repo names beats protocol.allow too (ftp, a helper's
     // name for `foo::`), so each one it names is turned off by name.
     // Any name, empty and with line separators too, which `.` skips
@@ -362,9 +385,10 @@ function gitfileTarget(file: string): string | undefined {
   if (head.toString('latin1') !== 'gitdir: ') return undefined;
   if (fs.statSync(file).size > 64 * 1024) throw refuse(`the .git file ${file} is too big to be one.`);
   const named = fs.readFileSync(file, 'utf8').slice(8).replace(/[\r\n]+$/, '');
-  const target = path.resolve(path.dirname(file), named);
+  // Relative to the file's folder as written, as git's read_gitfile joins it.
+  const target = path.isAbsolute(named) ? named : `${file.slice(0, Math.max(file.lastIndexOf('/'), file.lastIndexOf(path.sep)))}${path.sep}${named}`;
   try {
-    return fs.realpathSync(target);
+    return fs.realpathSync.native(target); // the OS's, which resolves `..` after a link
   } catch {
     return undefined; // git can't open it either
   }
@@ -373,21 +397,30 @@ function gitfileTarget(file: string): string | undefined {
 // The repositories git could open on this machine for `word`: none for a
 // network address.
 function localGitDirs(dir: string, word: string, home: string): string[] {
-  let bases: string[];
+  let raw: string;
   if (/^file:\/\//i.test(word)) {
+    // git keeps ? and # in a file:// path and decodes %, where a URL parser
+    // drops or decodes them differently (Gemini's break-it review): such an
+    // address isn't followed, so it's refused rather than guessed at.
+    if (/[?#%]/.test(word)) throw refuse(`it doesn't follow a file:// address with ?, # or % in it (${JSON.stringify(word.slice(0, 200))}).`);
     let url: URL;
     try { url = new URL(word); } catch { throw refuse(`it can't read ${JSON.stringify(word.slice(0, 200))} as a file:// address.`); }
     if (url.hostname && url.hostname.toLowerCase() !== 'localhost') throw refuse(`${JSON.stringify(word.slice(0, 200))} isn't a path on this machine.`);
-    try { bases = [fileURLToPath(url)]; } catch { throw refuse(`it can't read ${JSON.stringify(word.slice(0, 200))} as a file:// address.`); }
+    try { raw = fileURLToPath(url); } catch { throw refuse(`it can't read ${JSON.stringify(word.slice(0, 200))} as a file:// address.`); }
   } else {
     // As git's url_is_local_not_ssh, with a backslash also counted as a
     // slash: taking more words as paths only checks more.
     const colon = word.indexOf(':'), slash = word.search(/[\\/]/);
     if (colon >= 0 && !(slash >= 0 && slash < colon) && !/^[A-Za-z]:[\\/]/.test(word)) return [];
-    bases = [path.resolve(dir, word)];
-    if (/^~(?:[\\/]|$)/.test(word)) bases.push(path.join(home, word.slice(1)));
+    if (/^~(?:[\\/]|$)/.test(word)) raw = home + word.slice(1);
     else if (word.startsWith('~')) throw refuse(`it can't check ${JSON.stringify(word.slice(0, 200))}, another user's home, which git would open.`);
+    else raw = path.isAbsolute(word) ? word : `${dir}${path.sep}${word}`;
   }
+  // As written, its trailing slashes gone as enter_repo takes them off, so
+  // the OS resolves `..` through a link as it does for git; and tidied too,
+  // which only checks more.
+  const stripped = raw.replace(/(?<=[^\\/])[\\/]+$/, '');
+  const bases = [...new Set([stripped, path.resolve(stripped)])];
   const found = new Set<string>();
   for (const base of bases) {
     for (const suffix of ENTER_REPO_SUFFIXES) {
@@ -395,7 +428,9 @@ function localGitDirs(dir: string, word: string, home: string): string[] {
       let st: fs.Stats;
       try { st = fs.statSync(at); } catch { continue; }
       if (st.isDirectory()) {
-        if (fs.existsSync(path.join(at, 'HEAD'))) found.add(fs.realpathSync(at));
+        // Joined as a string: path.join would take `link/..` out before the
+        // OS resolves it through the link, as it does for git.
+        if (fs.existsSync(`${at}${path.sep}HEAD`)) found.add(fs.realpathSync.native(at));
       } else if (st.isFile()) {
         const target = gitfileTarget(at);
         if (target) found.add(target);
@@ -414,7 +449,7 @@ function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
     // (git takes uploadpack.packObjectsHook only from the owner's own).
     if (/^uploadpack\./.test(e.key)) continue;
     if (push && RUNS_ON_PUSH.test(e.key)) throw refuse(`the repository at ${gitDir} names a program in its git config (${e.key}), which a push would run.`);
-    if (!LOCAL_KEYS.some((p) => p.test(e.key))) throw refuse(`the repository at ${gitDir} has a git setting (${e.key}) Threadbear hasn't been checked for; move it to your global git config.`);
+    if (!localKeyOk(e.key)) throw refuse(`the repository at ${gitDir} has a git setting (${e.key}) Threadbear hasn't been checked for; move it to your global git config.`);
   }
   if (!push) return;
   let common = gitDir;
@@ -431,6 +466,21 @@ function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
   }
 }
 
+// A fetch, push or ls-remote whose repository is a path or address (a word
+// with a slash, which no remote's name has) uses no remote, so the repo's
+// remotes needn't be checked: one that couldn't be fetched from mustn't stop
+// a fetch from Threadbear's own temporary repo (merge-prepared.mjs) or the
+// update clone's checkout. Only with options known to take no repository of
+// their own, or the first word might not be the repository.
+const PLAIN_TRANSFER_OPTION = /^(-q|--quiet|-v|--verbose|-f|--force|--no-tags|--tags|--no-write-fetch-head|--prune|--no-prune|--no-prune-tags|--no-recurse-submodules|--recurse-submodules=no|--atomic|--signed=false|--upload-pack=git-upload-pack|--receive-pack=git-receive-pack|--depth=\d+|--refs|--heads)$/;
+function namesItsRepository(rest: readonly string[]): boolean {
+  const end = rest.indexOf('--');
+  const opts = end < 0 ? rest.filter((a) => a.startsWith('-')) : rest.slice(0, end).filter((a) => a.startsWith('-'));
+  if (!opts.every((a) => PLAIN_TRANSFER_OPTION.test(a))) return false;
+  const first = end < 0 ? rest.find((a) => !a.startsWith('-')) : rest.slice(0, end).find((a) => !a.startsWith('-')) ?? rest[end + 1];
+  return first !== undefined && /[\\/]/.test(first);
+}
+
 function* checkTransfer(dir: string, sub: string, rest: readonly string[], entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv, timeoutMs: number): Generator<GitStep, void, UntrustedGitResult> {
   const words: string[] = [];
   let ended = false;
@@ -443,7 +493,7 @@ function* checkTransfer(dir: string, sub: string, rest: readonly string[], entri
     }
     words.push(a);
   }
-  if (sub !== 'clone') {
+  if (sub !== 'clone' && !namesItsRepository(rest)) {
     for (const e of entries) if (/^remote\.[\s\S]+\.(url|pushurl)$/.test(e.key)) words.push(e.value);
     const common = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], env, timeoutMs };
     if (common.ok) {
@@ -514,7 +564,7 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
   // An empty GIT_ASKPASS stops git asking any program, core.askPass too.
   // No lazy fetch even for a fetch: a local origin's upload-pack inherits
   // it, and would otherwise fetch what it lacks through its own config.
-  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_EDITOR: ':', GIT_SEQUENCE_EDITOR: ':', ...opts.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: os.devNull, GIT_ATTR_NOSYSTEM: '1' };
+  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_EDITOR: ':', GIT_SEQUENCE_EDITOR: ':', ...opts.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: os.devNull, GIT_ATTR_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: opts.network === 'remote' ? 'https:ssh:file' : opts.network === 'bundle' ? 'file' : 'none' };
   // A clone or fetch of a big repo can take a while.
   const timeout = opts.timeoutMs ?? (opts.network === 'remote' ? 30 * 60_000 : 5 * 60_000);
   const extra: string[] = [];
@@ -531,7 +581,7 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
   if (!sub || !SUBCOMMANDS.has(sub)) return { result: { ok: false, code: 1, stdout: '', stderr: `untrustedGit doesn't run git ${[sub, sub === 'worktree' ? rest[0] : undefined].filter(Boolean).join(' ')}: nobody has looked at what a repo's config could make it run.` } };
   const started = Date.now();
   const short = Math.min(10_000, timeout);
-  const listEnv: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...opts.env };
+  const listEnv: NodeJS.ProcessEnv = { ...untrustedGitEnv(), ...opts.env, ...LISTING_GIT_ENV };
   const listed = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--list', '--show-scope', '-z'], env: listEnv, timeoutMs: short, bytes: true };
   // Outside a repo it still lists the owner's own config (empty is 0 too);
   // a config git can't parse fails the listing, and so this.
@@ -547,7 +597,7 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
         const baseConfig = repoProofConfig(entries);
         const revCheck = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'cat-file', '--batch-check=%(objecttype) %(objectname)'], env, timeoutMs: short, input: moduleRevCandidates(rest).map((r) => `${r}^{commit}\n`).join('') };
         const extraCommits = revCheck.ok ? revCheck.stdout.split('\n').flatMap((l) => (/^commit ([0-9a-f]{40,64})$/.exec(l)?.[1] ? [l.slice(7)] : [])) : [];
-        const history = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, timeoutMs: short };
+        const history = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, timeoutMs: timeout };
         if (!history.ok) throw new Error('Cannot inspect submodule history safely.');
         for (const oid of moduleHistoryBlobs(history.stdout)) {
           const m = yield blobConfig(oid);
