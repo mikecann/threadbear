@@ -2722,3 +2722,169 @@ test('MCP end_turn hooks skip invalid arguments, coordinator denials and out-of-
   });
   assert.equal(r.outputs.length, before, 'out-of-turn MCP end_turn emits nothing');
 });
+
+test('directories in locations are not treated as hard-linked files, and an execute call naming only its own folder stays a clean shell card', async () => {
+  let release!: () => void;
+  const r = rig({
+    mode: 'auto',
+    opts: { runsAsCode: () => 'unsure' },
+    answer: () => new Promise((res) => (release = () => res({ decision: 'allow' }))),
+  });
+  const s = r.start();
+  await ready(r, s);
+  const home = fs.realpathSync(r.cwd);
+  const sub = path.join(home, 'sub');
+  fs.mkdirSync(sub);
+
+  // 1. OpenCode shell call whose locations lists the thread's own cwd directory:
+  //    stays a plain shell card, reviewable by Auto, no false outside/code labels,
+  //    and sets fullAllows so mid-turn Full access can settle it.
+  frame(s, { toolCallId: 'ex1', kind: 'execute', name: 'shell', locations: [{ path: home }], rawInput: { cwd: home } });
+  const a = fakeRequest(r, s, {
+    toolCallId: 'ex1',
+    kind: 'execute',
+    name: 'shell',
+    locations: [{ path: home }],
+    rawInput: { command: 'gh pr view 125', cwd: home },
+  });
+  await until(() => r.cards.length === 1);
+  assert.equal(r.cards[0].name, 'shell');
+  assert.equal(r.cards[0].noReview, undefined);
+  assert.equal(r.cards[0].fullAllows, true);
+  assert.doesNotMatch(r.cards[0].title, /outside this thread's folder/);
+  assert.doesNotMatch(r.cards[0].title, /runs as code/);
+  // Creating an unrelated sibling subdir while the card waits bumps cwd's st.nlink
+  // on POSIX, which must not spuriously cancel the approved shell command.
+  fs.mkdirSync(path.join(home, 'sibling'));
+  release();
+  await until(() => a.length === 1);
+  assert.deepEqual(a[0], { outcome: { outcome: 'selected', optionId: 'once' } });
+
+  // 1b. Plain system command with locations: [{ path: home }] also gets canAlwaysAllow: true.
+  const a2 = fakeRequest(r, s, {
+    toolCallId: 'ex1b',
+    kind: 'execute',
+    name: 'shell',
+    locations: [{ path: home }],
+    rawInput: { command: 'ls -la', cwd: home },
+  });
+  await until(() => r.cards.length === 2);
+  assert.equal(r.cards[1].name, 'shell');
+  assert.equal(r.cards[1].canAlwaysAllow, true);
+  assert.equal(r.cards[1].noReview, undefined);
+  release();
+  await until(() => a2.length === 1);
+
+  // 2. Non-execute tool naming an existing subdirectory inside cwd:
+  //    st.nlink >= 2 on a directory is normal POSIX behavior, not a hard-linked file.
+  const b = fakeRequest(r, s, {
+    toolCallId: 'dir1',
+    kind: 'other',
+    title: 'Inspect folder',
+    locations: [{ path: sub }],
+    rawInput: { dir: sub },
+  });
+  await until(() => r.cards.length === 3);
+  assert.equal(r.cards[2].noReview, undefined);
+  assert.equal(r.cards[2].fullAllows, true);
+  assert.doesNotMatch(r.cards[2].title, /outside this thread's folder/);
+  release();
+  await until(() => b.length === 1);
+
+  // 3. Symlink inside cwd pointing to a hard-linked regular file inside cwd
+  //    (whose other link is outside cwd) STILL marks reachesOut + noReview.
+  const outsideFile = path.join(r.root, 'outside-secret.txt');
+  const linkedInside = path.join(home, 'linked.txt');
+  const symToLinked = path.join(home, 'sym-to-linked.txt');
+  fs.writeFileSync(outsideFile, 'secret');
+  fs.linkSync(outsideFile, linkedInside);
+  fs.symlinkSync(linkedInside, symToLinked);
+  const c = fakeRequest(r, s, {
+    toolCallId: 'hl1',
+    kind: 'edit',
+    locations: [{ path: symToLinked }],
+    rawInput: { path: symToLinked, content: 'overwrite' },
+  });
+  await until(() => r.cards.length === 4);
+  assert.equal(r.cards[3].noReview, true);
+  assert.match(r.cards[3].title, /outside this thread's folder/);
+  release();
+  await until(() => c.length === 1);
+
+  // 4. Execute naming a symlink to cwd in locations (not a real dir) still shows full card.
+  const linkToHome = path.join(home, 'link-to-home');
+  fs.symlinkSync(home, linkToHome);
+  const d = fakeRequest(r, s, {
+    toolCallId: 'ex2',
+    kind: 'execute',
+    locations: [{ path: linkToHome }],
+    rawInput: { command: 'gh pr view 125', cwd: home },
+  });
+  await until(() => r.cards.length === 5);
+  assert.notEqual(r.cards[4].name, 'shell');
+  release();
+  await until(() => d.length === 1);
+});
+
+test("Antigravity: readGoesAhead allows reading this session's own lazy MCP schema dir, and blocks other sessions, escapes and edits", async () => {
+  const prevGeminiHome = process.env.GEMINI_HOME;
+  const ghome = tmp();
+  made.push(ghome);
+  process.env.GEMINI_HOME = ghome;
+  try {
+    const r = agy({ deny: true });
+    const s = r.start();
+    await ready(r, s);
+    const sid = (s as unknown as { sessionId?: string }).sessionId!;
+    assert.ok(sid && /^[A-Za-z0-9_-]+$/.test(sid), `expected safe sessionId, got ${sid}`);
+
+    const agyDir = path.join(ghome, 'antigravity-acp');
+    const ownMcp = path.join(agyDir, 'brain', sid, 'mcp');
+    const ownServer = path.join(ownMcp, 'threadbear');
+    const ownSchema = path.join(ownServer, 'send_message.json');
+    const otherMcp = path.join(agyDir, 'brain', 'other-session-id', 'mcp', 'threadbear');
+    const otherSchema = path.join(otherMcp, 'send_message.json');
+    const tokenFile = path.join(agyDir, 'acp_token.json');
+    const sysLog = path.join(agyDir, 'brain', sid, '.system_generated', 'transcript.jsonl');
+    const escapeLink = path.join(ownMcp, 'escape.json');
+    const hardLink = path.join(ownMcp, 'token-hardlink.json');
+    fs.mkdirSync(ownServer, { recursive: true });
+    fs.mkdirSync(otherMcp, { recursive: true });
+    fs.mkdirSync(path.dirname(sysLog), { recursive: true });
+    fs.writeFileSync(ownSchema, '{"name":"send_message"}');
+    fs.writeFileSync(otherSchema, '{"name":"send_message"}');
+    fs.writeFileSync(tokenFile, '{"token":"secret"}');
+    fs.writeFileSync(sysLog, '{}');
+    fs.symlinkSync(tokenFile, escapeLink);
+    fs.linkSync(tokenFile, hardLink);
+
+    // Own MCP schema file and directory go ahead with no card.
+    const okFile = fakeRequest(r, s, { toolCallId: 'mcp-r1', kind: 'read', rawInput: { AbsolutePath: ownSchema } });
+    await until(() => okFile.length === 1);
+    assert.deepEqual(okFile[0], { outcome: { outcome: 'selected', optionId: 'once' } });
+    const okDir = fakeRequest(r, s, { toolCallId: 'mcp-r2', kind: 'read', rawInput: { DirectoryPath: ownMcp } });
+    await until(() => okDir.length === 1);
+    assert.deepEqual(okDir[0], { outcome: { outcome: 'selected', optionId: 'once' } });
+    assert.equal(r.cards.length, 0, 'own lazy MCP schema reads go ahead without cards');
+
+    // Other session's MCP dir, acp_token.json, .system_generated, symlink escape, `..`, and edits MUST still ask.
+    const blocked: Record<string, unknown>[] = [
+      { toolCallId: 'mcp-b1', kind: 'read', rawInput: { AbsolutePath: otherSchema } },
+      { toolCallId: 'mcp-b2', kind: 'read', rawInput: { AbsolutePath: tokenFile } },
+      { toolCallId: 'mcp-b3', kind: 'read', rawInput: { AbsolutePath: sysLog } },
+      { toolCallId: 'mcp-b4', kind: 'read', rawInput: { AbsolutePath: escapeLink } },
+      { toolCallId: 'mcp-b4b', kind: 'read', rawInput: { AbsolutePath: hardLink } },
+      { toolCallId: 'mcp-b5', kind: 'read', rawInput: { AbsolutePath: `${ownMcp}/../.system_generated/transcript.jsonl` } },
+      { toolCallId: 'mcp-b6', kind: 'edit', locations: [{ path: ownSchema }], rawInput: { path: ownSchema, content: '{}' } },
+    ];
+    for (const [i, call] of blocked.entries()) {
+      const rep = fakeRequest(r, s, call);
+      await until(() => rep.length === 1);
+      assert.equal(r.cards.length, i + 1, `blocked case ${i} must show a card`);
+    }
+    assert.equal(r.cards.at(-1)!.noReview, true, 'editing own MCP schema dir stays outside-folder noReview');
+  } finally {
+    if (prevGeminiHome === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prevGeminiHome;
+  }
+});

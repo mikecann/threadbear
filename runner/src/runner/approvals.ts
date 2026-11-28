@@ -207,6 +207,9 @@ export const approvalsPart = {
       signal?.removeEventListener('abort', onAbort);
     }
     if (cliHears(rt, gen) !== 'current' || rt.deleted || this.stopping) return { decision: 'expired', message: 'The thread is shutting down.' };
+    // Switched to Full meanwhile: a card Full wouldn't have asked goes ahead
+    // rather than popping under a Full composer.
+    if (st.rec.permissionMode === 'full' && fullAllows) return { decision: 'allow', message: 'Allowed by Full access' };
     // Still on Auto: switched to Ask or Plan meanwhile, it's Mike's card.
     if (verdict.allow && !entry.stale && reviewsCards(this, st)) {
       this.emit(st, { type: 'system.note', text: `Allowed by the reviewer: ${card.title}. ${verdict.why}` }, rt.turn?.turnId);

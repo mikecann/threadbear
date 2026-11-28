@@ -3,6 +3,8 @@
 // leaves it for Alex with its reason.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { FakeAccounts, FakeAdapter, makeHarness, tick, tmpDir, withCodex } from '../helpers/fakes.ts';
 import { FakeClock } from '../../src/clock.ts';
 import { ensureHome } from '../../src/config.ts';
@@ -569,4 +571,109 @@ test('cardReviewer: Codex MCP tool-approval elicitations go through the reviewer
   finishReview({ ok: true, value: '{"verdict":"ask","why":"late verdict"}', model: 'claude-opus-5-5' });
   await tick();
   assert.equal(hRace.events(tRace.id).filter((e) => e.type === 'approval.requested').length, 0);
+});
+
+test('cardReviewer: switching to Full just as a review finishes allows without popping a card', async () => {
+  // Simulate the race where reviewCard resolves with "ask" after permissionMode
+  // became 'full' without cancel winning Promise.race (e.g., same-tick finish).
+  let flipAndResolve!: () => void;
+  const h = setup({
+    answer: () =>
+      new Promise<ModelResult<string>>((res) => {
+        flipAndResolve = () => {
+          // Flip permissionMode to 'full' directly on the record right as the
+          // verdict resolves, bypassing r.cancel() to exercise the post-race check.
+          const st = (h.runner as unknown as { threads: Map<string, { rec: { permissionMode: string } }> }).threads.get(t.id)!;
+          st.rec.permissionMode = 'full';
+          res({ ok: true, value: '{"verdict":"ask","why":"late verdict"}', model: 'claude-opus-5-5' });
+        };
+      }),
+  });
+  const { thread: t } = h.runner.create({ text: 'Check logs', accountId: 'antigravity-main', permissionMode: 'auto' });
+  const s = h.antigravity.last;
+  s.init('agy-race-1');
+  const ansP = s.sink.requestApproval({ toolUseId: 'tu-race', name: 'shell', title: 'ls', input: { command: 'ls' }, canAlwaysAllow: true, fullAllows: true, signal: new AbortController().signal });
+  await tick();
+  assert.equal(h.asked.length, 1);
+  flipAndResolve();
+  await tick();
+  assert.equal(h.events(t.id).filter((e) => e.type === 'approval.requested').length, 0);
+  const ans = await ansP;
+  assert.equal(ans.decision, 'allow');
+  assert.equal(ans.message, 'Allowed by Full access');
+});
+
+test("cardReviewer: reviewPrompt notes Antigravity's own verified lazy MCP schema dir and nothing else", async () => {
+  const prevGeminiHome = process.env.GEMINI_HOME;
+  const ghome = tmpDir();
+  process.env.GEMINI_HOME = ghome;
+  try {
+    const sid = 'e9059e94-2d5c-448f-a673-48f764ba0953';
+    const ownMcp = path.join(ghome, 'antigravity-acp', 'brain', sid, 'mcp');
+    fs.mkdirSync(path.join(ownMcp, 'threadbear'), { recursive: true });
+    const realOwnMcp = fs.realpathSync.native(ownMcp);
+
+    // 1. Active Antigravity thread gets factual context about its own MCP schema dir.
+    const h = setup({ answer: '{"verdict":"allow","why":"Lists this session\'s lazy MCP schemas."}' });
+    const { thread: tAgy } = h.runner.create({ text: 'Triage Sentry', accountId: 'antigravity-main', permissionMode: 'auto' });
+    const sAgy = h.antigravity.last;
+    sAgy.init(sid);
+    const ans = await sAgy.sink.requestApproval({
+      toolUseId: 'tu-1',
+      name: 'shell',
+      title: `ls -la ${realOwnMcp}`,
+      input: { command: `ls -la ${realOwnMcp}` },
+      canAlwaysAllow: true,
+      fullAllows: true,
+      signal: new AbortController().signal,
+    });
+    assert.equal(ans.decision, 'allow');
+    assert.equal(h.asked.length, 1);
+    const tag = /BEGIN ([0-9a-f]{18})\n/.exec(h.asked[0].prompt)![1];
+    assert.equal(h.asked[0].prompt.split(`BEGIN ${tag}`).length, h.asked[0].prompt.split(`END ${tag}`).length);
+    assert.match(h.asked[0].prompt, new RegExp(`BEGIN ${tag}\\n${realOwnMcp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\nEND ${tag}`));
+    assert.match(h.asked[0].prompt, /lazy MCP tool schema/i);
+    assert.match(h.asked[0].prompt, /other sessions/i);
+
+    // 2. OpenCode thread (even with the same nativeSessionId) does NOT get the Antigravity note.
+    const { thread: tOc } = h.runner.create({ text: 'Triage Sentry', accountId: 'opencode-main', permissionMode: 'auto' });
+    const sOc = h.opencode.last;
+    sOc.init(sid);
+    await sOc.sink.requestApproval({
+      toolUseId: 'tu-2',
+      name: 'shell',
+      title: `ls -la ${realOwnMcp}`,
+      input: { command: `ls -la ${realOwnMcp}` },
+      canAlwaysAllow: true,
+      fullAllows: true,
+      signal: new AbortController().signal,
+    });
+    assert.equal(h.asked.length, 2);
+    assert.doesNotMatch(h.asked[1].prompt, /lazy MCP tool schema/i);
+    assert.ok(tAgy.id !== tOc.id);
+
+    // 3. Symlinked brain/<sid>/mcp pointing outside does NOT get the Antigravity note.
+    const escapeSid = 'a1111111-2222-3333-4444-555555555555';
+    const outsideDir = tmpDir();
+    fs.mkdirSync(path.join(ghome, 'antigravity-acp', 'brain', escapeSid), { recursive: true });
+    fs.symlinkSync(outsideDir, path.join(ghome, 'antigravity-acp', 'brain', escapeSid, 'mcp'));
+    const { thread: tEsc } = h.runner.create({ text: 'Triage Sentry', accountId: 'antigravity-main', permissionMode: 'auto' });
+    const sEsc = h.antigravity.last;
+    sEsc.init(escapeSid);
+    await sEsc.sink.requestApproval({
+      toolUseId: 'tu-3',
+      name: 'shell',
+      title: 'ls -la',
+      input: { command: 'ls -la' },
+      canAlwaysAllow: true,
+      fullAllows: true,
+      signal: new AbortController().signal,
+    });
+    assert.equal(h.asked.length, 3);
+    assert.doesNotMatch(h.asked[2].prompt, /lazy MCP tool schema/i);
+    assert.ok(tEsc.id);
+  } finally {
+    if (prevGeminiHome === undefined) delete process.env.GEMINI_HOME;
+    else process.env.GEMINI_HOME = prevGeminiHome;
+  }
 });

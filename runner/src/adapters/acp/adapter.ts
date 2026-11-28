@@ -27,7 +27,7 @@ import { formContent, formQuestions, type FormSchema } from '../elicitation.ts';
 import { acpCoordinatorTool, archiveReadTool, HELPER_REPORT, isHelperQuestionTool, threadbearToolName } from '../../coordinator-policy.ts';
 import type { AdapterOutput, AgentAdapter, AgentSession, BackgroundTask, QuestionAnswer, SessionSink, StartSessionOptions, ToolApprovalAnswer, TurnResult, UserInput } from '../types.ts';
 import { SessionNotFoundError, SessionUsageLimitError } from '../types.ts';
-import type { AcpAgent } from './agents.ts';
+import { antigravityMcpSchemaDir, type AcpAgent } from './agents.ts';
 import { AcpExitedError, AcpProcess, AcpRpcError, AUTH_REQUIRED, failureNote, genericRpcMessage, isFatalExecutionError, laterFailure, outOfUsage, textFromUpdate, type AcpTimings, type InitializeResult, type RequestId } from './connection.ts';
 import { AcpMcpServer } from './mcp-http.ts';
 import { AcpNormalizer, absolutePath, diffsAgreeWithInput, hasEditContent, hasOddPatchHeader, isPlainEdit, isPlainObject, requestPaths, writesFiles, type AcpBackgroundShell, type AcpOutput, type AcpToolCall } from './normalize.ts';
@@ -1029,10 +1029,13 @@ export class AcpSession implements AgentSession {
     const paths = [...new Set([...earlier, ...frames.paths, ...requestPaths(call)])];
     const folder = realFolder(this.opts.cwd);
     if (!folder || !paths.length) return false;
+    const mcpDir = this.deps.agent.provider === 'antigravity' ? antigravityMcpSchemaDir(this.sessionId) : undefined;
     return paths.every((p) => {
       if (!path.isAbsolute(p) || p.split(/[\\/]/).includes('..')) return false;
       const real = realFolder(p);
-      return real !== undefined && (real === folder || real.startsWith(folder + path.sep));
+      if (real === undefined) return false;
+      if (real === folder || real.startsWith(folder + path.sep)) return true;
+      return mcpDir !== undefined && (real === mcpDir || real.startsWith(mcpDir + path.sep)) && !hasExtraLinks(fileId(p));
     });
   }
 
@@ -1424,16 +1427,6 @@ export class AcpSession implements AgentSession {
     // thread's: only a whole path says where.
     const placeKnown = !this.deps.agent.ownSessionFolder || (named.length > 0 && named.every((d) => path.isAbsolute(d)));
     const exact = Boolean(command) && placeKnown && !unknownPlace && said.length <= 1 && Object.entries(input).every(([k, v]) => k === 'command' || (BENIGN_KEYS.has(k) && (typeof v === 'string' || typeof v === 'number')) || (FOLDER_KEYS.includes(k) && (typeof v === 'string' || v === undefined)));
-    // A command that also names files of its own (locations, a path among its
-    // arguments) says more than its command and folder: no rule covers it,
-    // and its card shows the lot (Gemini's tenth review, 20 Nov 2026). A tool
-    // name doesn't change what a command runs.
-    const saysMore = paths.length > 0;
-    const rule = exact && consistent && !saysMore && argv?.length && ruleMayCover(argv) ? commandRule(argv, where) : null;
-
-    let code: CodeWrite = false;
-    const edits = !external && writesFiles(kind);
-    let outside = false;
     // An agent whose session has a folder of its own reads a relative path
     // from there, not the thread's: which file it is isn't known.
     // Every path as the agent spelled it, before any tidying: `link/..` is
@@ -1441,6 +1434,34 @@ export class AcpSession implements AgentSession {
     // to some tools, so a path with either says no file for certain.
     const spelled = [...seen.paths, ...(frames?.paths ?? []), ...requestPaths(p.toolCall ?? {})];
     const relative = spelled.some((f) => f.split(/[\\/]/).includes('..') || f.startsWith('~')) || (Boolean(this.deps.agent.ownSessionFolder) && spelled.some((f) => !path.isAbsolute(f)));
+    // OpenCode's shell tool lists the command's own working folder in
+    // `locations`. That folder is already shown as `cwd` and checked as
+    // `where`, so on a plain execute call inside the thread's folder it isn't
+    // an extra file the command names (which would otherwise run `runsAsCode`
+    // on the folder and break shellCard / Always allow).
+    const isExecWhere = (f: string): boolean =>
+      !external &&
+      kind === 'execute' &&
+      Boolean(command) &&
+      placeKnown &&
+      !unknownPlace &&
+      said.length <= 1 &&
+      !relative &&
+      !runsAsCodeByName(f) &&
+      fileId(f)?.kind === 'dir' &&
+      realFolder(f) === where &&
+      this.inFolder(f);
+    const checkPaths = paths.filter((f) => !isExecWhere(f));
+    // A command that also names files of its own (locations, a path among its
+    // arguments) says more than its command and folder: no rule covers it,
+    // and its card shows the lot (Gemini's tenth review, 20 Nov 2026). A tool
+    // name doesn't change what a command runs.
+    const saysMore = checkPaths.length > 0;
+    const rule = exact && consistent && !saysMore && argv?.length && ruleMayCover(argv) ? commandRule(argv, where) : null;
+
+    let code: CodeWrite = false;
+    const edits = !external && writesFiles(kind);
+    let outside = false;
     if (edits) {
       // An edit with no named files can't be checked: it asks every time.
       code = paths.length ? this.runsAsCode(paths) : 'unsure';
@@ -1450,9 +1471,9 @@ export class AcpSession implements AgentSession {
       // OpenCode's external_directory is; Gemini's sixth review).
       outside = !paths.every((f) => this.inFolder(f));
       if (!code && !outside && this.rules.has(EDIT_RULE)) return this.answer(id, options, true, seen.id);
-    } else if (paths.length && kind !== 'read' && kind !== 'search' && kind !== 'fetch' && kind !== 'think') {
+    } else if (checkPaths.length && kind !== 'read' && kind !== 'search' && kind !== 'fetch' && kind !== 'think') {
       // A kind that doesn't say what it does, naming a file that runs.
-      code = this.runsAsCode(paths);
+      code = this.runsAsCode(checkPaths);
     }
     // A saved rule doesn't stand in for a file that runs as code.
     if (!code && rule && this.rules.has(rule)) return this.answer(id, options, true, seen.id);
@@ -1552,8 +1573,8 @@ export class AcpSession implements AgentSession {
     // with `..`, `~` or relative to the agent's own folder: the reviewer
     // reads the spelling, not where it lands (a link in the folder to ~/.ssh,
     // `link/..`), so those are Mike's (Codex's and Gemini's reviews, 27 Nov).
-    // A file with more than one hard link may be one outside too.
-    const reachesOut = paths.some((f) => !this.inFolder(f) || (fileId(f)?.[2] ?? 1) > 1);
+    // A non-directory file with more than one hard link may be one outside too.
+    const reachesOut = paths.some((f) => !this.inFolder(f) || hasExtraLinks(fileId(f)));
     const opaque =
       relative ||
       reachesOut ||
@@ -1587,7 +1608,7 @@ export class AcpSession implements AgentSession {
     const asked = frames ? frameState(frames) : '';
     // Which file each is too (device, inode, links), so one swapped for a
     // hard link to a file elsewhere reads as changed (Codex's re-check).
-    const placesNow = () => JSON.stringify([paths.map((f) => [this.diskPlace(f) ?? null, fileId(f)]), this.runsAsCode(paths), paths.every((f) => this.inFolder(f))]);
+    const placesNow = () => JSON.stringify([paths.map((f) => [this.diskPlace(f) ?? null, fileId(f)]), this.runsAsCode(checkPaths), paths.every((f) => this.inFolder(f))]);
     const placed = paths.length ? placesNow() : '';
     const pending: Pending = { abort: new AbortController(), options };
     this.pending.set(id, pending);
@@ -1607,6 +1628,7 @@ export class AcpSession implements AgentSession {
         wholeInput: shellCard ? shown : fullData!,
         ...(opaque ? { noReview: true as const } : {}),
         canAlwaysAllow: !code && (editRule || Boolean(rule)),
+        fullAllows: true,
         signal: pending.abort.signal,
       });
     } catch (e) {
@@ -2125,14 +2147,42 @@ export class AcpSession implements AgentSession {
   }
 }
 
-// A file's device, inode and hard link count, or undefined if it isn't there.
-function fileId(f: string): [number, number, number] | undefined {
+type FileId = {
+  dev: number;
+  ino: number;
+  nlink: number;
+  kind: 'dir' | 'link' | 'other';
+  target?: { dev: number; ino: number; nlink: number; kind: 'dir' | 'other' };
+};
+
+// A file's device, inode, type and hard link count, or undefined if it isn't
+// there. POSIX directories always have nlink >= 2 (`.` and `..`), so their
+// link count is normalized to 1 and does not count as a hard link; a symlink
+// also records its target so a link to a hard-linked file inside the folder
+// still counts.
+function fileId(f: string): FileId | undefined {
   try {
     const st = fs.lstatSync(f);
-    return [st.dev, st.ino, st.nlink];
+    const kind: FileId['kind'] = st.isDirectory() ? 'dir' : st.isSymbolicLink() ? 'link' : 'other';
+    const id: FileId = { dev: st.dev, ino: st.ino, nlink: kind === 'dir' ? 1 : st.nlink, kind };
+    if (kind === 'link') {
+      try {
+        const tst = fs.statSync(f);
+        const tkind = tst.isDirectory() ? 'dir' : 'other';
+        id.target = { dev: tst.dev, ino: tst.ino, nlink: tkind === 'dir' ? 1 : tst.nlink, kind: tkind };
+      } catch {
+        // Dangling or looped link: diskPlace / inFolder already rejects it.
+      }
+    }
+    return id;
   } catch {
     return undefined;
   }
+}
+
+function hasExtraLinks(id: FileId | undefined): boolean {
+  if (!id) return false;
+  return (id.kind !== 'dir' && id.nlink > 1) || Boolean(id.target && id.target.kind !== 'dir' && id.target.nlink > 1);
 }
 
 // What a call's frames have said, to tell whether it changed while its card

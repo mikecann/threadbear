@@ -366,6 +366,31 @@ function geminiHome(home: string): string {
   return process.env.GEMINI_HOME || path.join(home, '.gemini');
 }
 
+const SAFE_SESSION_ID = /^[A-Za-z0-9_-]+$/;
+
+// Where antigravity-acp writes this session's lazy MCP tool schemas:
+// <GEMINI_HOME or ~/.gemini>/antigravity-acp/brain/<sessionId>/mcp.
+// Returns the resolved path only when the directory exists directly under
+// brain/<sessionId>/mcp with no symlink redirection out of it.
+export function antigravityMcpSchemaDir(sessionId: string | undefined, home = os.homedir()): string | undefined {
+  if (!sessionId || !SAFE_SESSION_ID.test(sessionId)) return undefined;
+  const configDir = path.join(geminiHome(home), 'antigravity-acp');
+  const brainDir = path.join(configDir, 'brain');
+  const mcpDir = path.join(brainDir, sessionId, 'mcp');
+  try {
+    const realConfig = fs.realpathSync.native(configDir);
+    const realBrain = fs.realpathSync.native(brainDir);
+    const realMcp = fs.realpathSync.native(mcpDir);
+    if (realBrain !== path.join(realConfig, 'brain')) return undefined;
+    if (realMcp !== path.join(realBrain, sessionId, 'mcp')) return undefined;
+    if (!fs.lstatSync(realMcp).isDirectory()) return undefined;
+    if (/[\r\n]/.test(realMcp)) return undefined;
+    return realMcp;
+  } catch {
+    return undefined;
+  }
+}
+
 // Its shell tool's CommandLine and Cwd are what run, so they're read as
 // command and cwd. Any other command or folder key it might carry (command,
 // cwd, workdir...) is never taken for what runs or where: it's kept as

@@ -18,6 +18,7 @@
 // or can't run for (no pool, a private folder, a timeout) goes to Mike as
 // before. Ask before edits is left alone: that mode means a person looks.
 import crypto from 'node:crypto';
+import { antigravityMcpSchemaDir } from '../adapters/acp/agents.ts';
 import type { Runner, ThreadState } from '../runner.ts';
 import { cutOut } from '../store.ts';
 import { fromMike } from './messages.ts';
@@ -65,9 +66,16 @@ export function reviewPrompt(runner: Runner, st: ThreadState, card: CardForRevie
   // Too long to show whole, and what's cut might be what forbids this.
   if ([opening, mike ?? '', other?.text ?? ''].some((t) => t.length > BRIEF_CHARS)) return undefined;
   const started = rec.startedBy ? `${rec.startedBy.kind}${rec.startedBy.label ? ` (${rec.startedBy.label})` : ''}` : 'the user';
+  const mcpDir = rec.provider === 'antigravity' && rec.sessionUsed ? antigravityMcpSchemaDir(rec.nativeSessionId) : undefined;
   const piece = (label: string, text: string) => `${label}\nBEGIN ${tag}\n${text}\nEND ${tag}`;
   return [
     `The thread is on Auto. Started by: ${started}.`,
+    mcpDir
+      ? piece(
+          "This thread runs on Antigravity; this session's own lazy MCP tool schema directory is below (reading or listing strictly inside it is routine tool discovery; writing there, or accessing any other path under Antigravity's data or brain directories including other sessions' folders, is not):",
+          mcpDir,
+        )
+      : '',
     piece('Its title and folder:', `${rec.title}\n${rec.cwd}`),
     piece('What it was first asked:', opening),
     mike && mike !== opening ? piece("The user's latest message to it:", mike) : '',

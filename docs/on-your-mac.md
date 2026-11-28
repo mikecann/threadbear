@@ -1021,8 +1021,11 @@ output cannot renew image work. Rejected oversized output imports no images.
   `~/.claude` settings, hooks, skills and `CLAUDE.md`; its threads run your
   own Grok and Claude hooks.
 - Whether `$GEMINI_HOME/antigravity-acp/acp_token.json` (`~/.gemini` by
-  default) exists (never opened). Antigravity itself reads and writes its
-  own folder there (its sign-in, conversations and settings).
+  default) exists (never opened), and on an Antigravity thread whether its
+  own `$GEMINI_HOME/antigravity-acp/brain/<sessionId>/mcp` directory exists
+  (never opened, so Antigravity can read its lazy MCP tool schemas without
+  tripping an outside-folder approval). Antigravity itself reads and writes
+  its own folder there (its sign-in, conversations and settings).
 - With the Shared memory experiment on (off unless you turn it on): on your
   main Mac, each Claude login's `CLAUDE.md` and the memory files under
   `projects/*/memory/` for folders in your home folder, once a minute, which
