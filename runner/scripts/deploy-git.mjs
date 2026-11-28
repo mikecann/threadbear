@@ -196,11 +196,35 @@ export function releaseMatches(runner, release, commit) {
   } catch { return false; }
 }
 
+// The two lists check.sh and check-remote.sh need, in one Node start (each
+// start is about 70 ms, and check-remote.sh ran four: check-remote-split's
+// tests took a quarter longer): what the checkout changes from main (its
+// merge base's diff and the untracked files, one name a line, sorted), and,
+// unless filesOut is '-', every file git doesn't ignore, NUL-separated.
+// Exits 1 only when the file list can't be read.
+export function checkLists(root, changedOut, filesOut) {
+  const names = new Set();
+  const base = gitResult(root, ['merge-base', 'HEAD', 'main']);
+  if (base.ok) {
+    const d = gitResult(root, ['diff', '--name-only', base.stdout.trim()]);
+    if (d.ok) for (const n of d.stdout.split('\n')) if (n) names.add(n);
+  }
+  const o = gitResult(root, ['ls-files', '--others', '--exclude-standard']);
+  if (o.ok) for (const n of o.stdout.split('\n')) if (n) names.add(n);
+  fs.writeFileSync(changedOut, [...names].sort().map((n) => `${n}\n`).join(''));
+  if (filesOut === '-') return true;
+  const f = gitResult(root, ['ls-files', '-co', '--exclude-standard', '-z'], { bytes: true });
+  if (!f.ok) return false;
+  fs.writeFileSync(filesOut, f.bytes ?? f.stdout);
+  return true;
+}
+
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   if (process.argv[2] === '--verify-objects') { try { verifyRepositoryObjects(process.argv[3], process.argv.slice(4).length ? process.argv.slice(4) : ['HEAD'], process.argv.slice(4).length > 1); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
   if (process.argv[2] === '--isolated') { const r = isolatedGit(process.argv[3], process.argv.slice(4)); process.stdout.write(r.stdout ?? ''); process.stderr.write(r.stderr ?? ''); process.exit(r.status ?? 1); }
   if (process.argv[2] === '--save-preview') { try { savePreview(...process.argv.slice(3)); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
   if (process.argv[2] === '--copy-launcher') { try { copyVerifiedLauncher(process.argv[3], process.argv[4]); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
+  if (process.argv[2] === '--check-lists') process.exit(checkLists(process.argv[3], process.argv[4], process.argv[5]) ? 0 : 1);
   if (process.argv[2] === '--matches-release') process.exit(releaseMatches(process.argv[3], process.argv[4], process.argv[5]) ? 0 : 1);
   const r = gitResult(process.argv[2], process.argv.slice(3), { bytes: true });
   process.stdout.write(r.bytes ?? r.stdout); process.stderr.write(r.stderr); process.exitCode = r.code < 0 ? 1 : r.code;

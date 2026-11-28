@@ -371,9 +371,6 @@ else
   NODE="$(command -v node || true)"
 fi
 [ -n "$NODE" ] && [ -x "$NODE" ] || { echo "Couldn't find Node for hardened git access." >&2; exit 1; }
-source_git() {
-  "$NODE" "$ROOT/runner/scripts/deploy-git.mjs" "$ROOT" "$@"
-}
 . "$ROOT/scripts/remote-guard-lib.sh"
 alive_stdin 7 || { echo "Couldn't make the pipe that tells a check host this check has gone (alive_stdin)." >&2; exit 1; }
 # A folder only this account can use: it exists (made here if not, mode
@@ -556,10 +553,11 @@ done
 # is (the copy's git has just one commit), as check.sh skips steps by it
 # (see `needed` there).
 changed="$(mktemp)"
-{
-  base="$(source_git merge-base HEAD main 2>/dev/null)" && source_git diff --name-only "$base"
-  source_git ls-files --others --exclude-standard
-} 2>/dev/null | sort -u >"$changed"
+# And every file git doesn't ignore, for the copy below: both from one
+# Node start (runner/scripts/deploy-git.mjs --check-lists).
+files_raw="$(mktemp)"
+files_ok=1
+"$NODE" "$ROOT/runner/scripts/deploy-git.mjs" --check-lists "$ROOT" "$changed" "$files_raw" 2>/dev/null || files_ok=0
 
 # Whether a Linux host can run this: only the runner's, Convex's and the
 # website's checks, so --quick, nothing changed under ios/ (ThreadbearKit's
@@ -876,8 +874,7 @@ leave_line() {
 # those as there.
 files="$(mktemp)"
 left_out="$(mktemp)"
-files_raw="$(mktemp)"
-if ! source_git ls-files -co --exclude-standard -z >"$files_raw"; then
+if [ "$files_ok" != 1 ]; then
   rm -f "$files" "$files_raw" "$changed" "$left_out"
   echo "Couldn't list checkout files safely." >&2
   exit 1

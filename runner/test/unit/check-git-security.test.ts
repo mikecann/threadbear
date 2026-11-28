@@ -99,20 +99,29 @@ test('remoteChecks disables upstream release test-skipping during deployment', (
   assert.equal(gotEnv?.THREADBEAR_CHECK_TRUST_RELEASE, 'off');
 });
 
-for (const file of ['check.sh', 'scripts/check-remote.sh']) {
-  test(`${file} source Git never executes repository programs`, { skip: IS_WINDOWS }, () => {
-    const f = fixture(); copyCheckGitFiles(f.root);
-    f.git('config', 'core.fsmonitor', f.trap);
-    f.git('config', 'filter.trap.clean', f.trap);
-    f.git('config', 'diff.trap.textconv', f.trap);
-    fs.writeFileSync(path.join(f.root, 'a'), 'changed\n');
+// Both scripts list the checkout through the hardened wrapper, in one Node
+// start (deploy-git.mjs --check-lists); check.sh's branch name through
+// source_git.
+test('check.sh and check-remote.sh list source files without executing repository programs', { skip: IS_WINDOWS }, () => {
+  const f = fixture(); copyCheckGitFiles(f.root);
+  f.git('config', 'core.fsmonitor', f.trap);
+  f.git('config', 'filter.trap.clean', f.trap);
+  f.git('config', 'diff.trap.textconv', f.trap);
+  fs.writeFileSync(path.join(f.root, 'a'), 'changed\n');
+  fs.writeFileSync(path.join(f.root, 'new.txt'), 'n\n');
+  for (const file of ['check.sh', 'scripts/check-remote.sh']) {
     const source = fs.readFileSync(path.resolve(import.meta.dirname, '../../..', file), 'utf8');
-    const fn = /^source_git\(\) \{[\s\S]*?^\}/m.exec(source)?.[0];
-    assert.ok(fn, 'source operations must use the hardened Git wrapper');
-    execFileSync('/bin/bash', ['-c', `${fn}\nsource_git ls-files -co --exclude-standard -z >/dev/null\nsource_git diff --name-only HEAD >/dev/null`, 'test'], { env: { ...process.env, ROOT: f.root, NODE: process.execPath }, stdio: 'pipe' });
-    assert.equal(fs.existsSync(f.marker), false);
-  });
-}
+    assert.match(source, /deploy-git\.mjs" --check-lists "\$ROOT"/, `${file} lists through --check-lists`);
+  }
+  const changed = path.join(f.root, '.changed'), files = path.join(f.root, '.files');
+  execFileSync(process.execPath, [path.join(f.root, 'runner/scripts/deploy-git.mjs'), '--check-lists', f.root, changed, files], { stdio: 'pipe' });
+  assert.match(fs.readFileSync(changed, 'utf8'), /^new\.txt$/m);
+  assert.ok(fs.readFileSync(files).includes(Buffer.from('a\0')));
+  const fn = /^source_git\(\) \{[\s\S]*?^\}/m.exec(fs.readFileSync(path.resolve(import.meta.dirname, '../../../check.sh'), 'utf8'))?.[0];
+  assert.ok(fn, "check.sh reads its branch through the hardened wrapper");
+  execFileSync('/bin/bash', ['-c', `${fn}\nsource_git rev-parse --abbrev-ref HEAD >/dev/null`, 'test'], { env: { ...process.env, ROOT: f.root, NODE: process.execPath }, stdio: 'pipe' });
+  assert.equal(fs.existsSync(f.marker), false);
+});
 
 test('check-remote.sh full upload flow never executes repository fsmonitor or filters', { skip: IS_WINDOWS }, () => {
   const s = setupRemote({ h1: { state: 'free' } });

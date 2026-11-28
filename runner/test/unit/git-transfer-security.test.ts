@@ -476,18 +476,18 @@ test('merges are always ort or octopus, and push never takes --repo', async () =
   for (const args of [['push', '--repo=https://example.invalid/a', target, 'HEAD:refs/heads/x'], ['push', '--repo', 'x', target], ['push', '--rep=x', target]]) await refusedBoth(dest, args, args.join(' '));
 });
 
-// With no repository named, every remote counts (fetch.all, which is also
-// pinned off, made an argument-less fetch reach them all: Gemini's sixth
-// break-it review, 28 Nov 2026), and an empty branch remote is unset, as git
-// takes it.
-test('a fetch with no repository named counts every remote, and an empty branch remote is unset', { skip: IS_WINDOWS }, async () => {
+// fetch.all is pinned off, so an argument-less fetch uses only the branch's
+// remote (Gemini's sixth break-it review, 28 Nov 2026); --all still reaches
+// every remote, so every one is checked. An empty branch remote is unset, as
+// git takes it, so origin is the one used.
+test('fetch --all checks every remote, and an empty branch remote is unset', { skip: IS_WINDOWS }, async () => {
   assert.ok(repoProofConfig([]).join(' ').includes('fetch.all=false'));
   const { root, dest } = fixture();
   const hostile = repoAt(path.join(root, 'evil'));
   makeHostile(hostile);
   g(dest, 'remote', 'add', 'origin', 'https://example.invalid/owner/repo.git');
   g(dest, 'remote', 'add', 'evil', hostile);
-  await refusedBoth(dest, ['fetch', '-q'], 'an argument-less fetch with a hostile second remote');
+  await refusedBoth(dest, ['fetch', '-q', '--all'], 'fetch --all with a hostile second remote');
   g(dest, 'remote', 'remove', 'evil');
   g(dest, 'remote', 'set-url', 'origin', hostile);
   g(dest, 'config', 'branch.main.remote', '');
@@ -530,4 +530,77 @@ test('partial clones: local promisors refused everywhere, network ones fine as a
   g(src, 'config', 'extensions.partialClone', 'origin');
   const r = await untrustedGit(dest, ['fetch', '-q', src, 'main'], { network: 'remote' });
   assert.ok(r.ok, r.stderr);
+});
+
+// A promisor named only by extensions.partialClone, with no address in the
+// config (so git would look in .git/remotes or .git/branches for it, or a
+// repo-local url rewrite would move it), is refused, as are such files in a
+// partial clone (Gemini's seventh break-it review, 28 Nov 2026).
+test('a partial clone may only promise from a configured network remote, with no legacy remote files', { skip: IS_WINDOWS }, async () => {
+  const local = (key: string, value: string) => ({ scope: 'local', key, value });
+  assert.throws(() => repoProofConfig([local('extensions.partialclone', 'a:b')]), /promisor/);
+  assert.throws(() => repoProofConfig([local('extensions.partialclone', 'origin'), local('remote.origin.url', 'https://example.invalid/r.git'), local('url./tmp/evil.insteadof', 'https://example.invalid/')]), /url|promisor/);
+  const { dest } = fixture();
+  g(dest, 'remote', 'add', 'origin', 'https://example.invalid/r.git');
+  g(dest, 'config', 'extensions.partialClone', 'origin');
+  g(dest, 'config', 'remote.origin.promisor', 'true');
+  fs.mkdirSync(path.join(dest, '.git', 'remotes'));
+  fs.writeFileSync(path.join(dest, '.git', 'remotes', 'other'), 'URL: /tmp/elsewhere\n');
+  const r = await untrustedGit(dest, ['status']);
+  assert.equal(r.ok, false); assert.match(r.stderr, /remotes/);
+});
+
+// With no repository named, git uses exactly one (fetch.all pinned off,
+// remote groups refused): it's the one checked, so a GitHub origin beside a
+// local backup remote isn't half and half, and a missing origin is git's
+// own error, not a refusal.
+test('with no repository named only the one git uses is checked', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const backup = repoAt(path.join(root, 'backup.git'), { bare: true });
+  g(dest, 'remote', 'add', 'origin', 'https://example.invalid/owner/repo.git');
+  g(dest, 'remote', 'add', 'backup', backup);
+  g(dest, 'config', 'branch.main.remote', 'origin');
+  for (const args of [['fetch', '-q'], ['push', '-q']]) {
+    const r = await untrustedGit(dest, args, { network: 'remote', timeoutMs: 20_000 });
+    assert.doesNotMatch(r.stderr, /Threadbear refused/, args.join(' '));
+  }
+  const pushed = await untrustedGit(dest, ['push', '-q', 'backup', 'HEAD:refs/heads/main'], { network: 'remote' });
+  assert.ok(pushed.ok, pushed.stderr);
+  // Removing a remote takes the branch settings naming it too.
+  g(dest, 'remote', 'remove', 'origin'); g(dest, 'remote', 'remove', 'backup');
+  g(dest, 'remote', 'add', 'upstream', 'https://example.invalid/mike/threadbear.git');
+  g(dest, 'checkout', '-q', '--detach');
+  const r = await untrustedGit(dest, ['fetch', '-q'], { network: 'remote' });
+  assert.equal(r.ok, false); assert.doesNotMatch(r.stderr, /Threadbear refused/);
+  // With no branch remote and no origin, git uses the only remote there is
+  // (remote.c), so that's the one checked.
+  const hostile = repoAt(path.join(root, 'lone'));
+  makeHostile(hostile);
+  g(dest, 'remote', 'set-url', 'upstream', hostile);
+  await refusedBoth(dest, ['fetch', '-q'], 'the only remote, used for want of origin');
+});
+
+test('the negated server options are refused too', async () => {
+  const { root, dest } = fixture();
+  const src = repoAt(path.join(root, 'src'));
+  for (const args of [['fetch', '--no-upload-pack', src], ['fetch', '--no-u', src], ['push', '--no-receive-pack', src], ['push', '--no-exec', src], ['push', '--no-e', src], ['ls-remote', '--no-upload-pack', src]]) await refusedBoth(dest, args, args.join(' '));
+});
+
+// merge-tree reads attributes too, and an info/attributes that isn't a
+// plain empty file (a fifo would hang git as it opened it) is refused.
+test('info/attributes: merge-tree is covered, and only an empty regular file passes', { skip: IS_WINDOWS }, async () => {
+  const { dest } = fixture();
+  const attrs = path.join(dest, '.git', 'info', 'attributes');
+  fs.writeFileSync(attrs, '* merge=union\n');
+  const mt = await untrustedGit(dest, ['merge-tree', '--write-tree', 'HEAD', 'HEAD']);
+  assert.equal(mt.ok, false); assert.match(mt.stderr, /info\/attributes/);
+  fs.rmSync(attrs);
+  execFileSync('mkfifo', [attrs]);
+  const r = await untrustedGit(dest, ['merge', '--ff-only', 'HEAD'], { timeoutMs: 10_000 });
+  assert.equal(r.ok, false); assert.match(r.stderr, /info\/attributes/);
+});
+
+test('commit.template and rebase.rebaseMerges are pinned', () => {
+  const out = repoProofConfig([]).join(' ');
+  for (const pin of ['commit.template=', 'rebase.rebaseMerges=false']) assert.ok(out.includes(` ${pin} `) || out.endsWith(` ${pin}`), pin);
 });

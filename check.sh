@@ -328,10 +328,7 @@ if [ -n "${THREADBEAR_CHECK_CHANGED_FILE:-}" ]; then
   # no .git (scripts/check-remote.sh).
   CHANGED="$(cat "$THREADBEAR_CHECK_CHANGED_FILE")"
 else
-CHANGED="$( {
-  base="$(source_git merge-base HEAD main 2>/dev/null)" && source_git diff --name-only "$base"
-  source_git ls-files --others --exclude-standard
-} 2>/dev/null | sort -u)"
+CHANGED="$(t="$(mktemp)" && "$NODE" "$ROOT/runner/scripts/deploy-git.mjs" --check-lists "$ROOT" "$t" - 2>/dev/null; cat "$t" 2>/dev/null; rm -f "$t")"
 fi
 
 # needed <regex>: whether a step whose inputs match it should run.
