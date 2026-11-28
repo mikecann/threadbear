@@ -429,7 +429,8 @@ test('a repo-local include is refused; rebase, rerere settings are pinned', asyn
     assert.equal(r.ok, false, args.join(' ')); assert.match(r.stderr, /includes another file/);
   }
   const global = path.join(root, 'global.gitconfig');
-  fs.writeFileSync(global, `[include]\n\tpath = ${path.join(root, 'more.gitconfig')}\n`);
+  // Forward slashes: a backslash in a config value is an escape to git.
+  fs.writeFileSync(global, `[include]\n\tpath = ${path.join(root, 'more.gitconfig').replaceAll('\\', '/')}\n`);
   g(dest, 'config', '--unset', 'include.path');
   assert.ok((await untrustedGit(dest, ['status'], { env: { GIT_CONFIG_GLOBAL: global } })).ok, "the owner's own includes stay");
   const out = repoProofConfig([]).join(' ');

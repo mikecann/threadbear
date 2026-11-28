@@ -8,8 +8,12 @@ import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { untrustedGitRunSync, untrustedGitEnv, gitProgram, verifyGitObjectsSync } from '../src/safe-git.ts';
 
+// GIT_CONFIG_GLOBAL is the literal /dev/null, which git maps to its own empty
+// file on every system: Git for Windows can't open Node's os.devNull
+// (\\.\nul) as a config file ("unable to access '\\.\nul'"), as
+// upstream.ts found before.
 export function isolatedGit(home, args, input, extraEnv = {}) {
-  const env = { ...untrustedGitEnv(), HOME: home, XDG_CONFIG_HOME: home, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_ATTR_NOSYSTEM: '1', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_GRAFT_FILE: os.devNull, NoDefaultCurrentDirectoryInExePath: '1', ...extraEnv };
+  const env = { ...untrustedGitEnv(), HOME: home, XDG_CONFIG_HOME: home, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_ATTR_NOSYSTEM: '1', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_GRAFT_FILE: os.devNull, NoDefaultCurrentDirectoryInExePath: '1', ...extraEnv };
   return spawnSync(gitProgram(), args, { env, input, maxBuffer: 64 * 1024 * 1024, encoding: 'buffer', timeout: 60_000 });
 }
 

@@ -60,7 +60,9 @@ test('prepared merge verifies a newly merged output blob before changing HEAD', 
   fs.writeFileSync(poison, deflateSync(Buffer.concat([Buffer.from(`blob ${payload.length}\0`), payload])));
   const applied = sh(prepared, shPath(dir), '-m', 'Bring it in');
   assert.notEqual(applied.status, 0); assert.match(applied.stderr, /does not hash to its ID/);
-  assert.equal(g('rev-parse', 'HEAD'), before); assert.equal(fs.readFileSync(path.join(repo, 'a'), 'utf8'), 'main\ntwo\nthree\nfour\nfive\n');
+  // The working file as this machine's git checks it out (CRLF where
+  // core.autocrlf is on, as Git for Windows sets it), unchanged.
+  assert.equal(g('rev-parse', 'HEAD'), before); assert.equal(fs.readFileSync(path.join(repo, 'a'), 'utf8').replace(/\r\n/g, '\n'), 'main\ntwo\nthree\nfour\nfive\n');
 });
 
 test('preparing delete/modify conflicts records the surviving blob without aborting', () => {
