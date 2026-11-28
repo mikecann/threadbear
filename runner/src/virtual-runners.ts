@@ -10,7 +10,8 @@
 // sent anywhere but boxes:setCloudToken. It's known to the scrubber
 // (year-token.ts rememberToken) from the moment it's read.
 import crypto from 'node:crypto';
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { untrustedGit } from './safe-git.ts';
 import path from 'node:path';
 import type { Account } from './protocol.ts';
 import { ErrorCode, RpcError, remoteCreateMode } from './protocol.ts';
@@ -50,9 +51,8 @@ export type VirtualRunnerDeps = {
 const bad = (message: string) => new RpcError(ErrorCode.badParams, message);
 
 function git(cwd: string, args: string[]): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    execFile('git', ['-C', cwd, ...args], { timeout: 10_000 }, (err, stdout) => resolve(err ? undefined : stdout.trim() || undefined));
-  });
+  // Through safe-git.ts: a thread's repo's .git runs nothing.
+  return untrustedGit(cwd, args, { timeoutMs: 10_000 }).then((r) => (r.ok ? r.stdout.trim() || undefined : undefined));
 }
 
 // GitHub's names: an owner and a repo, letters, digits, `.`, `_` and `-`.

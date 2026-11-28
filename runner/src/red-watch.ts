@@ -17,7 +17,7 @@
 // that prints nothing costs no agent (schedule-check.ts).
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { untrustedGitRunSync } from './safe-git.ts';
 import { filesThatRunIt, gateCacheDir, keptVerdict, watchedWorkflows, type GateCache, type Gh, type HeldWorkflow, type Run, type Verdict } from './land-gate.ts';
 
 export type FixThreadState = 'open' | 'archived' | 'gone';
@@ -162,13 +162,9 @@ function lock(cacheDir: string, file: string): (() => void) | undefined {
 // The checkout a fix thread starts in: the repo's main one, which gets it
 // a worktree of its own.
 export function mainCheckoutOf(root: string): string {
-  try {
-    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    if (path.basename(common) === '.git') return path.dirname(common);
-  } catch {
-    // as given
-  }
-  return root;
+  const r = untrustedGitRunSync(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const common = r.ok ? r.stdout.trim() : '';
+  return common && path.basename(common) === '.git' ? path.dirname(common) : root;
 }
 
 export type WatchDeps = { gh: Gh; threads: FixThreads; cache?: GateCache; now?: () => number };

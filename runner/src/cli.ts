@@ -28,6 +28,11 @@ import { runnerKeysCommand } from './runner-keys.ts';
 import { pickRunner } from './moves.ts';
 import { staleRelease } from './release.ts';
 
+// As the runner does (main.ts): on Windows a program named without a path
+// is never taken from the folder tb runs in, as `tb land` runs git and gh in
+// a repo's folder (Gemini's break-it review of 187/188, 28 Nov 2026).
+if (process.platform === 'win32') process.env.NoDefaultCurrentDirectoryInExePath = '1';
+
 const OPTIONS = {
   cwd: { type: 'string' },
   // tb move <id> --to <runner> --preview (moving a thread to another machine).

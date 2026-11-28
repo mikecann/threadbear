@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { untrustedGitRunSync } from './safe-git.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Clock } from './clock.ts';
@@ -82,32 +82,25 @@ export type RestartGit = {
 const APP_DIRS: Record<AppKind, string[]> = { mac: ['app', 'dock'], desktop: ['desktop'] };
 
 export const realGit: RestartGit = {
+  // Through safe-git.ts: the checkout's own .git runs nothing (Gemini's
+  // break-it review of 187/188).
   resolve(repo, rev) {
-    try {
-      return execFileSync('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `${rev}^{commit}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
-    } catch {
-      return undefined;
-    }
+    const r = untrustedGitRunSync(repo, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`], { timeoutMs: 5000 });
+    return r.ok ? r.stdout.trim() || undefined : undefined;
   },
   contains(repo, ancestor, commit) {
-    try {
-      execFileSync('git', ['-C', repo, 'merge-base', '--is-ancestor', ancestor, commit], { timeout: 5000, stdio: 'ignore' });
-      return true;
-    } catch (e) {
-      const err = e as { status?: number | null; signal?: string | null; code?: string };
-      if (err.status === 1) return false;
-      return err.signal || err.code === 'ETIMEDOUT' ? 'busy' : undefined;
-    }
+    const r = untrustedGitRunSync(repo, ['merge-base', '--is-ancestor', ancestor, commit], { timeoutMs: 5000 });
+    if (r.ok) return true;
+    if (r.code === 1) return false;
+    // Killed at its time limit (no exit status).
+    return r.code === -1 ? 'busy' : undefined;
   },
   tree(repo, commit, dirs) {
-    try {
-      // Not --verify: it takes one revision, and the Swift app's is two.
-      const out = execFileSync('git', ['-C', repo, 'rev-parse', ...dirs.map((d) => `${commit}:${d}`)], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
-      const lines = out.split('\n').filter(Boolean);
-      return lines.length === dirs.length ? lines.join('+') : undefined;
-    } catch {
-      return undefined;
-    }
+    // Not --verify: it takes one revision, and the Swift app's is two.
+    const r = untrustedGitRunSync(repo, ['rev-parse', ...dirs.map((d) => `${commit}:${d}`)], { timeoutMs: 5000 });
+    if (!r.ok) return undefined;
+    const lines = r.stdout.split('\n').filter(Boolean);
+    return lines.length === dirs.length ? lines.join('+') : undefined;
   },
 };
 

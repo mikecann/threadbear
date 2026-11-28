@@ -28,7 +28,8 @@
 // only in a checkout whose origin is that repo. In a fork, gh reads the
 // `upstream` remote's runs before origin's, so Mike's red Windows build held
 // a fork's landing that only had to work on its owner's Mac.
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { untrustedGitRunSync } from './safe-git.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { repoKey } from './upstream.ts';
@@ -292,12 +293,10 @@ export async function lastVerdict(root: string, file: string, run: Gh = gh, memo
 
 // origin's github.com/owner/name, or undefined with no origin.
 function originRepo(root: string): string | undefined {
-  try {
-    const url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    return url.trim() ? repoKey(url) : undefined;
-  } catch {
-    return undefined;
-  }
+  // Through safe-git.ts, which finds git by absolute path on Windows rather
+  // than in the repo's folder (Gemini's break-it review of 187/188).
+  const r = untrustedGitRunSync(root, ['remote', 'get-url', 'origin']);
+  return r.ok && r.stdout.trim() ? repoKey(r.stdout) : undefined;
 }
 
 const firstLine = (s: string): string => s.trim().split('\n')[0] ?? '';
@@ -316,12 +315,9 @@ type Kept = { at: number; verdict: Verdict };
 
 // The repo's shared git folder, for `root` (a worktree or the main checkout).
 export function gateCacheDir(root: string): string | undefined {
-  try {
-    const out = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    return out ? path.join(out, 'threadbear-land-gate') : undefined;
-  } catch {
-    return undefined;
-  }
+  const r = untrustedGitRunSync(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const out = r.ok ? r.stdout.trim() : '';
+  return out ? path.join(out, 'threadbear-land-gate') : undefined;
 }
 
 // The cancelled runs looked into, in the cache's folder, newest kept.

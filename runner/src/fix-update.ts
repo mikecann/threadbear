@@ -32,7 +32,7 @@
 // failure in its heartbeat (reported()), and the main Mac's runner starts
 // the fix thread itself (RemoteUpdateFixer below): work started there by
 // the main Mac needs no yes. The older handover stays for an older backend.
-import { execFileSync } from 'node:child_process';
+import { untrustedGitRunSync } from './safe-git.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -463,7 +463,13 @@ export class RemoteUpdateFixer {
 // differ: scripts/sync-main.sh may rebase a landing), with its short id and
 // subject from here.
 export function commitOnMain(checkout: string, commit: string): { short: string; subject: string } | undefined {
-  const git = (args: string[]) => execFileSync('git', ['-C', checkout, ...args], { timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  // Through safe-git.ts, as for any git in a checkout (Gemini's break-it
+  // review of 187/188): it can't run what the checkout's .git names.
+  const git = (args: string[]) => {
+    const r = untrustedGitRunSync(checkout, args, { timeoutMs: 5000 });
+    if (!r.ok) throw new Error(r.stderr);
+    return r.stdout;
+  };
   const on = ['main', 'origin/main'].some((ref) => {
     try {
       git(['merge-base', '--is-ancestor', commit, ref]);
@@ -487,12 +493,7 @@ export function commitOnMain(checkout: string, commit: string): { short: string;
 // Whether a comes before b in this Mac's checkout. Not knowing is no.
 export function commitBefore(checkout: string, a: string, b: string): boolean {
   if (a === b) return false;
-  try {
-    execFileSync('git', ['-C', checkout, 'merge-base', '--is-ancestor', a, b], { timeout: 5000, stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  return untrustedGitRunSync(checkout, ['merge-base', '--is-ancestor', a, b], { timeoutMs: 5000 }).ok;
 }
 
 function safeName(name: string): string {
