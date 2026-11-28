@@ -29,9 +29,11 @@ function repoAt(dir: string, opts: { bare?: boolean } = {}): string {
 }
 
 // What a lower-trust folder's source could say: it's a partial clone whose
-// promisor is reached through a program it names.
+// promisor is on this machine (a git that ignores GIT_NO_LAZY_FETCH would
+// fetch from it with that repository's own settings). One across the network
+// is a fine source since its server allows no transport (Gemini's sixth review).
 function makeHostile(gitDir: string): void {
-  g(gitDir, 'config', 'remote.lazy.url', 'ssh://example.invalid/x');
+  g(gitDir, 'config', 'remote.lazy.url', gitDir);
   g(gitDir, 'config', 'remote.lazy.promisor', 'true');
   g(gitDir, 'config', 'extensions.partialClone', 'lazy');
   g(gitDir, 'config', 'core.sshCommand', '/bin/false');
@@ -472,4 +474,60 @@ test('merges are always ort or octopus, and push never takes --repo', async () =
   const { root, dest } = fixture();
   const target = repoAt(path.join(root, 't.git'), { bare: true });
   for (const args of [['push', '--repo=https://example.invalid/a', target, 'HEAD:refs/heads/x'], ['push', '--repo', 'x', target], ['push', '--rep=x', target]]) await refusedBoth(dest, args, args.join(' '));
+});
+
+// With no repository named, every remote counts (fetch.all, which is also
+// pinned off, made an argument-less fetch reach them all: Gemini's sixth
+// break-it review, 28 Nov 2026), and an empty branch remote is unset, as git
+// takes it.
+test('a fetch with no repository named counts every remote, and an empty branch remote is unset', { skip: IS_WINDOWS }, async () => {
+  assert.ok(repoProofConfig([]).join(' ').includes('fetch.all=false'));
+  const { root, dest } = fixture();
+  const hostile = repoAt(path.join(root, 'evil'));
+  makeHostile(hostile);
+  g(dest, 'remote', 'add', 'origin', 'https://example.invalid/owner/repo.git');
+  g(dest, 'remote', 'add', 'evil', hostile);
+  await refusedBoth(dest, ['fetch', '-q'], 'an argument-less fetch with a hostile second remote');
+  g(dest, 'remote', 'remove', 'evil');
+  g(dest, 'remote', 'set-url', 'origin', hostile);
+  g(dest, 'config', 'branch.main.remote', '');
+  await refusedBoth(dest, ['fetch', '-q'], 'an empty branch remote falls back to origin');
+});
+
+// .git/info/attributes beats every other attributes source and has no
+// setting to switch it off; merge=union or merge=binary there settles
+// conflicts by itself (Gemini's sixth break-it review). A command that
+// merges, checks out or commits is refused while it has anything in it.
+test('a repository with its own info/attributes is refused for commands that write files', { skip: IS_WINDOWS }, async () => {
+  const { dest } = fixture();
+  fs.writeFileSync(path.join(dest, '.git', 'info', 'attributes'), '* merge=union\n');
+  for (const args of [['merge', '--ff-only', 'HEAD'], ['checkout', '-q', 'main'], ['commit', '--allow-empty', '-qm', 'x'], ['rebase', 'main']]) {
+    const r = await untrustedGit(dest, args);
+    assert.equal(r.ok, false, args.join(' ')); assert.match(r.stderr, /info\/attributes/, args.join(' '));
+  }
+  assert.ok((await untrustedGit(dest, ['status'])).ok, 'a read is fine');
+  fs.writeFileSync(path.join(dest, '.git', 'info', 'attributes'), '');
+  assert.ok((await untrustedGit(dest, ['merge', '--ff-only', 'HEAD'])).ok, 'an empty one is fine');
+});
+
+// The rule for partial clones lives in the shared settings check, so the
+// release check (upstream.ts) has it too: a promisor remote on this machine,
+// or a partial clone naming a remote's server program, is refused. A repo
+// that isn't a partial clone may still have a remote's uploadpack there
+// (the release check names its own), and a local source that's a partial
+// clone of a network remote can still be fetched from.
+test('partial clones: local promisors refused everywhere, network ones fine as a source', { skip: IS_WINDOWS }, async () => {
+  const local = (key: string, value: string) => ({ scope: 'local', key, value });
+  const partial = [local('extensions.partialclone', 'origin'), local('remote.origin.promisor', 'true')];
+  assert.throws(() => repoProofConfig([...partial, local('remote.origin.url', '../evil')]), /promisor/);
+  assert.throws(() => repoProofConfig([...partial, local('remote.origin.url', 'https://example.invalid/r.git'), local('remote.origin.uploadpack', 'x')]), /server program/);
+  assert.doesNotThrow(() => repoProofConfig([...partial, local('remote.origin.url', 'https://example.invalid/r.git')]));
+  assert.doesNotThrow(() => repoProofConfig([local('remote.upstream.uploadpack', 'x')]));
+  const { root, dest } = fixture();
+  const src = repoAt(path.join(root, 'src'));
+  g(src, 'remote', 'add', 'origin', 'https://example.invalid/owner/repo.git');
+  g(src, 'config', 'remote.origin.promisor', 'true');
+  g(src, 'config', 'extensions.partialClone', 'origin');
+  const r = await untrustedGit(dest, ['fetch', '-q', src, 'main'], { network: 'remote' });
+  assert.ok(r.ok, r.stderr);
 });

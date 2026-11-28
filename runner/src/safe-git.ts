@@ -140,7 +140,7 @@ export type UntrustedGitOptions = {
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true', '-c', 'rebase.backend=merge', '-c', 'rerere.enabled=false', '-c', 'rerere.autoUpdate=false', '-c', 'pull.twohead=ort', '-c', 'pull.octopus=octopus'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true', '-c', 'rebase.backend=merge', '-c', 'rerere.enabled=false', '-c', 'rerere.autoUpdate=false', '-c', 'pull.twohead=ort', '-c', 'pull.octopus=octopus', '-c', 'fetch.all=false'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -228,12 +228,41 @@ function localKeyOk(key: string): boolean {
   return PASSIVE_SECTIONS.test(key) && !NAMES_A_PROGRAM.test(key.slice(key.lastIndexOf('.') + 1));
 }
 
+// A partial clone fetches what it lacks from its promisor remotes by
+// itself, with that remote's settings and none of the command line's, on a
+// git that ignores GIT_NO_LAZY_FETCH (before 2.44, unless patched). One
+// across the network is bounded by GIT_ALLOW_PROTOCOL and the owner's
+// transport programs; one on this machine (a path, file://, or a name with
+// no address) would run a git server with that repository's own config, and
+// a remote's own server program (uploadpack, receivepack) would run as
+// named. So a partial clone with either is refused, here, where the release
+// check (upstream.ts) gets it too (Gemini's fifth and sixth break-it
+// reviews, 28 Nov 2026). A partial clone of a network remote is fine.
+function partialCloneProblem(entries: readonly ConfigEntry[]): string | undefined {
+  const names = new Set<string>();
+  for (const e of entries) {
+    if (TRUSTED_SCOPES.has(e.scope)) continue;
+    if (e.key === 'extensions.partialclone' && e.value) names.add(e.value);
+    const m = /^remote\.([\s\S]+)\.promisor$/.exec(e.key);
+    if (m && !/^(false|no|off|0)$/i.test(e.value)) names.add(m[1]!);
+  }
+  if (!names.size) return undefined;
+  for (const name of names) {
+    const urls = entries.filter((e) => e.key === `remote.${name}.url`).map((e) => e.value);
+    if ((urls.length ? urls : [name]).some(localAddress)) return `This repo is a partial clone whose promisor remote (${name}) is on this machine, which git would fetch from by itself with that repository's own settings; Threadbear refused to run git here.`;
+  }
+  const server = entries.find((e) => !TRUSTED_SCOPES.has(e.scope) && /^remote\.[\s\S]+\.(uploadpack|receivepack)$/.test(e.key));
+  return server ? `This repo is a partial clone that names a remote's server program (${server.key}), which a fetch git starts by itself would run; it must move to your global git config.` : undefined;
+}
+
 // The -c settings for `entries` (a repo's config as git reads it): see above.
 export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bundle' | 'remote', filesForTests = false): string[] {
   const out: string[] = [...UNTRUSTED_GIT_CONFIG, '-c', `core.hooksPath=${noHooksPath()}`, ...ALWAYS, ...protocols(network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [])];
   // Pinned on above anyway; a repo that switches either off wants to write
   // a checkout under another spelling of .git (Gemini's third break-it review).
   for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^core\.protect(ntfs|hfs)$/.test(e.key) && !/^(true|yes|on|1)$/i.test(e.value)) throw new Error(`This repo switches off git's check of .git's other spellings (${e.key}); remove it before Threadbear runs git here.`);
+  const partial = partialCloneProblem(entries);
+  if (partial) throw new Error(partial);
   for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^includeif\./i.test(e.key)) throw new Error('This repo has conditional git includes. Move them to your global git config before Threadbear changes worktrees.');
   const drivers = new Set<string>();
   const hooks = new Set<string>();
@@ -290,28 +319,6 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
 // One git the checks before a command need, run the same way by the async
 // and the sync entry points (as objectChecks, below).
 type GitStep = { cwd: string; args: string[]; env: NodeJS.ProcessEnv; timeoutMs: number; bytes?: boolean; input?: string | Buffer };
-
-// A partial clone fetches what it lacks from its promisor remotes by
-// itself, with that remote's settings and none of the command's, on a git
-// that ignores GIT_NO_LAZY_FETCH (before 2.44, unless patched). One across
-// the network is bounded by GIT_ALLOW_PROTOCOL and the owner's transport
-// programs; one on this machine (a path, file://) would run a git server
-// with that repository's own config, so it's refused, whatever repository
-// a command names (Gemini's fifth break-it review, 28 Nov 2026).
-function* checkPromisors(dir: string, entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv, timeoutMs: number): Generator<GitStep, void, UntrustedGitResult> {
-  const names = new Set<string>();
-  for (const e of entries) {
-    if (TRUSTED_SCOPES.has(e.scope)) continue;
-    if (e.key === 'extensions.partialclone' && e.value) names.add(e.value);
-    const m = /^remote\.([\s\S]+)\.promisor$/.exec(e.key);
-    if (m && !/^(false|no|off|0)$/i.test(e.value)) names.add(m[1]!);
-  }
-  for (const name of names) {
-    const urls = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', 'get-url', '--all', '--', name], env, timeoutMs };
-    const got = urls.ok ? urls.stdout.split('\n').filter(Boolean) : [];
-    for (const u of got.length ? got : [name]) if (localAddress(u)) throw new Error(`Threadbear refused to run git in this partial clone: its promisor remote (${name}) is on this machine, and git would fetch from it by itself with that repository's own settings.`);
-  }
-}
 
 function* checkWorktree(dir: string, entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv): Generator<GitStep, void, UntrustedGitResult> {
   if (!entries.some((e) => !TRUSTED_SCOPES.has(e.scope) && e.key === 'core.worktree')) return;
@@ -474,10 +481,13 @@ function localGitDirs(dirs: readonly string[], word: string, home: string): stri
 }
 
 function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
+  // A partial clone of a network remote is a fine source: its server runs
+  // serverCommand, which allows no transport at all.
+  const partial = partialCloneProblem(parseConfigListBytes(listing));
+  if (partial) throw refuse(`the repository at ${gitDir}: ${partial}`);
   for (const e of parseConfigListBytes(listing)) {
     if (e.scope === 'command' || TRUSTED_SCOPES.has(e.scope)) continue;
     if (/^includeif\./i.test(e.key)) throw refuse(`the repository at ${gitDir} has conditional git includes.`);
-    if (e.key === 'extensions.partialclone' || /^remote\.[\s\S]+\.promisor$/.test(e.key)) throw refuse(`the repository at ${gitDir} says it's a partial clone, which git can fetch into by itself, running what its config names.`);
     // upload-pack's own settings: none runs a program from a repo's config
     // (git takes uploadpack.packObjectsHook only from the owner's own).
     if (/^uploadpack\./.test(e.key)) continue;
@@ -605,7 +615,8 @@ function localAddress(address: string): boolean {
 function* checkTransfer(dir: string, sub: string, rest: readonly string[], entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv, timeoutMs: number): Generator<GitStep, 'local' | 'network' | undefined, UntrustedGitResult> {
   const read = readTransfer(sub, rest);
   const step = (args: string[]): GitStep => ({ cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, ...args], env, timeoutMs });
-  const last = (key: string) => entries.filter((e) => e.key === key).pop()?.value;
+  // An empty value is unset, as git's remote.c takes it.
+  const last = (key: string) => entries.filter((e) => e.key === key).pop()?.value || undefined;
   const remoteNames = function* (): Generator<GitStep, string[], UntrustedGitResult> {
     const names = new Set(entries.flatMap((e) => /^remote\.([\s\S]+)\.(url|pushurl)$/.exec(e.key)?.[1] ?? []));
     const common = yield step(['rev-parse', '--path-format=absolute', '--git-common-dir']);
@@ -640,7 +651,10 @@ function* checkTransfer(dir: string, sub: string, rest: readonly string[], entri
   if (sub === 'clone') specs = read.positionals.slice(0, 1);
   else if (sub === 'fetch' && read.all) specs = yield* remoteNames();
   else if (sub === 'fetch' && read.multiple) specs = read.positionals.length ? read.positionals : yield* remoteNames();
-  else specs = [read.positionals[0] ?? (yield* branchDefault(push))];
+  else if (read.positionals[0] !== undefined) specs = [read.positionals[0]];
+  // No repository named: git picks one from its settings (the branch's,
+  // fetch.all and the like), so every remote counts, and the branch's choice.
+  else specs = [...new Set([...(yield* remoteNames()), yield* branchDefault(push)])];
   if (!read.known) {
     // Every repository the command could reach: each word, each remote and
     // the branch's choice.
@@ -694,6 +708,7 @@ function execGitSync(dir: string, args: readonly string[], env: NodeJS.ProcessEn
   }
 }
 
+const WRITES_FILES = new Set(['merge', 'rebase', 'cherry-pick', 'checkout', 'reset', 'commit', 'worktree', 'checkout-index', 'read-tree', 'add']);
 const MODULE_BLOBS = [':0:.gitmodules', ':1:.gitmodules', ':2:.gitmodules', ':3:.gitmodules', 'HEAD:.gitmodules', 'MERGE_HEAD:.gitmodules', 'CHERRY_PICK_HEAD:.gitmodules', 'REBASE_HEAD:.gitmodules'];
 
 // Everything untrustedGit and untrustedGitRunSync do before the command:
@@ -741,8 +756,22 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
     // starts by itself (a partial clone's lazy fetch) doesn't get the
     // command line's (Gemini's fifth break-it review).
     for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^remote\.[\s\S]+\.(uploadpack|receivepack)$/.test(e.key)) throw new Error(`This repo's git setting (${e.key}) names a remote's server program; it must move to your global git config before Threadbear runs git here.`);
-    yield* checkPromisors(dir, entries, listEnv, short);
+    const partial = partialCloneProblem(entries);
+    if (partial) throw new Error(partial);
     yield* checkWorktree(dir, entries, listEnv);
+    // .git/info/attributes beats every other attributes source and has no
+    // setting to switch it off: merge=union or merge=binary there settles a
+    // conflict by itself, ident or working-tree-encoding change the bytes
+    // written (Gemini's sixth break-it review). A command that writes files
+    // is refused while it has anything in it (the linked worktree's shared
+    // one too, as --git-path finds it).
+    if (WRITES_FILES.has(sub)) {
+      const at = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--git-path', 'info/attributes'], env: listEnv, timeoutMs: short };
+      if (!at.ok) throw new Error("Cannot find this repository's info/attributes safely.");
+      let size = 0;
+      try { size = fs.statSync(path.resolve(dir, at.stdout.trim())).size; } catch (e) { if (!['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; }
+      if (size > 0) throw new Error("This repository has its own .git/info/attributes, which would change how Threadbear's git merges and writes files; empty or remove it first.");
+    }
     if (TRANSFERS.has(sub)) transport = yield* checkTransfer(dir, sub, rest, entries, listEnv, short);
     if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
       const blobConfig = (spec: string): GitStep => ({ cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', spec, '--list', '-z'], env, timeoutMs: short, bytes: true });
