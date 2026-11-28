@@ -950,6 +950,19 @@ refuse repository-local URL rewrites and HTTP configuration; move those settings
 to the owner's global configuration when needed. Setup's upstream check uses
 that boundary too.
 
+A fetch, clone, ls-remote or push to a repository on the same machine starts
+git-upload-pack or git-receive-pack there, which read that repository's own
+config (command-line settings don't reach them) and, for a push, run its
+hooks. Before any transfer the wrapper reads every repository the command could
+open: each word of the command and each option's value, and for a fetch, push
+or ls-remote every remote the repo has (including `.git/remotes` and
+`.git/branches` ones), found as Git finds them (`~/` under HOME, `file://`
+decoded, each `.git` suffix Git tries, `.git` files followed). It refuses the
+transfer when one says it's a partial clone, has conditional includes or a
+setting it hasn't been checked for, or, for a push target, has a hook or a
+setting that names a program. Another user's `~name` path isn't followed, so it
+is refused.
+
 A prepared release merge verifies tip/history and recursive merge-base objects,
 recomputes its stored preview tree in a fresh bare repository without
 configuration or attributes, applies the settled conflict blobs there, and

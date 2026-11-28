@@ -253,7 +253,11 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   return out;
 }
 
-function checkWorktree(dir: string, entries: readonly ConfigEntry[], extraEnv: Record<string, string> | undefined): void {
+// One git the checks before a command need, run the same way by the async
+// and the sync entry points (as objectChecks, below).
+type GitStep = { cwd: string; args: string[]; env: NodeJS.ProcessEnv; timeoutMs: number; bytes?: boolean; input?: string | Buffer };
+
+function* checkWorktree(dir: string, entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv): Generator<GitStep, void, UntrustedGitResult> {
   if (!entries.some((e) => !TRUSTED_SCOPES.has(e.scope) && e.key === 'core.worktree')) return;
   let root = path.resolve(dir);
   while (!fs.existsSync(path.join(root, '.git'))) {
@@ -261,10 +265,9 @@ function checkWorktree(dir: string, entries: readonly ConfigEntry[], extraEnv: R
     if (parent === root) throw new Error('Cannot validate this repository core.worktree setting.');
     root = parent;
   }
-  const result = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...extraEnv }, 10_000);
+  const result = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, timeoutMs: 10_000 };
   if (!result.ok || fs.realpathSync(result.stdout.trim()) !== fs.realpathSync(root)) throw new Error('This repository core.worktree points outside its checkout; Threadbear left it alone.');
 }
-
 function modulesFile(root: string): string | undefined {
   const file = path.join(root, '.gitmodules');
   try {
@@ -284,12 +287,21 @@ function moduleEntries(data: Buffer): ConfigEntry[] {
   return out;
 }
 
-function parseModuleHistoryOids(raw: string): string[] {
+// The .gitmodules blobs in `git log -m --raw -- .gitmodules`: either side of
+// every change, a version added or removed by a type change (a link or a
+// gitlink becoming the file, Gemini's review of 187, 27 Nov 2026) too. git
+// reads .gitmodules only as a regular file, so only those versions count. A
+// line it can't read fails, rather than leaving a name out.
+export function moduleHistoryBlobs(raw: string): string[] {
   const oids = new Set<string>();
   for (const line of raw.split('\n')) {
-    const m = /^:(?:100644|100755|000000) (?:100644|100755|000000) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) [^\t]+\t\.gitmodules$/.exec(line);
-    if (!m) continue;
-    for (const oid of [m[1]!, m[2]!]) if (!/^0+$/.test(oid)) oids.add(oid);
+    if (!line) continue;
+    const m = /^:(\d{6}) (\d{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) [^\t]+\t([\s\S]+)$/.exec(line);
+    if (!m) throw new Error('Cannot read the submodule configuration history.');
+    if (m[5] !== '.gitmodules') continue;
+    for (const [mode, oid] of [[m[1]!, m[3]!], [m[2]!, m[4]!]] as const) {
+      if ((mode === '100644' || mode === '100755') && !/^0+$/.test(oid)) oids.add(oid);
+    }
   }
   if (oids.size > 1_000) throw new Error('The submodule configuration history is too large.');
   return [...oids];
@@ -301,87 +313,169 @@ function moduleRevCandidates(rest: readonly string[]): string[] {
   return [...new Set([...base, ...extra])];
 }
 
-const TRANSFER_VALUE_FLAGS = new Set(['-o', '--origin', '-b', '--branch', '-u', '--upload-pack', '--template', '-c', '--config', '--depth', '--deepen', '--shallow-since', '--shallow-exclude', '--reference', '--reference-if-able', '--separate-git-dir', '--filter', '--server-option', '-j', '--jobs', '--negotiation-tip', '--refmap', '--sort', '--bundle-uri', '--revision']);
+// A fetch, clone or ls-remote from a repository on this machine starts
+// git-upload-pack in it, and a push starts git-receive-pack, and git hands
+// neither the -c settings here (a local transport drops them). Each reads
+// that repository's own config, receive-pack runs its hooks, and upload-pack
+// on git before 2.44 lazily fetches what the source lacks through its own
+// promisor remote and core.sshCommand, whatever GIT_NO_LAZY_FETCH says. So
+// before any transfer, every repository it could open is read, found the way
+// git finds it, and one that could run something is refused. Guessing which
+// word git takes as the repository missed some (Codex's and Gemini's reviews
+// of 187/188, 27 Nov 2026: a ~/ path, a .git file, src beside src.git, a
+// clone source named like a remote, an option whose value hid the source, a
+// push), so instead:
+// - every word of the command is a possible repository, an option's value
+//   too, and for a fetch, push or ls-remote so is every remote the repo has,
+//   as git lists them itself (`git remote -v`: .git/remotes, .git/branches
+//   and url rewriting included) and as its config says. A clone's source and
+//   --reference are only ever paths, as git takes them.
+// - a word is a local path when git takes it as one (no colon, or a slash
+//   before it, or a drive letter); a file:// address is decoded as git does;
+//   ~ and ~/ are under HOME, as upload-pack expands them, and the word as
+//   written is looked at too; another user's ~ can't be checked, so it's refused.
+// - each spelling git's enter_repo tries (/.git, as written, .git/.git, .git)
+//   is looked at, not only the first that exists, and a .git file is
+//   followed to the repository it names.
+// - a source may not say it's a partial clone, have conditional includes, or
+//   have a setting outside LOCAL_KEYS (none of those name a program
+//   upload-pack runs). A push target also may have no hook (a file in its
+//   hooks folder, core.hooksPath, hook.*) and no setting that names a program.
+const TRANSFERS = new Set(['fetch', 'clone', 'ls-remote', 'push']);
+const ENTER_REPO_SUFFIXES = ['/.git', '', '.git/.git', '.git'];
+const RUNS_ON_PUSH = /^(core\.(hookspath|fsmonitor|sshcommand|askpass|alternaterefscommand|pager|editor)$|hook\.|filter\.|credential\.|gpg\.|sequence\.editor$|merge\.[\s\S]*\.driver$|diff\.[\s\S]*\.(command|textconv)$)/;
 
-function localRepoDirs(dir: string, raw: string): string[] {
-  let local: string;
-  if (/^file:\/\//i.test(raw)) {
-    let url: URL;
-    try { url = new URL(raw); } catch { throw new Error('Invalid file:// transfer source.'); }
-    if (url.hostname && url.hostname.toLowerCase() !== 'localhost') throw new Error('Refusing non-local file:// transfer source.');
-    local = fileURLToPath(url);
-  } else if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw)) {
-    return [];
-  } else if (/^(?:[A-Za-z]:[\\/]|[^:]*\/|[^:]*$)/.test(raw)) {
-    local = path.resolve(dir, raw);
-  } else {
-    return [];
-  }
-  try {
-    const st = fs.statSync(local);
-    if (st.isFile()) return [];
-    if (st.isDirectory()) return [local];
-  } catch { /* Try .git suffix as Git's enter_repo does. */ }
-  const dotGit = `${local}.git`;
-  try { if (fs.statSync(dotGit).isDirectory()) return [dotGit]; } catch { /* Not a local directory repo. */ }
-  return [];
+function refuse(why: string): Error {
+  return new Error(`Threadbear refused the transfer: ${why}`);
 }
 
-function localTransferDirs(dir: string, sub: string, rest: readonly string[], entries: readonly ConfigEntry[]): string[] {
-  const positionals: string[] = [];
-  const refs: string[] = [];
-  let all = false, multiple = false, endOpts = false;
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i]!;
-    if (!endOpts && arg === '--') { endOpts = true; continue; }
-    if (!endOpts && arg.startsWith('-')) {
-      if (arg === '--all') all = true;
-      else if (arg === '--multiple') multiple = true;
-      else if ((arg === '--reference' || arg === '--reference-if-able') && i + 1 < rest.length) refs.push(rest[++i]!);
-      else if (arg.startsWith('--reference=')) refs.push(arg.slice('--reference='.length));
-      else if (arg.startsWith('--reference-if-able=')) refs.push(arg.slice('--reference-if-able='.length));
-      else if (TRANSFER_VALUE_FLAGS.has(arg)) i++;
+// What a .git file names, or undefined for any other file (a bundle).
+function gitfileTarget(file: string): string | undefined {
+  const fd = fs.openSync(file, 'r');
+  let head: Buffer;
+  try {
+    head = Buffer.alloc(8);
+    head = head.subarray(0, fs.readSync(fd, head, 0, 8, 0));
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (head.toString('latin1') !== 'gitdir: ') return undefined;
+  if (fs.statSync(file).size > 64 * 1024) throw refuse(`the .git file ${file} is too big to be one.`);
+  const named = fs.readFileSync(file, 'utf8').slice(8).replace(/[\r\n]+$/, '');
+  const target = path.resolve(path.dirname(file), named);
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return undefined; // git can't open it either
+  }
+}
+
+// The repositories git could open on this machine for `word`: none for a
+// network address.
+function localGitDirs(dir: string, word: string, home: string): string[] {
+  let bases: string[];
+  if (/^file:\/\//i.test(word)) {
+    let url: URL;
+    try { url = new URL(word); } catch { throw refuse(`it can't read ${JSON.stringify(word.slice(0, 200))} as a file:// address.`); }
+    if (url.hostname && url.hostname.toLowerCase() !== 'localhost') throw refuse(`${JSON.stringify(word.slice(0, 200))} isn't a path on this machine.`);
+    try { bases = [fileURLToPath(url)]; } catch { throw refuse(`it can't read ${JSON.stringify(word.slice(0, 200))} as a file:// address.`); }
+  } else {
+    // As git's url_is_local_not_ssh, with a backslash also counted as a
+    // slash: taking more words as paths only checks more.
+    const colon = word.indexOf(':'), slash = word.search(/[\\/]/);
+    if (colon >= 0 && !(slash >= 0 && slash < colon) && !/^[A-Za-z]:[\\/]/.test(word)) return [];
+    bases = [path.resolve(dir, word)];
+    if (/^~(?:[\\/]|$)/.test(word)) bases.push(path.join(home, word.slice(1)));
+    else if (word.startsWith('~')) throw refuse(`it can't check ${JSON.stringify(word.slice(0, 200))}, another user's home, which git would open.`);
+  }
+  const found = new Set<string>();
+  for (const base of bases) {
+    for (const suffix of ENTER_REPO_SUFFIXES) {
+      const at = base + suffix;
+      let st: fs.Stats;
+      try { st = fs.statSync(at); } catch { continue; }
+      if (st.isDirectory()) {
+        if (fs.existsSync(path.join(at, 'HEAD'))) found.add(fs.realpathSync(at));
+      } else if (st.isFile()) {
+        const target = gitfileTarget(at);
+        if (target) found.add(target);
+      }
+    }
+  }
+  return [...found];
+}
+
+function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
+  for (const e of parseConfigListBytes(listing)) {
+    if (e.scope === 'command' || TRUSTED_SCOPES.has(e.scope)) continue;
+    if (/^includeif\./i.test(e.key)) throw refuse(`the repository at ${gitDir} has conditional git includes.`);
+    if (e.key === 'extensions.partialclone' || /^remote\.[\s\S]+\.promisor$/.test(e.key)) throw refuse(`the repository at ${gitDir} says it's a partial clone, which git can fetch into by itself, running what its config names.`);
+    if (push && RUNS_ON_PUSH.test(e.key)) throw refuse(`the repository at ${gitDir} names a program in its git config (${e.key}), which a push would run.`);
+    if (!LOCAL_KEYS.some((p) => p.test(e.key))) throw refuse(`the repository at ${gitDir} has a git setting (${e.key}) Threadbear hasn't been checked for; move it to your global git config.`);
+  }
+  if (!push) return;
+  let common = gitDir;
+  try {
+    common = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+  for (const hooks of new Set([path.join(common, 'hooks'), path.join(gitDir, 'hooks')])) {
+    let names: string[] = [];
+    try { names = fs.readdirSync(hooks); } catch (e) { if (!['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; }
+    const live = names.filter((n) => !n.endsWith('.sample'));
+    if (live.length) throw refuse(`the repository at ${gitDir} has hooks (${live.slice(0, 3).join(', ')}), which a push to it would run.`);
+  }
+}
+
+function* checkTransfer(dir: string, sub: string, rest: readonly string[], entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv, timeoutMs: number): Generator<GitStep, void, UntrustedGitResult> {
+  const words: string[] = [];
+  let ended = false;
+  for (const a of rest) {
+    if (!ended && a === '--') { ended = true; continue; }
+    if (!ended && a.startsWith('-')) {
+      const eq = a.indexOf('=');
+      if (eq > 0) words.push(a.slice(eq + 1));
       continue;
     }
-    positionals.push(arg);
+    words.push(a);
   }
-  const specs: string[] = [...refs];
-  const allRemoteUrls = () => entries.filter((e) => /^remote\.[\s\S]+\.url$/.test(e.key)).map((e) => e.value);
-  if (sub === 'fetch' && (all || positionals.length === 0)) {
-    specs.push(...allRemoteUrls());
-  } else if (sub === 'fetch' && multiple) {
-    specs.push(...positionals);
-  } else if (sub === 'ls-remote' && positionals.length === 0) {
-    specs.push(...allRemoteUrls());
-  } else if (positionals.length > 0) {
-    specs.push(positionals[0]!);
-  }
-  const dirs = new Set<string>();
-  const add = (raw: string) => {
-    for (const d of localRepoDirs(dir, raw)) {
-      try { dirs.add(fs.realpathSync(d)); } catch { dirs.add(d); }
+  if (sub !== 'clone') {
+    for (const e of entries) if (/^remote\.[\s\S]+\.(url|pushurl)$/.test(e.key)) words.push(e.value);
+    const common = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], env, timeoutMs };
+    if (common.ok) {
+      const listed = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', '-v'], env, timeoutMs };
+      if (!listed.ok) throw refuse("it couldn't list this repo's remotes.");
+      for (const line of listed.stdout.split('\n')) {
+        if (!line) continue;
+        const m = /^[^\t]+\t([\s\S]*) \((?:fetch|push)\)$/.exec(line);
+        if (!m) throw refuse("it couldn't read this repo's remotes.");
+        words.push(m[1]!);
+      }
+      // `git remote -v` leaves out remotes defined by a file in .git/remotes
+      // or .git/branches, which a fetch still takes by name.
+      for (const kind of ['remotes', 'branches']) {
+        let names: string[] = [];
+        try { names = fs.readdirSync(path.join(common.stdout.trim(), kind)); } catch (e) { if (!['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; }
+        if (names.length > 64) throw refuse(`this repo has too many remotes in .git/${kind} to check.`);
+        for (const name of names) {
+          for (const push of [[], ['--push']]) {
+            const urls = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', 'get-url', ...push, '--all', name], env, timeoutMs };
+            if (!urls.ok) throw refuse(`it couldn't read the remote .git/${kind}/${name}.`);
+            words.push(...urls.stdout.split('\n').filter(Boolean));
+          }
+        }
+      }
     }
-  };
-  for (const spec of specs) {
-    const urls = entries.filter((e) => e.key === `remote.${spec}.url`).map((e) => e.value);
-    if (urls.length) for (const u of urls) add(u);
-    else add(spec);
   }
-  return [...dirs];
-}
-
-// Local transfers spawn git-upload-pack in the source repository, which reads
-// the source's own .git/config. On Git 2.43, pack-objects can lazy-fetch
-// missing objects through a source promisor remote without honoring
-// GIT_NO_LAZY_FETCH. Reject source repos with promisor/partial-clone or
-// unaudited local config before any local transfer starts.
-function validateLocalTransferSourceConfig(bytes: Buffer): void {
-  const srcEntries = parseConfigListBytes(bytes);
-  for (const e of srcEntries) {
-    if (e.scope === 'command' || TRUSTED_SCOPES.has(e.scope)) continue;
-    if (/^includeif\./i.test(e.key)) throw new Error('This local transfer source has conditional git includes; Threadbear refused the transfer.');
-    if (e.key === 'extensions.partialclone' || /^remote\.[\s\S]+\.promisor$/i.test(e.key)) throw new Error('This local transfer source has promisor/partial-clone config; Threadbear refused the transfer.');
-    if (!LOCAL_KEYS.some((p) => p.test(e.key))) throw new Error(`This local transfer source's git setting (${e.key}) must move to your global git config before Threadbear can transfer from it.`);
+  const home = env.HOME || os.homedir();
+  const dirs = new Set<string>();
+  for (const w of words) for (const d of localGitDirs(dir, w, home)) dirs.add(d);
+  if (dirs.size > 64) throw refuse('the command could reach too many repositories on this machine to check.');
+  for (const d of dirs) {
+    const listed = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, `--git-dir=${d}`, 'config', '--list', '--show-scope', '-z'], env, timeoutMs, bytes: true };
+    if (!listed.ok || !listed.bytes) throw refuse(`it couldn't read the git config of the repository at ${d}.`);
+    checkEndpoint(d, listed.bytes, sub === 'push');
   }
 }
 
@@ -397,80 +491,6 @@ function execGit(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, t
   });
 }
 
-// `git -C dir ...args` as above. A config git can't read, or one with a
-// setting -c can't reach, runs nothing and fails.
-export async function untrustedGit(dir: string, args: readonly string[], opts: UntrustedGitOptions = {}): Promise<UntrustedGitResult> {
-  // An empty GIT_ASKPASS stops git asking any program, core.askPass too.
-  // No lazy fetch even for a fetch: a local origin's upload-pack inherits
-  // it, and would otherwise fetch what it lacks through its own config.
-  const env: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_EDITOR: ':', GIT_SEQUENCE_EDITOR: ':', ...opts.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: os.devNull, GIT_ATTR_NOSYSTEM: '1' };
-  // A clone or fetch of a big repo can take a while.
-  const timeout = opts.timeoutMs ?? (opts.network === 'remote' ? 30 * 60_000 : 5 * 60_000);
-  const extra: string[] = [];
-  let at = 0;
-  while (at < args.length) {
-    if (args[at] === '-c' && args[at + 1]) { extra.push('-c', args[at + 1]!); at += 2; }
-    else if (/^--attr-source=[0-9a-f]{40,64}$/.test(args[at]!) || args[at]!.startsWith('--work-tree=')) extra.push(args[at++]!);
-    else break;
-  }
-  const [sub, ...rest] = args.slice(at);
-  // Commands used by moves, worktrees, format replay and deployment. Each
-  // is covered by the configuration and per-command overrides below. Stash
-  // and submodule commands remain out: they have their own execution paths.
-  if (!sub || !SUBCOMMANDS.has(sub)) return { ok: false, code: 1, stdout: '', stderr: `untrustedGit doesn't run git ${[sub, sub === 'worktree' ? rest[0] : undefined].filter(Boolean).join(' ')}: nobody has looked at what a repo's config could make it run.` };
-  // The same variables as the command, so it reads the config the command will.
-  const started = Date.now();
-  const listed = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...opts.env }, Math.min(10_000, timeout), true);
-  // Outside a repo it still lists the owner's own config (empty is 0 too);
-  // a config git can't parse fails the listing, and so this.
-  if (!listed.ok) return { ok: false, code: listed.code || 1, stdout: '', stderr: `couldn't read the repo's git config: ${listed.stderr.trim() || `git config exited ${listed.code}`}` };
-  let config: string[];
-  try {
-    const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
-    checkWorktree(dir, entries, opts.env);
-    if (opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote')) {
-      for (const src of localTransferDirs(dir, sub, rest, entries)) {
-        const srcListed = await execGit(src, [...LISTING_GIT_CONFIG, '-C', src, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1' }, Math.min(10_000, timeout), true);
-        if (!srcListed.ok || !srcListed.bytes) throw new Error('Cannot inspect local transfer source git config safely.');
-        validateLocalTransferSourceConfig(srcListed.bytes);
-      }
-    }
-    if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
-      if (['rebase', 'merge', 'cherry-pick'].includes(sub)) {
-        const baseConfig = repoProofConfig(entries);
-        const revCheck = await execGit(dir, [...baseConfig, '-C', dir, 'cat-file', '--batch-check=%(objecttype) %(objectname)'], env, Math.min(10_000, timeout), false, moduleRevCandidates(rest).map((r) => `${r}^{commit}\n`).join(''));
-        const extraCommits = revCheck.ok ? revCheck.stdout.split('\n').flatMap((l) => (/^commit ([0-9a-f]{40,64})$/.exec(l)?.[1] ? [l.slice(7)] : [])) : [];
-        const history = await execGit(dir, [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, Math.min(10_000, timeout));
-        if (!history.ok) throw new Error('Cannot inspect submodule history safely.');
-        for (const oid of parseModuleHistoryOids(history.stdout)) {
-          const m = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', oid, '--list', '-z'], env, Math.min(10_000, timeout), true);
-          if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
-        }
-      }
-      const root = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
-      const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
-      if (modules) {
-        const m = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--file', modules, '--list', '-z'], env, Math.min(10_000, timeout), true);
-        if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
-        entries.push(...moduleEntries(m.bytes));
-      }
-      for (const blob of [':0:.gitmodules', ':1:.gitmodules', ':2:.gitmodules', ':3:.gitmodules', 'HEAD:.gitmodules', 'MERGE_HEAD:.gitmodules', 'CHERRY_PICK_HEAD:.gitmodules', 'REBASE_HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
-        const m = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', blob, '--list', '-z'], env, Math.min(10_000, timeout), true);
-        if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
-      }
-    }
-    config = repoProofConfig(entries, opts.network);
-  } catch (e) {
-    return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
-  }
-  const pack = opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
-  const control = ['merge', 'rebase', 'cherry-pick'].includes(sub) && rest.some((a) => ['--abort', '--quit', '--continue', '--skip', '--edit-todo', '--show-current-patch'].includes(a));
-  const inside = control ? [] : (NO_SUBMODULES[sub] ?? []);
-  // What's left of the caller's time, when it gave one.
-  const left = opts.timeoutMs === undefined ? timeout : Math.max(1, timeout - (Date.now() - started));
-  return execGit(dir, [...config, ...extra, '-C', dir, sub, ...inside, ...pack, ...rest], env, left, opts.bytes, opts.input);
-}
-
 function execGitSync(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs: number, bytes = false, input?: string | Buffer): UntrustedGitResult {
   try {
     const out = execFileSync(gitProgram(), args as string[], { cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL', input, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -481,7 +501,13 @@ function execGitSync(dir: string, args: readonly string[], env: NodeJS.ProcessEn
   }
 }
 
-export function untrustedGitRunSync(dir: string, args: readonly string[], opts: UntrustedGitOptions = {}): UntrustedGitResult {
+const MODULE_BLOBS = [':0:.gitmodules', ':1:.gitmodules', ':2:.gitmodules', ':3:.gitmodules', 'HEAD:.gitmodules', 'MERGE_HEAD:.gitmodules', 'CHERRY_PICK_HEAD:.gitmodules', 'REBASE_HEAD:.gitmodules'];
+
+// Everything untrustedGit and untrustedGitRunSync do before the command:
+// read the repo's config (the same variables as the command, so it reads
+// the config the command will), the checks above, and the -c settings. Ends
+// with the command to run, or the failure to return instead.
+function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOptions): Generator<GitStep, { run: GitStep } | { result: UntrustedGitResult }, UntrustedGitResult> {
   // An empty GIT_ASKPASS stops git asking any program, core.askPass too.
   // No lazy fetch even for a fetch: a local origin's upload-pack inherits
   // it, and would otherwise fetch what it lacks through its own config.
@@ -499,58 +525,80 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
   // Commands used by moves, worktrees, format replay and deployment. Each
   // is covered by the configuration and per-command overrides below. Stash
   // and submodule commands remain out: they have their own execution paths.
-  if (!sub || !SUBCOMMANDS.has(sub)) return { ok: false, code: 1, stdout: '', stderr: `untrustedGit doesn't run git ${[sub, sub === 'worktree' ? rest[0] : undefined].filter(Boolean).join(' ')}: nobody has looked at what a repo's config could make it run.` };
-  // The same variables as the command, so it reads the config the command will.
+  if (!sub || !SUBCOMMANDS.has(sub)) return { result: { ok: false, code: 1, stdout: '', stderr: `untrustedGit doesn't run git ${[sub, sub === 'worktree' ? rest[0] : undefined].filter(Boolean).join(' ')}: nobody has looked at what a repo's config could make it run.` } };
   const started = Date.now();
-  const listed = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...opts.env }, Math.min(10_000, timeout), true);
+  const short = Math.min(10_000, timeout);
+  const listEnv: NodeJS.ProcessEnv = { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...opts.env };
+  const listed = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--list', '--show-scope', '-z'], env: listEnv, timeoutMs: short, bytes: true };
   // Outside a repo it still lists the owner's own config (empty is 0 too);
   // a config git can't parse fails the listing, and so this.
-  if (!listed.ok) return { ok: false, code: listed.code || 1, stdout: '', stderr: `couldn't read the repo's git config: ${listed.stderr.trim() || `git config exited ${listed.code}`}` };
+  if (!listed.ok) return { result: { ok: false, code: listed.code || 1, stdout: '', stderr: `couldn't read the repo's git config: ${listed.stderr.trim() || `git config exited ${listed.code}`}` } };
   let config: string[];
   try {
     const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
-    checkWorktree(dir, entries, opts.env);
-    if (opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote')) {
-      for (const src of localTransferDirs(dir, sub, rest, entries)) {
-        const srcListed = execGitSync(src, [...LISTING_GIT_CONFIG, '-C', src, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1' }, Math.min(10_000, timeout), true);
-        if (!srcListed.ok || !srcListed.bytes) throw new Error('Cannot inspect local transfer source git config safely.');
-        validateLocalTransferSourceConfig(srcListed.bytes);
-      }
-    }
+    yield* checkWorktree(dir, entries, listEnv);
+    if (TRANSFERS.has(sub)) yield* checkTransfer(dir, sub, rest, entries, listEnv, short);
     if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
+      const blobConfig = (spec: string): GitStep => ({ cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', spec, '--list', '-z'], env, timeoutMs: short, bytes: true });
       if (['rebase', 'merge', 'cherry-pick'].includes(sub)) {
         const baseConfig = repoProofConfig(entries);
-        const revCheck = execGitSync(dir, [...baseConfig, '-C', dir, 'cat-file', '--batch-check=%(objecttype) %(objectname)'], env, Math.min(10_000, timeout), false, moduleRevCandidates(rest).map((r) => `${r}^{commit}\n`).join(''));
+        const revCheck = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'cat-file', '--batch-check=%(objecttype) %(objectname)'], env, timeoutMs: short, input: moduleRevCandidates(rest).map((r) => `${r}^{commit}\n`).join('') };
         const extraCommits = revCheck.ok ? revCheck.stdout.split('\n').flatMap((l) => (/^commit ([0-9a-f]{40,64})$/.exec(l)?.[1] ? [l.slice(7)] : [])) : [];
-        const history = execGitSync(dir, [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, Math.min(10_000, timeout));
+        const history = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, timeoutMs: short };
         if (!history.ok) throw new Error('Cannot inspect submodule history safely.');
-        for (const oid of parseModuleHistoryOids(history.stdout)) {
-          const m = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', oid, '--list', '-z'], env, Math.min(10_000, timeout), true);
+        for (const oid of moduleHistoryBlobs(history.stdout)) {
+          const m = yield blobConfig(oid);
           if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
         }
       }
-      const root = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
+      const root = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, timeoutMs: short };
       const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
       if (modules) {
-        const m = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--file', modules, '--list', '-z'], env, Math.min(10_000, timeout), true);
+        const m = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--file', modules, '--list', '-z'], env, timeoutMs: short, bytes: true };
         if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
         entries.push(...moduleEntries(m.bytes));
       }
-      for (const blob of [':0:.gitmodules', ':1:.gitmodules', ':2:.gitmodules', ':3:.gitmodules', 'HEAD:.gitmodules', 'MERGE_HEAD:.gitmodules', 'CHERRY_PICK_HEAD:.gitmodules', 'REBASE_HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
-        const m = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', blob, '--list', '-z'], env, Math.min(10_000, timeout), true);
+      for (const blob of [...MODULE_BLOBS, ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
+        const m = yield blobConfig(blob);
         if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
       }
     }
     config = repoProofConfig(entries, opts.network);
   } catch (e) {
-    return { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) };
+    return { result: { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) } };
   }
   const pack = opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote') ? ['--upload-pack=git-upload-pack'] : opts.network && sub === 'push' ? ['--receive-pack=git-receive-pack'] : [];
   const control = ['merge', 'rebase', 'cherry-pick'].includes(sub) && rest.some((a) => ['--abort', '--quit', '--continue', '--skip', '--edit-todo', '--show-current-patch'].includes(a));
   const inside = control ? [] : (NO_SUBMODULES[sub] ?? []);
   // What's left of the caller's time, when it gave one.
   const left = opts.timeoutMs === undefined ? timeout : Math.max(1, timeout - (Date.now() - started));
-  return execGitSync(dir, [...config, ...extra, '-C', dir, sub, ...inside, ...pack, ...rest], env, left, opts.bytes, opts.input);
+  return { run: { cwd: dir, args: [...config, ...extra, '-C', dir, sub, ...inside, ...pack, ...rest], env, timeoutMs: left, ...(opts.bytes ? { bytes: true } : {}), ...(opts.input !== undefined ? { input: opts.input } : {}) } };
+}
+
+// `git -C dir ...args` as above. A config git can't read, or one with a
+// setting -c can't reach, runs nothing and fails.
+export async function untrustedGit(dir: string, args: readonly string[], opts: UntrustedGitOptions = {}): Promise<UntrustedGitResult> {
+  const steps = prepare(dir, args, opts);
+  let step = steps.next();
+  while (!step.done) {
+    const s = step.value;
+    step = steps.next(await execGit(s.cwd, s.args, s.env, s.timeoutMs, s.bytes, s.input));
+  }
+  if ('result' in step.value) return step.value.result;
+  const s = step.value.run;
+  return execGit(s.cwd, s.args, s.env, s.timeoutMs, s.bytes, s.input);
+}
+
+export function untrustedGitRunSync(dir: string, args: readonly string[], opts: UntrustedGitOptions = {}): UntrustedGitResult {
+  const steps = prepare(dir, args, opts);
+  let step = steps.next();
+  while (!step.done) {
+    const s = step.value;
+    step = steps.next(execGitSync(s.cwd, s.args, s.env, s.timeoutMs, s.bytes, s.input));
+  }
+  if ('result' in step.value) return step.value.result;
+  const s = step.value.run;
+  return execGitSync(s.cwd, s.args, s.env, s.timeoutMs, s.bytes, s.input);
 }
 
 // What untrustedGit runs. `git submodule` isn't one: it runs git in each
