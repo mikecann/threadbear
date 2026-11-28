@@ -613,9 +613,31 @@ restart wait for busy threads. It hands over instead:
   project, and moves across with the thread. Until the draining runner
   knows the primary's port, a change is refused with a "try again in a
   few seconds" error.
-- A `resume` for a kept thread is sent when the thread moves across,
-  rather than when the new runner starts, and the 15-minute limit counts
-  from then.
+- A `resume` for a kept thread is sent when the thread moves across.
+  If it arrives during startup, the primary waits until it is listening
+  to send it. The 15-minute limit counts from when the thread came across.
+  The primary saves these resumes in `run/deferred-resumes.json`, so
+  another restart or handover keeps them even after `restart.done.json`
+  is removed. If the primary loads the thread from disk at startup, the
+  15 minutes count from the later of the original restart and the thread's
+  last activity before this start.
+  After a rollback to an older release, a resume that release sent or
+  left a note declining is discarded without another restart note.
+  This also applies to a resume the older release saved in the thread's
+  queue. If recovery moves unsent user input from the queue into a
+  `system.note`, that note carries `queuedUserInput: true` and the input
+  takes precedence over a pending resume. A recovery note for automatic
+  messages alone carries `queuedUserInput: false`.
+  The runner keeps a recovery copy at `restart.deferred.json` if it cannot
+  update the deferred queue under `run/`. It retries until it can put the
+  queue back there. If an older runner changes the regular queue in the
+  meantime, its additions, replacements and removals take precedence for
+  the affected threads. The comparison uses the last known regular queue
+  even if a later read fails. If the runner has no known queue to compare
+  against, it uses the recovery copy. A rollback updates an already queued
+  resume in place.
+  The same rules apply at adoption: if someone has sent a message since
+  the thread asked to resume, it only gets the note saying why.
 - If a connection or setup call to a draining runner fails at startup, the
   primary retries while that process lives and its drain file is there, for
   up to 30 seconds across all draining runners (each gets 10 at least, and

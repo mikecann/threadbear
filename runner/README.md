@@ -207,6 +207,10 @@ has the details.
   alone (`launch.mjs` gives a broken release two starts), so when
   `launch.mjs` then goes back to the last good one, the thread is carried on
   once more there.
+- A resume for a thread finishing on the old runner survives further
+  restarts. Its 15 minutes count from when the primary takes the thread.
+  If the primary loads the thread from disk at startup, the limit counts from its
+  last activity before startup or the original restart, whichever is later.
 - Snoozed and archived threads keep their queued messages through a
   restart and send them when they come back, even when the snooze ended
   while the runner was down.
@@ -342,6 +346,7 @@ What the runner gives the CLIs it starts is under Tools for agents below.
   runner/                       releases, launch.mjs and state.json (above)
   restart.json                  a restart that's waiting for threads to finish
   restart.done.json             the last one handled, until this release is marked good
+  restart.deferred.json         recovery copy while run/deferred-resumes.json cannot be updated
   secrets/runner-token          random RPC token, 0600 (folder 0700); clients prove they have it, never send it
   models/usage.ndjson           one line per model call: feature, model, login, tokens (no text)
   inbox/                        images the app imports before sending
@@ -350,6 +355,7 @@ What the runner gives the CLIs it starts is under Tools for agents below.
   run/runner.pid                the lock: pid and start time of the runner that
                                 owns this data dir
   run/resumes.json              when each thread was last resumed after a restart
+  run/deferred-resumes.json     resume messages waiting for threads to move across
   run/error-exits.json          restarts after uncaught errors lately, for the loop guard
   trash/<threadId>-<time>/      deleted threads, kept until removed by hand
   threads/<threadId>/

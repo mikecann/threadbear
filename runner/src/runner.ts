@@ -1597,10 +1597,14 @@ export class Runner {
     rec.queue = rec.queue.filter(q => !q.reviewId && !coordinatorInput(q));
     if (rec.queue.length) {
       const texts = rec.queue.map((q) => q.text).filter(Boolean);
+      const queuedUserInput = rec.queue.some((q) => q.origin !== 'runner' && q.origin !== 'schedule');
       this.emit(st, {
         type: 'system.note',
+        queuedUserInput,
         text: `The runner restarted before ${rec.queue.length === 1 ? 'a queued message was' : `${rec.queue.length} queued messages were`} sent:\n\n${texts.join('\n\n')}`,
       });
+      // Leave the unsent words for the user to review before carrying on.
+      if (queuedUserInput) delete rec.stoppedMidTurn;
       rec.queue = [];
     }
     rec.queue.push(...keptQueue);
@@ -2162,6 +2166,18 @@ export class Runner {
   }
 
   private subagentReads = new SubagentTranscripts();
+
+  queuedMessages(threadId: string): ReadonlyArray<Readonly<QueuedSend>> {
+    return this.mustGet(threadId).rec.queue;
+  }
+
+  replaceQueuedText(threadId: string, turnId: string, text: string): void {
+    const st = this.mustGet(threadId);
+    const queued = st.rec.queue.find((message) => message.turnId === turnId);
+    if (!queued) return;
+    queued.text = text;
+    this.markDirty(st);
+  }
 
   // What a sub-agent has done so far, from the CLI's transcript of it or from
   // a hidden runner-managed coordinator helper's persisted event log.

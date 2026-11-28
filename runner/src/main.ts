@@ -33,7 +33,7 @@ import { followOriginOn } from './follow-origin.ts';
 import { bringInSetting, spareWeekOn } from './settings.ts';
 import { SpareWeek, looksByItself, spareWeekBinding } from './spare-week.ts';
 import { MAIL_WATCH, MailWatch } from './mail-watch.ts';
-import { Restarter, restartMethods } from './restart.ts';
+import { handoverResumes, Restarter, restartMethods } from './restart.ts';
 import { AppRestarts } from './app-restarts.ts';
 import { Scheduler, scheduleMethods } from './schedules.ts';
 import { StuckJobs } from './stuck-jobs.ts';
@@ -576,9 +576,10 @@ async function main(): Promise<void> {
     },
     poolIds: () => runner.listPools().pools.map((p) => p.id),
   });
-  // Runners still finishing turns after a handover: connected before the
-  // threads load, so the ones they have are left to them. Nothing after the
-  // await below yields until runner.start(), so no thread can arrive first.
+  // Connect to draining runners before loading threads. An adoption can
+  // arrive while connecting or before the server listens. Its resume waits
+  // until listening, and counts from that adoption.
+  const handover = handoverResumes(runner, () => restarter, realClock);
   const peers = new Peers({
     home: cfg.home,
     token,
@@ -588,10 +589,7 @@ async function main(): Promise<void> {
         // Only the primary takes threads in. A draining runner has closed
         // its peers, but one already on its way in mustn't land here.
         if (draining) return undefined;
-        const t = runner.adopt(threadId, o);
-        restarter?.resumeAdopted(threadId);
-        // Cut off mid-turn if the old runner crashed with it: carried on.
-        if (o?.crashed) runner.carryOnStopped(threadId);
+        const t = handover.adopt(threadId, o);
         // A review the old runner couldn't start (runner/lab-review.ts),
         // after the resume, which it would otherwise turn away.
         runner.startOwedReviews(threadId);
@@ -1091,7 +1089,7 @@ async function main(): Promise<void> {
     updateStatus: () => updater.status(),
     canHandOver: () => supervised() && !draining,
     handOver: (keeps) => void handOver(keeps),
-    elsewhere: (id) => peers.owns(id),
+    elsewhere: (id) => peers.owns(id) || peers.isArriving(id),
   });
   const openThread = (threadId: string): boolean => {
     try {
@@ -2090,7 +2088,7 @@ async function main(): Promise<void> {
     }
   };
   if (!copyOfReal && !box) step('start coordinators', () => coordinators.start());
-  step('resume after restart', () => restarter.resumeAfterRestart());
+  step('resume after restart', handover.ready);
   step('tell stopped work', () => runner.tellStoppedWork());
   step('carry on stopped', () => runner.carryOnStopped());
   // Coordinators' hidden helpers a restart cut off (coordinators.ts).
