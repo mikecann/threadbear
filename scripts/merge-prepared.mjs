@@ -32,7 +32,7 @@ function apply(dir, msg) {
     };
     run(['init', '-q', '--bare', '--template=', `--object-format=${git(top, ['rev-parse', '--show-object-format'])}`, bare]);
     fs.writeFileSync(path.join(bare, 'objects/info/alternates'), git(top, ['rev-parse', '--path-format=absolute', '--git-path', 'objects']) + '\n');
-    const b = (args, input, allowed) => run(['-C', bare, '-c', `core.attributesFile=${os.devNull}`, '-c', 'merge.default=text', '-c', 'core.commitGraph=false', ...args], input, allowed);
+    const b = (args, input, allowed) => run(['-C', bare, '-c', 'core.attributesFile=/dev/null', '-c', 'merge.default=text', '-c', 'core.commitGraph=false', ...args], input, allowed);
     const empty = b(['hash-object', '-w', '-t', 'tree', '--stdin'], '').toString().trim();
     const merged = b([`--attr-source=${empty}`, 'merge-tree', '--write-tree', '--name-only', '-z', base, commit], undefined, [0, 1]).toString('utf8').split('\0');
     const tree = merged.shift().trim();

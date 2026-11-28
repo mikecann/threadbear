@@ -1,7 +1,6 @@
 // Git reads for setup/deployment use the same hostile-repository boundary
 // as the runner. Node 24 strips these modules' types; no packages are needed.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -13,7 +12,7 @@ import { untrustedGitRunSync, untrustedGitEnv, gitProgram, verifyGitObjectsSync 
 // (\\.\nul) as a config file ("unable to access '\\.\nul'"), as
 // upstream.ts found before.
 export function isolatedGit(home, args, input, extraEnv = {}) {
-  const env = { ...untrustedGitEnv(), HOME: home, XDG_CONFIG_HOME: home, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_ATTR_NOSYSTEM: '1', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_GRAFT_FILE: os.devNull, NoDefaultCurrentDirectoryInExePath: '1', ...extraEnv };
+  const env = { ...untrustedGitEnv(), HOME: home, XDG_CONFIG_HOME: home, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_ATTR_NOSYSTEM: '1', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1', GIT_GRAFT_FILE: '/dev/null', NoDefaultCurrentDirectoryInExePath: '1', ...extraEnv };
   return spawnSync(gitProgram(), args, { env, input, maxBuffer: 64 * 1024 * 1024, encoding: 'buffer', timeout: 60_000 });
 }
 
@@ -151,7 +150,7 @@ export function snapshotCommit(root, prefix, commit, dest, releasePaths) {
 
 export function savePreview(dir, bare, base, commit, empty) {
   const run = (args) => {
-    const r = isolatedGit(path.dirname(bare), ['-c', 'core.commitGraph=false', '-c', `core.attributesFile=${os.devNull}`, '-c', 'merge.default=text', '-C', bare, `--attr-source=${empty}`, ...args]);
+    const r = isolatedGit(path.dirname(bare), ['-c', 'core.commitGraph=false', '-c', 'core.attributesFile=/dev/null', '-c', 'merge.default=text', '-C', bare, `--attr-source=${empty}`, ...args]);
     if (r.status !== 0 && r.status !== 1) throw new Error(String(r.stderr));
     return r;
   };
