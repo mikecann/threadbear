@@ -17,6 +17,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpDir } from './fakes.ts';
 import { testSkippedOnWindows } from './platform.ts';
+import { copyCheckGitFiles } from './check-git-files.ts';
 
 // scripts/check-remote.sh copies a checkout to another machine with ssh and
 // rsync and names hosts with `hostname -s`: the check hosts are Macs and Linux.
@@ -232,6 +233,7 @@ export function setup(hosts: Record<string, Host>, opts: { home?: string } = {})
   fs.copyFileSync(path.join(path.dirname(SCRIPT), 'swift-freeze.sh'), path.join(repo, 'scripts', 'swift-freeze.sh'));
   fs.chmodSync(path.join(repo, 'scripts', 'swift-freeze.sh'), 0o755);
   fs.copyFileSync(path.join(path.dirname(SCRIPT), 'fix-link-kinds.sh'), path.join(repo, 'scripts', 'fix-link-kinds.sh'));
+  copyCheckGitFiles(repo);
   const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
   git('init', '-q', '-b', 'main');
   git('add', '-A');

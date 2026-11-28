@@ -334,6 +334,7 @@ export function cloneArgs(checkout: string, dir: string): string[] {
 // (follow-origin.ts).
 export async function syncClone(checkout: string, prefix: string, dir: string, ref = 'refs/heads/main'): Promise<MainInfo> {
   await refuseUpdateSubstitutes(checkout);
+  await verifyGitObjects(checkout, [ref]);
   if (!fs.existsSync(path.join(dir, '.git'))) {
     await fs.promises.rm(dir, { recursive: true, force: true });
     await fs.promises.mkdir(path.dirname(dir), { recursive: true });
@@ -344,7 +345,8 @@ export async function syncClone(checkout: string, prefix: string, dir: string, r
   // Hash the snapshot that will actually be checked out and executed.
   // Periodic identity reads need no full snapshot scan when nothing changes.
   await verifyGitObjects(dir, ['FETCH_HEAD']);
-  await gitAsync(dir, ['checkout', '-q', '-f', '-B', 'main', 'FETCH_HEAD']);
+  const emptyAttrs = (await gitAsync(dir, ['hash-object', '-w', '-t', 'tree', '--stdin'])).trim();
+  await gitAsync(dir, ['-c', 'core.autocrlf=false', '-c', 'core.eol=lf', `--attr-source=${emptyAttrs}`, 'checkout', '-q', '-f', '-B', 'main', 'FETCH_HEAD']);
   // [folder in the clone, stamp file name]. The stamps are beside the
   // clone, not in it: git clean would take them out each time.
   const installs: [string, string][] = [[prefix, 'installed-lock']];
@@ -514,6 +516,7 @@ const MIKES_REPO = 'github.com/mikecann/threadbear';
 export async function onMikesMain(checkout: string, commit: string, opts: { files?: boolean } = {}): Promise<string | undefined> {
   let remotes: string[];
   try {
+    await refuseUpdateSubstitutes(checkout);
     remotes = (await gitWithin(checkout, ['remote'])).split('\n').filter(Boolean);
   } catch {
     return undefined;
@@ -521,11 +524,11 @@ export async function onMikesMain(checkout: string, commit: string, opts: { file
   for (const remote of remotes) {
     let url: string;
     try {
-      url = await gitWithin(checkout, ['config', '--get', `remote.${remote}.url`]);
+      url = await gitWithin(checkout, ['config', '--get-all', `remote.${remote}.url`]);
     } catch {
       continue;
     }
-    if (repoKey(url) !== MIKES_REPO) continue;
+    if (url.split('\n').filter(Boolean).length !== 1 || repoKey(url) !== MIKES_REPO) continue;
     const main = `refs/remotes/${remote}/main`;
     // By its URL, as the release check fetches (upstream.ts, release git):
     // nothing this checkout's config names runs, and one that redirects a
@@ -534,6 +537,7 @@ export async function onMikesMain(checkout: string, commit: string, opts: { file
     if (!from) continue;
     try {
       await gitWithin(checkout, ['fetch', '--quiet', '--no-tags', '--no-prune', '--no-prune-tags', '--no-write-fetch-head', '--no-recurse-submodules', UPLOAD_PACK, from, `+refs/heads/main:${main}`], { timeoutMs: FETCH_TIMEOUT_MS, network: 'remote', ...(opts.files ? { files: true } : {}) });
+      await verifyGitObjects(checkout, [commit, main], true);
       await gitWithin(checkout, ['merge-base', '--is-ancestor', commit, main]);
       return `${remote}/main has this commit, and a landing's check passed them there`;
     } catch {

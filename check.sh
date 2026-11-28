@@ -109,6 +109,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Node 24 or newer, else Homebrew's (runner/scripts/find-node.sh).
 . "$ROOT/runner/scripts/find-node.sh"
 NODE="$(threadbear_find_node)" || exit 1
+source_git() {
+  "$NODE" "$ROOT/runner/scripts/deploy-git.mjs" "$ROOT" "$@"
+}
 QUICK=0
 RUNNER_ONLY=0
 APP_ONLY=0
@@ -258,7 +261,7 @@ if [ "$LOCAL" = 0 ] && [ "$E2E" = 0 ]; then
     exit 4
   fi
   if [ -n "$CHECK_HOST" ]; then
-    "$ROOT/scripts/check-remote.sh" "$CHECK_HOST" ${ARGS[@]+"${ARGS[@]}"}
+    THREADBEAR_NODE="$NODE" "$ROOT/scripts/check-remote.sh" "$CHECK_HOST" ${ARGS[@]+"${ARGS[@]}"}
     code=$?
     [ "$code" = 255 ] || exit "$code"
     if [ -n "${THREADBEAR_CHECK_HOST_ONLY:-}" ]; then
@@ -326,8 +329,8 @@ if [ -n "${THREADBEAR_CHECK_CHANGED_FILE:-}" ]; then
   CHANGED="$(cat "$THREADBEAR_CHECK_CHANGED_FILE")"
 else
 CHANGED="$( {
-  base="$(git -C "$ROOT" merge-base HEAD main 2>/dev/null)" && git -C "$ROOT" diff --name-only "$base"
-  git -C "$ROOT" ls-files --others --exclude-standard
+  base="$(source_git merge-base HEAD main 2>/dev/null)" && source_git diff --name-only "$base"
+  source_git ls-files --others --exclude-standard
 } 2>/dev/null | sort -u)"
 fi
 
@@ -434,7 +437,7 @@ if [ -n "$PASSES" ]; then
     # copy is always on main, so there it's when alone.
     PASSES_BY="$(date '+%d %b %H:%M')"
     if [ -z "${THREADBEAR_CHECK_CHANGED_FILE:-}" ]; then
-      PASSES_BY="$PASSES_BY on $(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "a copy")"
+      PASSES_BY="$PASSES_BY on $(source_git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "a copy")"
     fi
     # Past a week a record no longer counts (check-cache.mjs, RECORD_DAYS).
     find "$PASSES/steps" "$PASSES/tests" -type f -mtime +7 -delete 2>/dev/null

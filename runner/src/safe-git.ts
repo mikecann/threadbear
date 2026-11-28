@@ -4,6 +4,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Standalone Windows setup does not inherit main.ts's executable-search
 // guard. Resolve Git from absolute PATH entries, never the working folder.
@@ -186,7 +187,7 @@ const LOCAL_KEYS = [
   /^diff\.[\s\S]*\.(command|textconv|binary|cachetextconv|xfuncname|wordregex|algorithm)$/,
   /^merge\.[\s\S]*\.(name|driver|recursive)$/,
   /^hook\.[\s\S]*\.(command|event|enabled)$/,
-  /^submodule\.[\s\S]*\.(url|path|active|ignore|branch|fetchrecursesubmodules)$/,
+  /^submodule\.[\s\S]*\.(url|path|active|ignore|branch|fetchrecursesubmodules|update|shallow)$/,
   /^protocol\.[\s\S]*\.allow$/,
   /^protocol\.version$/,
   /^(url|http)\.[\s\S]+$/,
@@ -202,6 +203,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^includeif\./i.test(e.key)) throw new Error('This repo has conditional git includes. Move them to your global git config before Threadbear changes worktrees.');
   const drivers = new Set<string>();
   const hooks = new Set<string>();
+  const submodules = new Set<string>();
   const allowed = network === 'remote' ? ['https', 'ssh', 'file'] : network === 'bundle' ? ['file'] : [];
   for (const e of entries) {
     if (e.scope !== 'command' && !TRUSTED_SCOPES.has(e.scope) && !LOCAL_KEYS.some((p) => p.test(e.key)) && !(filesForTests && /^url\./.test(e.key))) throw new Error(`This repo's git setting (${e.key}) must move to your global git config before Threadbear can run git here.`);
@@ -213,7 +215,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     if (p && !allowed.includes(p[1]!) && !PROTOCOL_NAMES.includes(p[1]!)) out.push('-c', `${settable(e.key)}=never`);
     if (/^branch\.[\s\S]*\.mergeoptions$/.test(e.key)) out.push('-c', `${settable(e.key)}=`);
     const sub = /^submodule\.([\s\S]*)\.[^.]+$/.exec(e.key);
-    if (sub) out.push('-c', `${settable(`submodule.${sub[1]}.ignore`)}=all`);
+    if (sub) submodules.add(sub[1]!);
     const m = /^merge\.([\s\S]*)\.driver$/.exec(e.key);
     if (m) out.push('-c', `${settable(e.key)}=git merge-file --marker-size=%L -- %A %O %B`);
     if (network && !filesForTests && !TRUSTED_SCOPES.has(e.scope) && (/^(url\.|http\.)/.test(e.key) || /^remote\.[\s\S]*\.(proxy|proxyauthmethod)$/.test(e.key) || /^remote\.[\s\S]*[:/\\][\s\S]*\.[^.]+$/.test(e.key))) throw new Error(`This repo's transport config (${e.key}) must move to your global git config before Threadbear can fetch or push.`);
@@ -229,6 +231,7 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
     const h = /^hook\.([\s\S]*)\.[^.]+$/.exec(e.key);
     if (h) hooks.add(h[1]!);
   }
+  for (const s of submodules) out.push('-c', `${settable(`submodule.${s}.ignore`)}=all`, '-c', `${settable(`submodule.${s}.update`)}=none`, '-c', `${settable(`submodule.${s}.fetchRecurseSubmodules`)}=false`);
   for (const h of hooks) out.push('-c', `${settable(`hook.${h}.enabled`)}=false`);
   for (const d of drivers) out.push('-c', `${settable(`${d}.clean`)}=`, '-c', `${d}.smudge=`, '-c', `${d}.process=`, '-c', `${d}.required=false`);
   if (network === 'remote') {
@@ -250,6 +253,18 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   return out;
 }
 
+function checkWorktree(dir: string, entries: readonly ConfigEntry[], extraEnv: Record<string, string> | undefined): void {
+  if (!entries.some((e) => !TRUSTED_SCOPES.has(e.scope) && e.key === 'core.worktree')) return;
+  let root = path.resolve(dir);
+  while (!fs.existsSync(path.join(root, '.git'))) {
+    const parent = path.dirname(root);
+    if (parent === root) throw new Error('Cannot validate this repository core.worktree setting.');
+    root = parent;
+  }
+  const result = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1', ...extraEnv }, 10_000);
+  if (!result.ok || fs.realpathSync(result.stdout.trim()) !== fs.realpathSync(root)) throw new Error('This repository core.worktree points outside its checkout; Threadbear left it alone.');
+}
+
 function modulesFile(root: string): string | undefined {
   const file = path.join(root, '.gitmodules');
   try {
@@ -259,10 +274,115 @@ function modulesFile(root: string): string | undefined {
   } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw e; }
 }
 function moduleEntries(data: Buffer): ConfigEntry[] {
-  return UTF8.decode(data).split('\0').filter(Boolean).map((part) => {
+  const out: ConfigEntry[] = [];
+  for (const part of UTF8.decode(data).split('\0').filter(Boolean)) {
     const n = part.indexOf('\n');
-    return { scope: 'local', key: n < 0 ? part : part.slice(0, n), value: n < 0 ? '' : part.slice(n + 1) };
-  });
+    const key = n < 0 ? part : part.slice(0, n);
+    const sub = /^submodule\.([\s\S]*)\.[^.]+$/.exec(key);
+    if (sub) out.push({ scope: 'local', key: `submodule.${sub[1]}.ignore`, value: 'all' });
+  }
+  return out;
+}
+
+function parseModuleHistoryOids(raw: string): string[] {
+  const oids = new Set<string>();
+  for (const line of raw.split('\n')) {
+    const m = /^:(?:100644|100755|000000) (?:100644|100755|000000) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) [^\t]+\t\.gitmodules$/.exec(line);
+    if (!m) continue;
+    for (const oid of [m[1]!, m[2]!]) if (!/^0+$/.test(oid)) oids.add(oid);
+  }
+  if (oids.size > 1_000) throw new Error('The submodule configuration history is too large.');
+  return [...oids];
+}
+
+function moduleRevCandidates(rest: readonly string[]): string[] {
+  const base = ['HEAD', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REBASE_HEAD', 'ORIG_HEAD', 'FETCH_HEAD'];
+  const extra = rest.flatMap((a) => (a.startsWith('-') ? [] : a.split(/\.\.\.?/).filter(Boolean)));
+  return [...new Set([...base, ...extra])];
+}
+
+const TRANSFER_VALUE_FLAGS = new Set(['-o', '--origin', '-b', '--branch', '-u', '--upload-pack', '--template', '-c', '--config', '--depth', '--deepen', '--shallow-since', '--shallow-exclude', '--reference', '--reference-if-able', '--separate-git-dir', '--filter', '--server-option', '-j', '--jobs', '--negotiation-tip', '--refmap', '--sort', '--bundle-uri', '--revision']);
+
+function localRepoDirs(dir: string, raw: string): string[] {
+  let local: string;
+  if (/^file:\/\//i.test(raw)) {
+    let url: URL;
+    try { url = new URL(raw); } catch { throw new Error('Invalid file:// transfer source.'); }
+    if (url.hostname && url.hostname.toLowerCase() !== 'localhost') throw new Error('Refusing non-local file:// transfer source.');
+    local = fileURLToPath(url);
+  } else if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw)) {
+    return [];
+  } else if (/^(?:[A-Za-z]:[\\/]|[^:]*\/|[^:]*$)/.test(raw)) {
+    local = path.resolve(dir, raw);
+  } else {
+    return [];
+  }
+  try {
+    const st = fs.statSync(local);
+    if (st.isFile()) return [];
+    if (st.isDirectory()) return [local];
+  } catch { /* Try .git suffix as Git's enter_repo does. */ }
+  const dotGit = `${local}.git`;
+  try { if (fs.statSync(dotGit).isDirectory()) return [dotGit]; } catch { /* Not a local directory repo. */ }
+  return [];
+}
+
+function localTransferDirs(dir: string, sub: string, rest: readonly string[], entries: readonly ConfigEntry[]): string[] {
+  const positionals: string[] = [];
+  const refs: string[] = [];
+  let all = false, multiple = false, endOpts = false;
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]!;
+    if (!endOpts && arg === '--') { endOpts = true; continue; }
+    if (!endOpts && arg.startsWith('-')) {
+      if (arg === '--all') all = true;
+      else if (arg === '--multiple') multiple = true;
+      else if ((arg === '--reference' || arg === '--reference-if-able') && i + 1 < rest.length) refs.push(rest[++i]!);
+      else if (arg.startsWith('--reference=')) refs.push(arg.slice('--reference='.length));
+      else if (arg.startsWith('--reference-if-able=')) refs.push(arg.slice('--reference-if-able='.length));
+      else if (TRANSFER_VALUE_FLAGS.has(arg)) i++;
+      continue;
+    }
+    positionals.push(arg);
+  }
+  const specs: string[] = [...refs];
+  const allRemoteUrls = () => entries.filter((e) => /^remote\.[\s\S]+\.url$/.test(e.key)).map((e) => e.value);
+  if (sub === 'fetch' && (all || positionals.length === 0)) {
+    specs.push(...allRemoteUrls());
+  } else if (sub === 'fetch' && multiple) {
+    specs.push(...positionals);
+  } else if (sub === 'ls-remote' && positionals.length === 0) {
+    specs.push(...allRemoteUrls());
+  } else if (positionals.length > 0) {
+    specs.push(positionals[0]!);
+  }
+  const dirs = new Set<string>();
+  const add = (raw: string) => {
+    for (const d of localRepoDirs(dir, raw)) {
+      try { dirs.add(fs.realpathSync(d)); } catch { dirs.add(d); }
+    }
+  };
+  for (const spec of specs) {
+    const urls = entries.filter((e) => e.key === `remote.${spec}.url`).map((e) => e.value);
+    if (urls.length) for (const u of urls) add(u);
+    else add(spec);
+  }
+  return [...dirs];
+}
+
+// Local transfers spawn git-upload-pack in the source repository, which reads
+// the source's own .git/config. On Git 2.43, pack-objects can lazy-fetch
+// missing objects through a source promisor remote without honoring
+// GIT_NO_LAZY_FETCH. Reject source repos with promisor/partial-clone or
+// unaudited local config before any local transfer starts.
+function validateLocalTransferSourceConfig(bytes: Buffer): void {
+  const srcEntries = parseConfigListBytes(bytes);
+  for (const e of srcEntries) {
+    if (e.scope === 'command' || TRUSTED_SCOPES.has(e.scope)) continue;
+    if (/^includeif\./i.test(e.key)) throw new Error('This local transfer source has conditional git includes; Threadbear refused the transfer.');
+    if (e.key === 'extensions.partialclone' || /^remote\.[\s\S]+\.promisor$/i.test(e.key)) throw new Error('This local transfer source has promisor/partial-clone config; Threadbear refused the transfer.');
+    if (!LOCAL_KEYS.some((p) => p.test(e.key))) throw new Error(`This local transfer source's git setting (${e.key}) must move to your global git config before Threadbear can transfer from it.`);
+  }
 }
 
 function execGit(dir: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs: number, bytes = false, input?: string | Buffer): Promise<UntrustedGitResult> {
@@ -307,7 +427,26 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
   let config: string[];
   try {
     const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
+    checkWorktree(dir, entries, opts.env);
+    if (opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote')) {
+      for (const src of localTransferDirs(dir, sub, rest, entries)) {
+        const srcListed = await execGit(src, [...LISTING_GIT_CONFIG, '-C', src, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1' }, Math.min(10_000, timeout), true);
+        if (!srcListed.ok || !srcListed.bytes) throw new Error('Cannot inspect local transfer source git config safely.');
+        validateLocalTransferSourceConfig(srcListed.bytes);
+      }
+    }
     if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
+      if (['rebase', 'merge', 'cherry-pick'].includes(sub)) {
+        const baseConfig = repoProofConfig(entries);
+        const revCheck = await execGit(dir, [...baseConfig, '-C', dir, 'cat-file', '--batch-check=%(objecttype) %(objectname)'], env, Math.min(10_000, timeout), false, moduleRevCandidates(rest).map((r) => `${r}^{commit}\n`).join(''));
+        const extraCommits = revCheck.ok ? revCheck.stdout.split('\n').flatMap((l) => (/^commit ([0-9a-f]{40,64})$/.exec(l)?.[1] ? [l.slice(7)] : [])) : [];
+        const history = await execGit(dir, [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, Math.min(10_000, timeout));
+        if (!history.ok) throw new Error('Cannot inspect submodule history safely.');
+        for (const oid of parseModuleHistoryOids(history.stdout)) {
+          const m = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', oid, '--list', '-z'], env, Math.min(10_000, timeout), true);
+          if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
+        }
+      }
       const root = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
       const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
       if (modules) {
@@ -315,7 +454,7 @@ export async function untrustedGit(dir: string, args: readonly string[], opts: U
         if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
         entries.push(...moduleEntries(m.bytes));
       }
-      for (const blob of [':0:.gitmodules', 'HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
+      for (const blob of [':0:.gitmodules', ':1:.gitmodules', ':2:.gitmodules', ':3:.gitmodules', 'HEAD:.gitmodules', 'MERGE_HEAD:.gitmodules', 'CHERRY_PICK_HEAD:.gitmodules', 'REBASE_HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
         const m = await execGit(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', blob, '--list', '-z'], env, Math.min(10_000, timeout), true);
         if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
       }
@@ -370,7 +509,26 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
   let config: string[];
   try {
     const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
+    checkWorktree(dir, entries, opts.env);
+    if (opts.network && (sub === 'fetch' || sub === 'clone' || sub === 'ls-remote')) {
+      for (const src of localTransferDirs(dir, sub, rest, entries)) {
+        const srcListed = execGitSync(src, [...LISTING_GIT_CONFIG, '-C', src, 'config', '--list', '--show-scope', '-z'], { ...untrustedGitEnv(), GIT_NO_LAZY_FETCH: '1' }, Math.min(10_000, timeout), true);
+        if (!srcListed.ok || !srcListed.bytes) throw new Error('Cannot inspect local transfer source git config safely.');
+        validateLocalTransferSourceConfig(srcListed.bytes);
+      }
+    }
     if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
+      if (['rebase', 'merge', 'cherry-pick'].includes(sub)) {
+        const baseConfig = repoProofConfig(entries);
+        const revCheck = execGitSync(dir, [...baseConfig, '-C', dir, 'cat-file', '--batch-check=%(objecttype) %(objectname)'], env, Math.min(10_000, timeout), false, moduleRevCandidates(rest).map((r) => `${r}^{commit}\n`).join(''));
+        const extraCommits = revCheck.ok ? revCheck.stdout.split('\n').flatMap((l) => (/^commit ([0-9a-f]{40,64})$/.exec(l)?.[1] ? [l.slice(7)] : [])) : [];
+        const history = execGitSync(dir, [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, Math.min(10_000, timeout));
+        if (!history.ok) throw new Error('Cannot inspect submodule history safely.');
+        for (const oid of parseModuleHistoryOids(history.stdout)) {
+          const m = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', oid, '--list', '-z'], env, Math.min(10_000, timeout), true);
+          if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
+        }
+      }
       const root = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--show-toplevel'], env, Math.min(10_000, timeout));
       const modules = root.ok ? modulesFile(root.stdout.trim()) : undefined;
       if (modules) {
@@ -378,7 +536,7 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
         if (!m.ok || !m.bytes) throw new Error('Cannot read .gitmodules safely.');
         entries.push(...moduleEntries(m.bytes));
       }
-      for (const blob of [':0:.gitmodules', 'HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
+      for (const blob of [':0:.gitmodules', ':1:.gitmodules', ':2:.gitmodules', ':3:.gitmodules', 'HEAD:.gitmodules', 'MERGE_HEAD:.gitmodules', 'CHERRY_PICK_HEAD:.gitmodules', 'REBASE_HEAD:.gitmodules', ...rest.filter((a) => !a.startsWith('-') && !a.includes(':')).map((a) => `${a}:.gitmodules`)]) {
         const m = execGitSync(dir, [...LISTING_GIT_CONFIG, '-C', dir, 'config', '--no-includes', '--blob', blob, '--list', '-z'], env, Math.min(10_000, timeout), true);
         if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
       }
@@ -450,7 +608,7 @@ function* objectChecks(roots: readonly string[], history: boolean): Generator<st
     const pending: string[][] = [];
     const addPairs = (group: readonly string[]) => { for (let i = 0; i < group.length; i++) for (let j = i + 1; j < group.length; j++) pending.push([group[i]!, group[j]!]); };
     addPairs(ids);
-    const seen = new Set<string>();
+    const seen = new Set<string>(), discovered = new Set<string>();
     while (pending.length) {
       const pair = pending.pop()!.sort(), key = pair.join(' ');
       if (seen.has(key)) continue; seen.add(key);
@@ -460,7 +618,9 @@ function* objectChecks(roots: readonly string[], history: boolean): Generator<st
       snapshots.push(...bases);
       // Recursive/criss-cross merging reads the older bases of its bases.
       // Visit those too, without scanning every historical file snapshot.
-      if (bases.length > 1) addPairs(bases);
+      for (const base of bases) {
+        if (!discovered.has(base)) { for (const old of discovered) pending.push([old, base]); discovered.add(base); }
+      }
       if (seen.size > 10_000) throw new Error('The recursive merge-base graph is too large.');
     }
   }
@@ -603,7 +763,7 @@ export async function verifyGitCheckout(dir: string, root: string): Promise<void
     if (mode === '160000') continue;
     const st = fs.lstatSync(file);
     const data = mode === '120000' && st.isSymbolicLink() ? Buffer.from(fs.readlinkSync(file)) : st.isFile() && !st.isSymbolicLink() ? fs.readFileSync(file) : undefined;
-    if (!data || (mode === '120000') !== st.isSymbolicLink() || process.platform !== 'win32' && mode !== '120000' && Boolean(st.mode & 0o111) !== (mode === '100755')) throw new Error('The checkout file kind differs from the verified snapshot.');
+    if (!data || ((mode === '120000') !== st.isSymbolicLink() && !(process.platform === 'win32' && mode === '120000' && st.isFile())) || process.platform !== 'win32' && mode !== '120000' && Boolean(st.mode & 0o111) !== (mode === '100755')) throw new Error('The checkout file kind differs from the verified snapshot.');
     const hash = createHash(id.length === 40 ? 'sha1' : 'sha256').update(`blob ${data.length}\0`).update(data).digest('hex');
     if (hash !== id) throw new Error(`The checked-out file ${m[4]} differs from the verified snapshot.`);
   }

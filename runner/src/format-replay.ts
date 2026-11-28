@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { untrustedGit, untrustedGitEnv, verifiedGitBlob } from './safe-git.ts';
+import { untrustedGit, untrustedGitEnv, verifiedGitBlob, verifyGitObjects } from './safe-git.ts';
 
 export const FORMAT_LIST = '.git-blame-ignore-revs';
 
@@ -869,6 +869,8 @@ export type Merged = { ok: true; notes: string[] } | { ok: false; conflict: stri
 // in place for a person when `leave` is set, and undone otherwise.
 export async function mergeAcross(cwd: string, target: string, opts: { message?: string; leave?: boolean; final?: boolean } = {}): Promise<Merged> {
   const notes: string[] = [];
+  try { await verifyGitObjects(cwd, ['HEAD', target], true); }
+  catch (error) { return { ok: false, error: String(error), notes }; }
   const head = await out(cwd, ['rev-parse', 'HEAD']);
   const cross = await crossings(cwd, head, target);
   // Back to where it started; says so when it couldn't be.
@@ -880,8 +882,13 @@ export async function mergeAcross(cwd: string, target: string, opts: { message?:
   // Only a conflict is left for a person (opts.leave); anything else goes back.
   const failWith = async (error: string): Promise<Merged> => ({ ok: false, error: error + (await undo()), notes });
   const merge = async (what: string, message: string, step: string): Promise<Merged | undefined> => {
+    try { await verifyGitObjects(cwd, ['HEAD', what], true); }
+    catch (error) { return failWith(String(error)); }
     const m = await git(cwd, ['merge', '--no-ff', '-m', message, what]);
-    if (m.ok) return undefined;
+    if (m.ok) {
+      try { await verifyGitObjects(cwd); return undefined; }
+      catch (error) { return failWith(String(error)); }
+    }
     const conflict = (await out(cwd, ['diff', '--name-only', '--diff-filter=U']).catch(() => '')).split('\n').filter(Boolean);
     if (conflict.length) {
       if (!opts.leave) {
@@ -902,6 +909,7 @@ export async function mergeAcross(cwd: string, target: string, opts: { message?:
   async function crossAll(): Promise<Merged> {
   for (const f of cross) {
     const parent = await out(cwd, ['rev-parse', `${f.commit}^`]);
+    await verifyGitObjects(cwd, [parent, f.commit]);
     // Only formatting, or its tree can't stand in for it.
     const changed = (await git(cwd, ['diff', '--name-only', '-z', parent, f.commit])).stdout.split('\0').filter(Boolean);
     const outside = changed.filter((p) => !f.entry.paths.some((s) => p === s || p.startsWith(`${s}/`)));

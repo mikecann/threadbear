@@ -95,3 +95,13 @@ test('a reused update clone discards tracked script edits before automatic execu
   f.advance(); await syncClone(f.source, 'runner/', clone);
   assert.equal(fs.readFileSync(path.join(clone, 'runner/scripts/deploy-backend.mjs'), 'utf8'), 'export const original = true;\n');
 });
+
+
+test('internal update checkout ignores tracked CRLF conversion attributes', async () => {
+  const f = fixture();
+  fs.appendFileSync(path.join(f.source, '.gitattributes'), '*.cmd text eol=crlf\n');
+  fs.writeFileSync(path.join(f.source, 'runner/start.cmd'), '@echo off\nexit /b 0\n');
+  f.git(f.source, 'add', '.'); f.git(f.source, 'commit', '-qm', 'Windows command');
+  const clone = path.join(f.root, 'clone'); await syncClone(f.source, 'runner/', clone);
+  assert.equal(fs.readFileSync(path.join(clone, 'runner/start.cmd'), 'utf8'), '@echo off\nexit /b 0\n');
+});

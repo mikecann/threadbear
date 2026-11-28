@@ -18,15 +18,8 @@ function apply(dir, msg) {
   if (!gitResult(top, ['merge-base', '--is-ancestor', head, base]).ok) throw new Error("This branch is not where the preview had main: run the preview again.");
   const clashes = fs.existsSync(path.join(dir, 'clashes.json')) ? JSON.parse(read('clashes.json')) : read('clashes').split('\n').filter(Boolean);
   if (!Array.isArray(clashes) || clashes.some((f) => typeof f !== 'string')) throw new Error('Invalid preview clashes.');
-  const settled = new Map();
   for (const f of clashes) {
     if (path.isAbsolute(f) || f.includes('\\') || f.split('/').some((p) => !p || p === '.' || p === '..')) throw new Error(`Unsafe clashing path: ${f}`);
-    const file = path.join(dir, 'files', f);
-    let parent = dir;
-    for (const part of ['files', ...f.split('/')]) { parent = path.join(parent, part); const st = fs.lstatSync(parent); if (st.isSymbolicLink() || (parent === file ? !st.isFile() : !st.isDirectory())) throw new Error(`The settled copy must be a regular file in real directories: ${f}`); }
-    const data = fs.readFileSync(file);
-    if (/^(<<<<<<<|>>>>>>>)( |$)/m.test(data.toString('utf8'))) throw new Error(`Still has conflict markers under ${dir}/files: ${f}`);
-    settled.set(f, data);
   }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tb-prepared-'));
   try {
@@ -48,10 +41,47 @@ function apply(dir, msg) {
     for (const f of merged) { if (!f) break; actual.push(f); }
     if (JSON.stringify([...actual].sort()) !== JSON.stringify([...clashes].sort())) throw new Error('The isolated merge has different clashes: run the preview again.');
     b(['read-tree', tree]);
-    for (const [f, data] of settled) {
+    const walkPrepared = (rel, expectKind) => {
+      let cur = path.join(dir, 'files');
+      const rootSt = fs.lstatSync(cur);
+      if (rootSt.isSymbolicLink() || !rootSt.isDirectory()) throw new Error(`The settled copy must be in real directories: ${rel}`);
+      const parts = rel.split('/');
+      for (let i = 0; i < parts.length; i++) {
+        cur = path.join(cur, parts[i]);
+        let st;
+        try { st = fs.lstatSync(cur); } catch (e) { if (e.code === 'ENOENT') return undefined; throw e; }
+        if (st.isSymbolicLink()) throw new Error(`The settled copy must not use symlinks: ${rel}`);
+        if (i < parts.length - 1) {
+          if (!st.isDirectory()) throw new Error(`The settled copy must be in real directories: ${rel}`);
+        } else if (expectKind === 'file' && !st.isFile()) {
+          throw new Error(`The settled copy must be a regular file in real directories: ${rel}`);
+        } else if (expectKind === 'dir' && !st.isDirectory()) {
+          throw new Error(`The settled directory clash must not be a file: ${rel}`);
+        }
+      }
+      return cur;
+    };
+    for (const f of clashes) {
       const entry = b(['--literal-pathspecs', 'ls-tree', '-z', tree, '--', f]).toString('utf8');
+      if (!entry) {
+        if (fs.existsSync(path.join(dir, 'files')) && walkPrepared(f, 'any')) {
+          throw new Error(`Cannot settle absent clash ${f} from ${dir}/files; merge it by hand.`);
+        }
+        continue;
+      }
+      if (/^040000 tree /.test(entry)) {
+        if (fs.existsSync(path.join(dir, 'files'))) walkPrepared(f, 'dir');
+        continue;
+      }
       const mode = /^(100644|100755) blob /.exec(entry)?.[1];
-      if (!mode) throw new Error(`Settle ${f} after a fresh preview; its merged entry is not a regular file.`);
+      if (!mode) throw new Error(`Settle ${f} by hand; prepared merge does not settle symlink or submodule conflicts.`);
+      const file = walkPrepared(f, 'file');
+      if (!file) {
+        b(['--literal-pathspecs', 'update-index', '--force-remove', '--', f]);
+        continue;
+      }
+      const data = fs.readFileSync(file);
+      if (/^(<<<<<<<|>>>>>>>)( |$)/m.test(data.toString('utf8'))) throw new Error(`Still has conflict markers under ${dir}/files: ${f}`);
       const id = b(['hash-object', '-w', '--stdin'], data).toString().trim();
       b(['update-index', '--add', '--cacheinfo', `${mode},${id},${f}`]);
     }

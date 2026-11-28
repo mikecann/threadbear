@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { onMikesMain } from '../../src/update.ts';
 // @ts-expect-error: a plain .mjs script, no types
 import { checkedUpstream, repoKey } from '../../../scripts/checked-upstream.mjs';
 
@@ -116,7 +117,7 @@ test('a validated upstream URL cannot be shadowed by a configured remote of that
   assert.equal(checkedUpstream({ repo: work, mikesRepo: url }).checked, false);
 });
 
-test('a forged intermediate parent cannot make unchecked code an upstream ancestor', (t) => {
+test('a forged intermediate parent cannot make unchecked code an upstream ancestor', async (t) => {
   const { work, mikes } = setup(t); const a = git(work, 'rev-parse', 'HEAD');
   fs.writeFileSync(path.join(work, 'b'), 'upstream b'); git(work, 'add', '.'); git(work, 'commit', '-qm', 'b');
   const b = git(work, 'rev-parse', 'HEAD');
@@ -130,6 +131,9 @@ test('a forged intermediate parent cannot make unchecked code an upstream ancest
   git(work, 'merge-base', '--is-ancestor', local, upstream); // Plain Git believes the forged header.
   const result = checkedUpstream({ repo: work, mikesRepo: mikes });
   assert.equal(result.checked, false); assert.match(result.why, /does not hash/);
+  const official = 'https://github.com/mikecann/threadbear.git';
+  git(work, 'config', `url.${mikes}.insteadOf`, official); git(work, 'remote', 'set-url', 'origin', official);
+  assert.equal(await onMikesMain(work, local, { files: true }), undefined);
 });
 
 for (const authority of ['https://attacker.example?@github.com/mikecann/threadbear.git', 'https://attacker.example#@github.com/mikecann/threadbear.git']) {

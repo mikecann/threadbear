@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 // @ts-expect-error a plain .mjs script, no types
 import { treeOf, stepKey, testKeys, passed } from '../../../scripts/check-cache.mjs';
+import { copyCheckGitFiles } from '../helpers/check-git-files.ts';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
 
@@ -383,6 +384,7 @@ function checkout() {
   copy('check.sh', 0o755);
   copy('scripts/swift-freeze.sh', 0o755);
   copy('scripts/check-cache.mjs');
+  copyCheckGitFiles(root);
   copy('runner/scripts/find-node.sh');
   copy('scripts/limit-step.mjs');
   copy('runner/test/helpers/failed-files-reporter.mjs');

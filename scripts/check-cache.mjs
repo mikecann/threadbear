@@ -36,6 +36,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { gitResult, refuseSubstitutes, verifyRepositoryObjects } from '../runner/scripts/deploy-git.mjs';
 
 export const RECORD_DAYS = 7;
 const VERSION = 'check-cache 1';
@@ -89,12 +90,12 @@ function walk(root) {
 // that differ from the index, and untracked ones, are hashed here the same
 // way, so a dirty checkout and a clean one with the same text agree.
 export function treeOf(root) {
-  const git = (args) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const git = (args) => gitResult(root, args);
   const top = git(['rev-parse', '--show-toplevel']);
-  if (top.status !== 0 || fs.realpathSync(top.stdout.trim()) !== fs.realpathSync(root)) return withoutCheckFiles(walk(root));
+  if (!top.ok || fs.realpathSync(top.stdout.trim()) !== fs.realpathSync(root)) return withoutCheckFiles(walk(root));
   const staged = git(['ls-files', '-s', '-z']);
   const dirty = git(['ls-files', '-m', '-o', '--exclude-standard', '-z']);
-  if (staged.status !== 0 || dirty.status !== 0) return withoutCheckFiles(walk(root));
+  if (!staged.ok || !dirty.ok) return withoutCheckFiles(walk(root));
   const out = new Map();
   for (const entry of staged.stdout.split('\0')) {
     const m = /^(\d+) ([0-9a-f]+) \d\t(.+)$/s.exec(entry);
@@ -520,25 +521,39 @@ export function testKeys(root, tree, files, { withFiles = false } = {}) {
 
 const MIKES_REPO = 'github.com/mikecann/threadbear';
 // github.com/mikecann/threadbear, however the URL is written (as
-// runner/src/upstream.ts's repoKey).
-export const repoKey = (url) => url.trim().replace(/^git@([^:]+):/, '$1/').replace(/^[a-z+]+:\/\/(?:[^@/]+@)?/, '')
-  .replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+// scripts/checked-upstream.mjs's repoKey).
+export function repoKey(value) {
+  const text = value.trim();
+  const scp = /^git@([^:/?#]+):([^?#]+)$/.exec(text);
+  if (scp) return `${scp[1]}/${scp[2]}`.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+  if (/^[a-z+]+:\/\//i.test(text)) {
+    try {
+      const url = new URL(text);
+      if (!['https:', 'ssh:'].includes(url.protocol) || url.search || url.hash || url.port || url.password || !url.hostname || /%/.test(url.pathname)) return '';
+      return `${url.hostname}${url.pathname}`.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+    } catch { return ''; }
+  }
+  return text.replace(/\.git\/?$/, '').replace(/\/$/, '').toLowerCase();
+}
 
 // The newest verified release already in HEAD: { name, tree } or undefined.
 export function releaseIn(root) {
   if (process.env.THREADBEAR_CHECK_TRUST_RELEASE === 'off') return undefined;
-  const git = (args) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  try { refuseSubstitutes(root); } catch { return undefined; }
+  const git = (args) => gitResult(root, args);
   // A fork's own copy only: one with an origin that isn't Mike's. Mike's
   // copy, and a check host's copy (no origin), never take a release's word.
-  const origin = git(['config', '--get', 'remote.origin.url']);
-  if (origin.status !== 0 || !origin.stdout.trim() || repoKey(origin.stdout) === MIKES_REPO) return undefined;
+  const origin = git(['config', '--get-all', 'remote.origin.url']);
+  const urls = origin.ok ? origin.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : [];
+  if (urls.length !== 1 || !repoKey(urls[0]) || repoKey(urls[0]) === MIKES_REPO) return undefined;
   // refs/threadbear/upstream/ holds the releases the runner checked the
   // signature of (runner/src/upstream.ts).
   const r = git(['for-each-ref', '--merged', 'HEAD', '--sort=-refname', '--count=1', '--format=%(refname)', 'refs/threadbear/upstream/']);
-  const name = r.status === 0 ? r.stdout.trim() : '';
+  const name = r.ok ? r.stdout.trim() : '';
   if (!name) return undefined;
+  try { verifyRepositoryObjects(root, [`${name}^{commit}`]); } catch { return undefined; }
   const ls = git(['ls-tree', '-r', '-z', `${name}^{commit}`]);
-  if (ls.status !== 0) return undefined;
+  if (!ls.ok) return undefined;
   const tree = new Map();
   for (const entry of ls.stdout.split('\0')) {
     const m = /^(\d+) \w+ ([0-9a-f]+)\t(.+)$/s.exec(entry);

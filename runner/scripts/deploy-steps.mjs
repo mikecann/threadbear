@@ -182,7 +182,7 @@ export function remoteChecks(hosts, root, opts, io = {}) {
   // The deploy's own Node, which check.sh would otherwise take as the pinned
   // nvm path (an install with --node elsewhere has none there), here and as
   // what it uses on a fallback run.
-  const env = { ...opts.env, THREADBEAR_CHECK_HOST: hosts.join(','), THREADBEAR_NODE: node, THREADBEAR_CHECK_BUSY_EXIT: String(UNAVAILABLE_EXIT) };
+  const env = { ...opts.env, THREADBEAR_CHECK_HOST: hosts.join(','), THREADBEAR_NODE: node, THREADBEAR_CHECK_BUSY_EXIT: String(UNAVAILABLE_EXIT), THREADBEAR_CHECK_TRUST_RELEASE: 'off' };
   // Each try is classified the same way, the second included (Codex, 9 Nov).
   const run = (name) => {
     try {

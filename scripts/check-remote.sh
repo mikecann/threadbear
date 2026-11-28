@@ -168,7 +168,7 @@ if [ "${1:-}" = "--on-host" ]; then
 
   # A git repo of its own, on main, as some tests run git in the repo
   # (deploy-backend.mjs reads HEAD). Its one commit is the copy as sent.
-  (cd "$src" && git init -q -b main && git add -A && git -c user.name=check -c user.email=check@localhost commit -qm "check copy") \
+  (cd "$src" && git init -q -b main --template= && git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null add -A && git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c commit.gpgSign=false -c user.name=check -c user.email=check@localhost commit -qm "check copy") \
     || { echo "Couldn't make the copy a git repo." >&2; exit 1; }
 
   # node_modules per package-lock, kept between runs (the newest three of
@@ -352,6 +352,18 @@ if [ -n "${THREADBEAR_CHECK_PREFER:-}" ]; then
   fi
 fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [ -n "${THREADBEAR_NODE:-}" ]; then
+  NODE="$THREADBEAR_NODE"
+elif [ -f "$ROOT/runner/scripts/find-node.sh" ]; then
+  . "$ROOT/runner/scripts/find-node.sh"
+  NODE="$(threadbear_find_node)" || exit 1
+else
+  NODE="$(command -v node || true)"
+fi
+[ -n "$NODE" ] && [ -x "$NODE" ] || { echo "Couldn't find Node for hardened git access." >&2; exit 1; }
+source_git() {
+  "$NODE" "$ROOT/runner/scripts/deploy-git.mjs" "$ROOT" "$@"
+}
 . "$ROOT/scripts/remote-guard-lib.sh"
 alive_stdin 7 || { echo "Couldn't make the pipe that tells a check host this check has gone (alive_stdin)." >&2; exit 1; }
 # A folder only this account can use: it exists (made here if not, mode
@@ -535,8 +547,8 @@ done
 # (see `needed` there).
 changed="$(mktemp)"
 {
-  base="$(git -C "$ROOT" merge-base HEAD main 2>/dev/null)" && git -C "$ROOT" diff --name-only "$base"
-  git -C "$ROOT" ls-files --others --exclude-standard
+  base="$(source_git merge-base HEAD main 2>/dev/null)" && source_git diff --name-only "$base"
+  source_git ls-files --others --exclude-standard
 } 2>/dev/null | sort -u >"$changed"
 
 # Whether a Linux host can run this: only the runner's, Convex's and the
@@ -854,10 +866,15 @@ leave_line() {
 # those as there.
 files="$(mktemp)"
 left_out="$(mktemp)"
-(cd "$ROOT" && git ls-files -co --exclude-standard -z) | tr '\0' '\n' \
-  | grep -vE '^(docs|site)/.*\.(png|gif|jpe?g|mp4|mov|webp)$' | tr '\n' '\0' >"$files"
-(cd "$ROOT" && git ls-files -co --exclude-standard) \
-  | grep -E '^(docs|site)/.*\.(png|gif|jpe?g|mp4|mov|webp)$' >"$left_out"
+files_raw="$(mktemp)"
+if ! source_git ls-files -co --exclude-standard -z >"$files_raw"; then
+  rm -f "$files" "$files_raw" "$changed" "$left_out"
+  echo "Couldn't list checkout files safely." >&2
+  exit 1
+fi
+tr '\0' '\n' <"$files_raw" | grep -vE '^(docs|site)/.*\.(png|gif|jpe?g|mp4|mov|webp)$' | tr '\n' '\0' >"$files"
+tr '\0' '\n' <"$files_raw" | grep -E '^(docs|site)/.*\.(png|gif|jpe?g|mp4|mov|webp)$' >"$left_out"
+rm -f "$files_raw"
 BASE_ARGS=(${ARGS[@]+"${ARGS[@]}"})
 SKIP=""
 tries=0

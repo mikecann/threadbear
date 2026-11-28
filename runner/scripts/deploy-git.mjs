@@ -156,12 +156,18 @@ export function savePreview(dir, bare, base, commit, empty) {
   const clashes = []; for (const f of parts) { if (!f) break; clashes.push(f); }
   fs.writeFileSync(path.join(dir, 'tree'), tree + '\n');
   fs.writeFileSync(path.join(dir, 'clashes.json'), JSON.stringify(clashes));
-  validatePaths(clashes.map((f) => [f]));
-  fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
+  const files = [];
   for (const f of clashes) {
-    validatePaths([[f]]);
-    const blob = isolatedGit(path.dirname(bare), ['-C', bare, 'cat-file', 'blob', `${tree}:${f}`]);
-    if (blob.status !== 0) continue;
+    if (path.isAbsolute(f) || f.includes('\\') || f.split('/').some((p) => !p || p === '.' || p === '..')) throw new Error(`Unsafe clashing path: ${f}`);
+    const entry = run(['--literal-pathspecs', 'ls-tree', '-z', tree, '--', f]).stdout.toString('utf8');
+    const m = /^(100644|100755) blob ([0-9a-f]{40,64})\t/.exec(entry);
+    if (m) files.push([f, m[2]]);
+  }
+  validatePaths(files);
+  fs.mkdirSync(path.join(dir, 'files'), { recursive: true });
+  for (const [f, id] of files) {
+    const blob = isolatedGit(path.dirname(bare), ['-C', bare, 'cat-file', 'blob', id]);
+    if (blob.status !== 0) throw new Error(`Cannot read merged preview blob for ${f}.`);
     parents(path.join(dir, 'files'), f);
     fs.writeFileSync(path.join(dir, 'files', f), blob.stdout, { flag: 'wx', mode: 0o600 });
   }
@@ -196,6 +202,6 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
   if (process.argv[2] === '--save-preview') { try { savePreview(...process.argv.slice(3)); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
   if (process.argv[2] === '--copy-launcher') { try { copyVerifiedLauncher(process.argv[3], process.argv[4]); process.exit(0); } catch (e) { console.error(e.message); process.exit(1); } }
   if (process.argv[2] === '--matches-release') process.exit(releaseMatches(process.argv[3], process.argv[4], process.argv[5]) ? 0 : 1);
-  const r = gitResult(process.argv[2], process.argv.slice(3));
-  process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exitCode = r.code < 0 ? 1 : r.code;
+  const r = gitResult(process.argv[2], process.argv.slice(3), { bytes: true });
+  process.stdout.write(r.bytes ?? r.stdout); process.stderr.write(r.stderr); process.exitCode = r.code < 0 ? 1 : r.code;
 }
