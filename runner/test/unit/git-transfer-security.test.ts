@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
-import { untrustedGit, untrustedGitRunSync, moduleHistoryBlobs, repoProofConfig } from '../../src/safe-git.ts';
+import { untrustedGit, untrustedGitRunSync, moduleHistoryBlobs, repoProofConfig, fileUrlPath } from '../../src/safe-git.ts';
 
 const IS_WINDOWS = process.platform === 'win32';
 const ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
@@ -162,7 +162,8 @@ test('a remote defined in .git/remotes or .git/branches is checked like a config
   fs.mkdirSync(path.join(dest, '.git', 'branches'), { recursive: true });
   fs.writeFileSync(path.join(dest, '.git', 'branches', 'old'), `${hostile}\n`);
   await refusedBoth(dest, ['fetch', '-q', 'old'], 'a .git/branches remote');
-  await refusedBoth(dest, ['fetch', '-q'], 'the default remote');
+  g(dest, 'config', 'branch.main.remote', 'old');
+  await refusedBoth(dest, ['fetch', '-q'], "the branch's remote");
 });
 
 // Submodule names come from every .gitmodules blob in reach, a version
@@ -364,4 +365,73 @@ test('a .gitmodules brought in by a rename is still read with log.follow on', { 
   const r = await untrustedGit(repo, ['merge', '--ff-only', 'HEAD'], { env: { GIT_TRACE2_EVENT: trace } });
   assert.ok(r.ok, r.stderr);
   assert.match(fs.readFileSync(trace, 'utf8'), /submodule\.renamed\.ignore=all/);
+});
+
+// An ordinary clone's transfers go through, whatever form they take: a
+// branch's remote is a remote's name when there is one (Gemini's fourth
+// break-it review, 28 Nov 2026: "origin" read as a path made every fetch
+// with no repository named look half local, half network, and refused).
+test("an ordinary clone's fetches and pushes go through in every form", { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const origin = repoAt(path.join(root, 'origin.git'), { bare: true });
+  g(dest, 'remote', 'add', 'origin', origin);
+  g(dest, 'push', '-q', '-u', 'origin', 'main');
+  g(dest, 'branch', '-q', '--track', 'local-follow', 'main');
+  g(dest, 'checkout', '-q', '-b', 'feat');
+  fs.writeFileSync(path.join(dest, 'f'), 'f\n'); g(dest, 'add', 'f'); g(dest, 'commit', '-qm', 'f');
+  g(dest, 'checkout', '-q', 'main');
+  for (const args of [['fetch', '-q'], ['push', '-q'], ['fetch', '-q', '--all'], ['fetch', '--depth', '1', 'origin'], ['push', '-q', '-u', 'origin', 'feat'], ['push', '-q', '--force-with-lease', 'origin', 'main'], ['ls-remote', '-h'], ['ls-remote', '--heads', 'origin']]) {
+    const r = await untrustedGit(dest, args, { network: 'remote' });
+    assert.ok(r.ok, `${args.join(' ')}: ${r.stderr}`);
+  }
+  // With origin across the network, nothing is refused before git runs.
+  g(dest, 'remote', 'set-url', 'origin', 'https://example.invalid/owner/repo.git');
+  for (const args of [['fetch', '-q'], ['push', '-q'], ['fetch', '-q', '--all'], ['push', '-q', '-u', 'origin', 'feat'], ['push', '-q', '--force-with-lease', 'origin', 'main']]) {
+    const r = await untrustedGit(dest, args, { network: 'remote', timeoutMs: 20_000 });
+    assert.doesNotMatch(r.stderr, /Threadbear refused/, args.join(' '));
+  }
+});
+
+// The caller never picks the server program: every way to name one is
+// refused, rather than taken out (which a second spelling got past).
+test('a caller-named server program is refused in every spelling', async () => {
+  const { root, dest } = fixture();
+  const src = repoAt(path.join(root, 'src'));
+  for (const args of [
+    ['fetch', '--upload-pack=x', src], ['fetch', '--upload-pack', 'x', src], ['ls-remote', '--upload-pack', 'x', src],
+    ['push', '--receive-pack=x', src], ['push', '--receive-pack', 'x', src], ['push', '--exec=x', src], ['push', '--exec', 'x', src],
+    ['clone', '-u', 'x', src, path.join(root, 'c1')], ['clone', '-ux', src, path.join(root, 'c2')], ['clone', '-qu', 'x', src, path.join(root, 'c3')],
+  ]) await refusedBoth(args[0] === 'clone' ? root : dest, args, args.join(' '));
+});
+
+// An option that takes a value never hides the repository, and a local one
+// named after it still gets Threadbear's server.
+test('a local repository after an option with a value still gets the hardened server', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const src = repoAt(path.join(root, 'src'));
+  const trace = path.join(root, 'trace');
+  const r = await untrustedGit(dest, ['fetch', '--depth', '1', src, 'main'], { network: 'remote', env: { GIT_TRACE2_EVENT: trace } });
+  assert.ok(r.ok, r.stderr);
+  const server = fs.readFileSync(trace, 'utf8').split('\n').filter((l) => /"event":"start"/.test(l) && /"upload-pack"/.test(l));
+  assert.ok(server.length > 0 && server.every((l) => /core\.alternateRefsCommand=true/.test(l)), server.join('\n'));
+});
+
+// A repo's own include.path names a file the operation itself can rewrite
+// (a checkout), read again by a git started mid-way (rebase's am), after
+// the settings were read and switched off: refused, as includeIf is.
+test('a repo-local include is refused; rebase, rerere settings are pinned', () => {
+  const local = (key: string, value = 'x') => ({ scope: 'local', key, value });
+  assert.throws(() => repoProofConfig([local('include.path', '../evil.gitconfig')]), /include/);
+  assert.doesNotThrow(() => repoProofConfig([{ scope: 'global', key: 'include.path', value: '~/.gitconfig.local' }]));
+  const out = repoProofConfig([]).join(' ');
+  for (const pin of ['rebase.backend=merge', 'rerere.enabled=false', 'rerere.autoUpdate=false']) assert.ok(out.includes(pin), pin);
+});
+
+// Windows file:// addresses (file:///C:/...) are paths too.
+test('a file:// address reads the same on Windows, and is refused where a parser would change it', () => {
+  assert.equal(fileUrlPath('file:///C:/Users/x/repo', true), 'C:\\Users\\x\\repo');
+  assert.equal(fileUrlPath('file://localhost/C:/r', true), 'C:\\r');
+  assert.throws(() => fileUrlPath('file:///C:/x/../y', true), /refused/);
+  assert.equal(fileUrlPath('file:///tmp/r', false), '/tmp/r');
+  assert.throws(() => fileUrlPath('file:///tmp/a\\b', false), /refused/);
 });

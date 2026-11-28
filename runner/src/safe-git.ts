@@ -140,7 +140,7 @@ export type UntrustedGitOptions = {
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true', '-c', 'rebase.backend=merge', '-c', 'rerere.enabled=false', '-c', 'rerere.autoUpdate=false'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -232,6 +232,10 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   // a checkout under another spelling of .git (Gemini's third break-it review).
   for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^core\.protect(ntfs|hfs)$/.test(e.key) && !/^(true|yes|on|1)$/i.test(e.value)) throw new Error(`This repo switches off git's check of .git's other spellings (${e.key}); remove it before Threadbear runs git here.`);
   for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^includeif\./i.test(e.key)) throw new Error('This repo has conditional git includes. Move them to your global git config before Threadbear changes worktrees.');
+  // A repo's own include.path names a file the operation itself can rewrite
+  // (a checkout), which a git started mid-way (rebase's am) reads again after
+  // these settings were read (Gemini's fourth break-it review).
+  for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^include\./i.test(e.key)) throw new Error(`This repo's own git config includes another file (${e.key}). Move it to your global git config before Threadbear runs git here.`);
   const drivers = new Set<string>();
   const hooks = new Set<string>();
   const submodules = new Set<string>();
@@ -347,32 +351,16 @@ function moduleRevCandidates(rest: readonly string[]): string[] {
 
 // A fetch, clone or ls-remote from a repository on this machine starts
 // git-upload-pack in it, and a push starts git-receive-pack, and git hands
-// neither the -c settings here (a local transport drops them). Each reads
-// that repository's own config, receive-pack runs its hooks, and upload-pack
-// on git before 2.44 lazily fetches what the source lacks through its own
-// promisor remote and core.sshCommand, whatever GIT_NO_LAZY_FETCH says. So
-// before any transfer, every repository it could open is read, found the way
-// git finds it, and one that could run something is refused. Guessing which
-// word git takes as the repository missed some (Codex's and Gemini's reviews
-// of 187/188, 27 Nov 2026: a ~/ path, a .git file, src beside src.git, a
-// clone source named like a remote, an option whose value hid the source, a
-// push), so instead:
-// - every word of the command is a possible repository, an option's value
-//   too, and for a fetch, push or ls-remote so is every remote the repo has,
-//   as git lists them itself (`git remote -v`: .git/remotes, .git/branches
-//   and url rewriting included) and as its config says. A clone's source and
-//   --reference are only ever paths, as git takes them.
-// - a word is a local path when git takes it as one (no colon, or a slash
-//   before it, or a drive letter); a file:// address is decoded as git does;
-//   ~ and ~/ are under HOME, as upload-pack expands them, and the word as
-//   written is looked at too; another user's ~ can't be checked, so it's refused.
-// - each spelling git's enter_repo tries (/.git, as written, .git/.git, .git)
-//   is looked at, not only the first that exists, and a .git file is
-//   followed to the repository it names.
-// - a source may not say it's a partial clone, have conditional includes, or
-//   have a setting outside LOCAL_KEYS (none of those name a program
-//   upload-pack runs). A push target also may have no hook (a file in its
-//   hooks folder, core.hooksPath, hook.*) and no setting that names a program.
+// neither the -c settings here (a local transport drops them): each would
+// read that repository's own config, and receive-pack would run its hooks.
+// So untrustedGit names that server itself, a fixed command with its own
+// settings (serverCommand), and as a second layer reads every repository
+// the transfer will use, found the way git finds it (checkTransfer,
+// localGitDirs), refusing one that could run something: a source may not be
+// a partial clone, have includes or settings outside the known ones; a push
+// target must be a plain bare repository with no hooks. Earlier versions
+// guessed at which word was the repository and were got round several ways
+// (Codex's and Gemini's reviews of 187/188, 27 and 28 Nov 2026).
 const TRANSFERS = new Set(['fetch', 'clone', 'ls-remote', 'push']);
 const ENTER_REPO_SUFFIXES = ['/.git', '', '.git/.git', '.git'];
 const PUSH_TARGET_KEYS = /^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|sharedrepository)|extensions\.(objectformat|refstorage)|remote\.[\s\S]+\.(url|pushurl|fetch|tagopt|mirror)|branch\.[\s\S]+\.(remote|merge|description)|user\.(name|email)|init\.defaultbranch|gc\.auto|advice\.[^.]+)$/;
@@ -404,24 +392,32 @@ function gitfileTarget(file: string): string | undefined {
   }
 }
 
+// The path git takes from a file:// address: what follows file:// (or
+// file://localhost), as written. git keeps ? and # in it and decodes %,
+// where a URL parser drops or decodes them differently, and a parser also
+// collapses `.` and `..` and, on a Mac or Linux, turns a backslash into a
+// slash: an address it would change isn't followed (Gemini's second and
+// third break-it reviews). On Windows the written form /C:/x is C:\x.
+export function fileUrlPath(word: string, windows = process.platform === 'win32'): string {
+  const shown = JSON.stringify(word.slice(0, 200));
+  if (/[?#%]/.test(word)) throw refuse(`it doesn't follow a file:// address with ?, # or % in it (${shown}).`);
+  let url: URL;
+  try { url = new URL(word); } catch { throw refuse(`it can't read ${shown} as a file:// address.`); }
+  if (url.hostname && url.hostname.toLowerCase() !== 'localhost') throw refuse(`${shown} isn't a path on this machine.`);
+  let raw: string;
+  try { raw = fileURLToPath(url, { windows }); } catch { throw refuse(`it can't read ${shown} as a file:// address.`); }
+  let written = word.replace(/^file:\/\/(localhost)?/i, '');
+  if (windows) written = written.replace(/^\/(?=[A-Za-z]:)/, '').replace(/\//g, '\\');
+  if (raw !== written) throw refuse(`it doesn't follow a file:// address it can't read exactly as git does (${shown}).`);
+  return raw;
+}
+
 // The repositories git could open on this machine for `word`: none for a
 // network address.
 function localGitDirs(dirs: readonly string[], word: string, home: string): string[] {
   let raw: string;
   if (/^file:\/\//i.test(word)) {
-    // git keeps ? and # in a file:// path and decodes %, where a URL parser
-    // drops or decodes them differently (Gemini's break-it review): such an
-    // address isn't followed, so it's refused rather than guessed at.
-    if (/[?#%]/.test(word)) throw refuse(`it doesn't follow a file:// address with ?, # or % in it (${JSON.stringify(word.slice(0, 200))}).`);
-    let url: URL;
-    try { url = new URL(word); } catch { throw refuse(`it can't read ${JSON.stringify(word.slice(0, 200))} as a file:// address.`); }
-    if (url.hostname && url.hostname.toLowerCase() !== 'localhost') throw refuse(`${JSON.stringify(word.slice(0, 200))} isn't a path on this machine.`);
-    try { raw = fileURLToPath(url); } catch { throw refuse(`it can't read ${JSON.stringify(word.slice(0, 200))} as a file:// address.`); }
-    // git takes the path after file:// (or file://localhost) as written; a
-    // URL parser collapses `.` and `..` and turns a backslash into a slash.
-    // One it would change isn't followed (Gemini's third break-it review).
-    const written = word.replace(/^file:\/\/(localhost)?/i, '');
-    if (raw !== written) throw refuse(`it doesn't follow a file:// address it can't read exactly as git does (${JSON.stringify(word.slice(0, 200))}).`);
+    raw = fileUrlPath(word);
   } else {
     // As git's url_is_local_not_ssh, with a backslash also counted as a
     // slash: taking more words as paths only checks more.
@@ -495,21 +491,61 @@ function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
   }
 }
 
-// The repository a fetch, push or ls-remote names, when it can be told: its
-// first word, with only options known to take no value of their own (or the
-// first word might not be the repository). A word with a slash is a path or
-// address (no remote's name has one, and git reads no .git/remotes file by
-// such a name); one without names a remote if there is one by that name, and
-// is a path if not. Then git uses only that repository, so only it is
-// checked: one remote that couldn't be fetched from mustn't stop a fetch
-// from Threadbear's own temporary repo (merge-prepared.mjs) or a landing's
-// push to origin.
-const PLAIN_TRANSFER_OPTION = /^(-q|--quiet|-n|--dry-run|-v|--verbose|-f|--force|--no-tags|--tags|--no-write-fetch-head|--prune|--no-prune|--no-prune-tags|--no-recurse-submodules|--recurse-submodules=no|--atomic|--signed=false|--upload-pack=git-upload-pack|--receive-pack=git-receive-pack|--depth=\d+|--refs|--heads)$/;
-function namedRepository(rest: readonly string[]): string | undefined {
-  const end = rest.indexOf('--');
-  const before = end < 0 ? rest : rest.slice(0, end);
-  if (!before.filter((a) => a.startsWith('-')).every((a) => PLAIN_TRANSFER_OPTION.test(a))) return undefined;
-  return before.find((a) => !a.startsWith('-')) ?? (end < 0 ? undefined : rest[end + 1]);
+// Each transfer command's options: the ones that take a value as the next
+// word (so the value is never read as the repository), and the ones that
+// take none, by pattern. Any other option and the command can't be read for
+// sure: then every repository it could reach counts as the one used.
+type Grammar = { values: ReadonlySet<string>; flags: RegExp };
+const INLINE = '[\\s\\S]*';
+const TRANSFER_GRAMMAR: Record<string, Grammar> = {
+  fetch: {
+    values: new Set(['--depth', '--deepen', '--shallow-since', '--shallow-exclude', '--refmap', '--negotiation-tip', '-j', '--jobs', '--submodule-prefix', '--recurse-submodules-default', '-o', '--server-option', '--filter']),
+    flags: new RegExp(`^(-[qvafktpPnu46]+|--(quiet|verbose|append|atomic|force|keep|no-tags|tags|prune|prune-tags|no-prune|no-prune-tags|dry-run|no-write-fetch-head|write-fetch-head|unshallow|update-shallow|update-head-ok|progress|no-progress|ipv4|ipv6|no-recurse-submodules|recurse-submodules(=[a-z-]+)?|show-forced-updates|no-show-forced-updates|set-upstream|all|multiple|no-auto-maintenance|no-auto-gc|refetch|(depth|deepen|shallow-since|shallow-exclude|refmap|negotiation-tip|jobs|submodule-prefix|recurse-submodules-default|server-option|filter)=${INLINE}))$`),
+  },
+  push: {
+    values: new Set(['-o', '--push-option']),
+    flags: new RegExp(`^(-[qvnfdu46]+|--(quiet|verbose|all|branches|mirror|tags|follow-tags|no-follow-tags|atomic|no-atomic|dry-run|porcelain|delete|force|force-if-includes|no-force-if-includes|set-upstream|thin|no-thin|prune|no-verify|verify|progress|no-progress|ipv4|ipv6|no-signed|signed(=[a-z-]+)?|force-with-lease(=${INLINE})?|no-force-with-lease|recurse-submodules=[a-z-]+|no-recurse-submodules|push-option=${INLINE}))$`),
+  },
+  'ls-remote': {
+    values: new Set(['--sort', '-o', '--server-option']),
+    flags: new RegExp(`^(-[htqb]+|--(heads|tags|branches|refs|quiet|exit-code|get-url|symref|(sort|server-option)=${INLINE}))$`),
+  },
+  clone: {
+    values: new Set(['-c', '--config', '-o', '--origin', '-b', '--branch', '--reference', '--reference-if-able', '--depth', '--template', '--separate-git-dir', '--filter', '-j', '--jobs', '--shallow-since', '--shallow-exclude', '--server-option', '--bundle-uri', '--revision']),
+    flags: new RegExp(`^(-[lsqvn]+|--(local|no-local|shared|no-hardlinks|quiet|verbose|progress|no-checkout|bare|mirror|sparse|single-branch|no-single-branch|no-tags|tags|recurse-submodules(=${INLINE})?|shallow-submodules|no-shallow-submodules|remote-submodules|no-remote-submodules|also-filter-submodules|reject-shallow|no-reject-shallow|dissociate|(depth|config|origin|branch|reference|reference-if-able|template|separate-git-dir|filter|jobs|shallow-since|shallow-exclude|server-option|bundle-uri|revision)=${INLINE}))$`),
+  },
+};
+
+// The program git runs as a local transport's server is Threadbear's
+// (serverCommand), so a caller never names one: every spelling git takes is
+// refused (an abbreviation of --upload-pack, --receive-pack or --exec too,
+// and clone's -u, attached or in a group), rather than taken out, which a
+// second spelling got past (Gemini's fourth break-it review, 28 Nov 2026).
+function namesAServer(sub: string, arg: string): boolean {
+  const long = /^--([a-z-]+)(=|$)/.exec(arg)?.[1];
+  if (long && ['upload-pack', 'receive-pack', 'exec'].some((o) => o.startsWith(long))) return true;
+  return sub === 'clone' && /^-[^-]*u/.test(arg);
+}
+
+type TransferWords = { positionals: string[]; values: string[]; known: boolean; all: boolean; multiple: boolean; repo?: string };
+function readTransfer(sub: string, rest: readonly string[]): TransferWords {
+  const grammar = TRANSFER_GRAMMAR[sub]!;
+  const out: TransferWords = { positionals: [], values: [], known: true, all: false, multiple: false };
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!;
+    if (a === '--') { out.positionals.push(...rest.slice(i + 1)); break; }
+    if (!a.startsWith('-') || a === '-') { out.positionals.push(a); continue; }
+    if (namesAServer(sub, a)) throw refuse(`it picks the program a transfer's server runs itself, so it doesn't take ${JSON.stringify(a.slice(0, 80))}.`);
+    if (sub === 'push' && a === '--repo') { out.repo = rest[++i]; continue; }
+    if (sub === 'push' && a.startsWith('--repo=')) { out.repo = a.slice(7); continue; }
+    if (grammar.values.has(a)) { if (i + 1 < rest.length) out.values.push(rest[++i]!); continue; }
+    if (a === '--all') out.all = true;
+    if (a === '--multiple') out.multiple = true;
+    const eq = a.indexOf('=');
+    if (eq > 0) out.values.push(a.slice(eq + 1));
+    if (!grammar.flags.test(a)) out.known = false;
+  }
+  return out;
 }
 
 // The server a local transport starts, as a fixed command of Threadbear's:
@@ -525,18 +561,6 @@ function serverCommand(kind: 'upload-pack' | 'receive-pack'): string {
   return ['GIT_ALLOW_PROTOCOL=none', 'GIT_NO_LAZY_FETCH=1', q(gitProgram().replace(/\\/g, '/')), ...settings.flatMap((v) => ['-c', q(v)]), kind].join(' ');
 }
 
-// A clone's source: its first word, past the values of the options that take one.
-const CLONE_VALUE_OPTIONS = new Set(['-c', '--config', '-o', '--origin', '-b', '--branch', '-u', '--upload-pack', '--reference', '--reference-if-able', '--depth', '--template', '--separate-git-dir', '--filter', '-j', '--jobs', '--shallow-since', '--shallow-exclude', '--server-option', '--bundle-uri', '--revision']);
-function cloneSource(rest: readonly string[]): string | undefined {
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]!;
-    if (a === '--') return rest[i + 1];
-    if (a.startsWith('-')) { if (CLONE_VALUE_OPTIONS.has(a)) i++; continue; }
-    return a;
-  }
-  return undefined;
-}
-
 // Whether git reaches `address` through a local transport (as
 // url_is_local_not_ssh, file:// included).
 function localAddress(address: string): boolean {
@@ -545,84 +569,79 @@ function localAddress(address: string): boolean {
   return colon < 0 || (slash >= 0 && slash < colon) || /^[A-Za-z]:[\\/]/.test(address);
 }
 
-// Checks every repository the transfer could reach on this machine, and
-// says whether the one git will use is local (so its server runs
-// serverCommand) or across the network; either, when both could be, is refused.
+// Works out the repositories git will use for the transfer, as git picks
+// them: the one named (a remote's name when there is such a remote, as git
+// resolves it, a path or address if not), or with none named the branch's
+// (pushRemote, remote.pushDefault, its remote, else origin, each a remote's
+// name first: Gemini's fourth break-it review found "origin" read as a
+// path); --all every remote. Checks each on this machine, and says whether
+// they're local (so their server runs serverCommand) or across the network;
+// both at once is refused. A command it can't read for sure counts every
+// repository it could reach as used, and leans to local.
 function* checkTransfer(dir: string, sub: string, rest: readonly string[], entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv, timeoutMs: number): Generator<GitStep, 'local' | 'network' | undefined, UntrustedGitResult> {
-  const words: string[] = [];
-  let ended = false;
-  for (const a of rest) {
-    if (!ended && a === '--') { ended = true; continue; }
-    if (!ended && a.startsWith('-')) {
-      const eq = a.indexOf('=');
-      if (eq > 0) words.push(a.slice(eq + 1));
-      continue;
-    }
-    words.push(a);
-  }
-  const named = sub === 'clone' ? undefined : namedRepository(rest);
-  const mark = words.length;
-  let repos: string[] = [];
-  if (sub === 'clone') {
-    const source = cloneSource(rest);
-    repos = source === undefined ? [] : [source];
-  } else if (named !== undefined && /[\\/]/.test(named)) {
-    repos = [named];
-  } else if (named !== undefined) {
-    // A remote's own addresses, as git resolves them (url rewriting and
-    // .git/remotes included); a name that isn't a remote's is a path.
-    for (const push of [[], ['--push']]) {
-      const urls = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', 'get-url', ...push, '--all', '--', named], env, timeoutMs };
-      if (urls.ok) words.push(...urls.stdout.split('\n').filter(Boolean));
-    }
-    repos = words.length > mark ? words.slice(mark) : [named];
-  } else {
-    // No repository named (or it can't be told): git takes it from the
-    // branch's settings, so every remote and every repository those name.
-    for (const e of entries) if (/^remote\.[\s\S]+\.(url|pushurl)$/.test(e.key) || /^branch\.[\s\S]+\.(remote|pushremote)$/.test(e.key) || e.key === 'remote.pushdefault') words.push(e.value);
-    const common = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], env, timeoutMs };
+  const read = readTransfer(sub, rest);
+  const step = (args: string[]): GitStep => ({ cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, ...args], env, timeoutMs });
+  const last = (key: string) => entries.filter((e) => e.key === key).pop()?.value;
+  const remoteNames = function* (): Generator<GitStep, string[], UntrustedGitResult> {
+    const names = new Set(entries.flatMap((e) => /^remote\.([\s\S]+)\.(url|pushurl)$/.exec(e.key)?.[1] ?? []));
+    const common = yield step(['rev-parse', '--path-format=absolute', '--git-common-dir']);
     if (common.ok) {
-      const listed = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', '-v'], env, timeoutMs };
-      if (!listed.ok) throw refuse("it couldn't list this repo's remotes.");
-      for (const line of listed.stdout.split('\n')) {
-        if (!line) continue;
-        const m = /^[^\t]+\t([\s\S]*) \((?:fetch|push)\)$/.exec(line);
-        if (!m) throw refuse("it couldn't read this repo's remotes.");
-        words.push(m[1]!);
-      }
-      // `git remote -v` leaves out remotes defined by a file in .git/remotes
-      // or .git/branches, which a fetch still takes by name.
       for (const kind of ['remotes', 'branches']) {
-        let names: string[] = [];
-        try { names = fs.readdirSync(path.join(common.stdout.trim(), kind)); } catch (e) { if (!['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; }
-        if (names.length > 64) throw refuse(`this repo has too many remotes in .git/${kind} to check.`);
-        for (const name of names) {
-          for (const push of [[], ['--push']]) {
-            const urls = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', 'get-url', ...push, '--all', name], env, timeoutMs };
-            if (!urls.ok) throw refuse(`it couldn't read the remote .git/${kind}/${name}.`);
-            words.push(...urls.stdout.split('\n').filter(Boolean));
-          }
-        }
+        let files: string[] = [];
+        try { files = fs.readdirSync(path.join(common.stdout.trim(), kind)); } catch (e) { if (!['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; }
+        if (files.length > 64) throw refuse(`this repo has too many remotes in .git/${kind} to check.`);
+        for (const f of files) names.add(f);
       }
     }
+    return [...names];
+  };
+  // A remote's addresses as git resolves them (url rewriting, .git/remotes),
+  // or the word itself when no remote has that name (or it has a slash,
+  // which no remote's name has).
+  const resolve = function* (spec: string, push: boolean): Generator<GitStep, string[], UntrustedGitResult> {
+    if (/[\\/]/.test(spec)) return [spec];
+    const urls = yield step(['remote', 'get-url', ...(push ? ['--push'] : []), '--all', '--', spec]);
+    const got = urls.ok ? urls.stdout.split('\n').filter(Boolean) : [];
+    return got.length ? got : [spec];
+  };
+  const branchDefault = function* (push: boolean): Generator<GitStep, string, UntrustedGitResult> {
+    const head = yield step(['symbolic-ref', '-q', '--short', 'HEAD']);
+    const branch = head.ok ? head.stdout.trim() : '';
+    const remote = branch ? last(`branch.${branch}.remote`) : undefined;
+    const pushRemote = branch ? last(`branch.${branch}.pushremote`) : undefined;
+    return (push ? pushRemote ?? last('remote.pushdefault') ?? remote : remote) ?? 'origin';
+  };
+  const push = sub === 'push';
+  let specs: string[];
+  if (sub === 'clone') specs = read.positionals.slice(0, 1);
+  else if (sub === 'fetch' && read.all) specs = yield* remoteNames();
+  else if (sub === 'fetch' && read.multiple) specs = read.positionals.length ? read.positionals : yield* remoteNames();
+  else specs = [(push ? read.repo : undefined) ?? read.positionals[0] ?? (yield* branchDefault(push))];
+  if (!read.known) {
+    // Every repository the command could reach: each word, each remote and
+    // the branch's choice.
+    specs = [...new Set([...specs, ...read.positionals, ...(read.repo ? [read.repo] : []), ...(yield* remoteNames()), yield* branchDefault(push)])];
   }
-  if (sub !== 'clone' && named === undefined) repos = words.slice(mark);
-  // git reads a remote's relative address from the repository's top folder
-  // (or its .git, when bare), not the folder the command runs in, so a
-  // relative word is read against each (Gemini's third break-it review).
+  const repos: string[] = [];
+  for (const spec of specs) repos.push(...(sub === 'clone' ? [spec] : yield* resolve(spec, push)));
+  if (!read.known) for (const spec of specs) if (!/[\\/]/.test(spec) && sub !== 'clone') repos.push(...(yield* resolve(spec, !push)));
+  // A relative address is read from the repository's top folder (or .git,
+  // when bare) as git chdirs there, as well as the command's folder.
   const roots = [dir];
   for (const ask of [['rev-parse', '--show-toplevel'], ['rev-parse', '--absolute-git-dir']]) {
-    const r = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, ...ask], env, timeoutMs };
+    const r = yield step(ask);
     if (r.ok && r.stdout.trim()) roots.push(r.stdout.trim());
   }
   const home = env.HOME || os.homedir();
-  const found = new Set<string>();
-  for (const w of words) for (const d of localGitDirs(roots, w, home)) found.add(d);
+  const found = new Map<string, boolean>(); // git dir: checked as a push target
+  for (const r of repos) for (const d of localGitDirs(roots, r, home)) found.set(d, push || !!found.get(d));
+  // An option's value naming a repository (clone's --reference) is read as a source.
+  for (const v of read.values) for (const d of localGitDirs(roots, v, home)) if (!found.has(d)) found.set(d, false);
   if (found.size > 64) throw refuse('the command could reach too many repositories on this machine to check.');
-  for (const d of found) {
+  for (const [d, asTarget] of found) {
     const listed = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, `--git-dir=${d}`, 'config', '--list', '--show-scope', '-z'], env, timeoutMs, bytes: true };
     if (!listed.ok || !listed.bytes) throw refuse(`it couldn't read the git config of the repository at ${d}.`);
-    checkEndpoint(d, listed.bytes, sub === 'push');
+    checkEndpoint(d, listed.bytes, asTarget);
   }
   const local = repos.filter(localAddress).length;
   if (local && local < repos.length) throw refuse('the repositories it could reach are both on this machine and across the network; name the one to use.');
@@ -672,7 +691,7 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
     else break;
   }
   const sub = args[at];
-  let rest = args.slice(at + 1);
+  const rest = args.slice(at + 1);
   // Commands used by moves, worktrees, format replay and deployment. Each
   // is covered by the configuration and per-command overrides below. Stash
   // and submodule commands remain out: they have their own execution paths.
@@ -723,12 +742,6 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
   // in place of any the caller named; across the network, git's own.
   const server = sub === 'push' ? 'receive-pack' : 'upload-pack';
   const pack = !TRANSFERS.has(sub) ? [] : transport === 'local' ? [`--${server}=${serverCommand(server)}`] : opts.network ? [`--${server}=git-${server}`] : [];
-  if (transport === 'local') {
-    const end = rest.indexOf('--');
-    rest = rest.filter((a, i) => (end >= 0 && i > end) || !(a.startsWith(`--${server}=`) || a.startsWith('--upload-pack=') || a.startsWith('--receive-pack=')));
-    const u = rest.indexOf('-u'), after = rest.indexOf('--');
-    if (sub === 'clone' && u >= 0 && (after < 0 || u < after)) rest = [...rest.slice(0, u), ...rest.slice(u + 2)];
-  }
   const control = ['merge', 'rebase', 'cherry-pick'].includes(sub) && rest.some((a) => ['--abort', '--quit', '--continue', '--skip', '--edit-todo', '--show-current-patch'].includes(a));
   const inside = control ? [] : (NO_SUBMODULES[sub] ?? []);
   // What's left of the caller's time, when it gave one.

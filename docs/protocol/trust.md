@@ -942,7 +942,7 @@ and an unknown `kind` as a page if it has a `url`.
 Worktree creation, landing and format replay use the same hostile-repository Git
 boundary as moves: no configured hooks, filters, signing or merge programs run.
 A configured merge driver is replaced by Git's text merge. Repository-scoped
-conditional includes are refused: they can add a driver only after a new
+includes (`include.*` and conditional `includeIf.*`) are refused: they can add a driver only after a new
 worktree exists. Local settings must be passive or explicitly neutralized by this
 wrapper: a setting in a section whose settings run nothing here (`branch.*`,
 `core.*`, `lfs.*` and the like, as tools write them) passes unless its name
@@ -959,6 +959,8 @@ git-upload-pack or git-receive-pack there, which read that repository's own
 config (command-line settings don't reach them) and, for a push, run its
 hooks. So the wrapper names that server itself, as a fixed command with its
 own settings (no hooks, no alternate-refs program, no transport of its own),
+and refuses one a caller names (`--upload-pack`, `--receive-pack`, `--exec`,
+clone's `-u`, in any spelling),
 and refuses a transfer that could reach repositories both on this machine and
 across the network. Before any transfer, as a second layer, the wrapper reads every repository the command could
 open: each word of the command and each option's value, and for a fetch, push
