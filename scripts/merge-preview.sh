@@ -30,7 +30,8 @@ commit=${1:?usage: scripts/merge-preview.sh [--prepare <dir>] <commit> [base]}
 base=${2:-refs/heads/main}
 helper_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 helper="$helper_root/runner/scripts/deploy-git.mjs"
-node_bin=${THREADBEAR_NODE:-node}
+. "$helper_root/runner/scripts/find-node.sh"
+node_bin=$(threadbear_find_node) || exit 1
 top=$("$node_bin" "$helper" "$PWD" rev-parse --show-toplevel)
 "$node_bin" "$helper" --verify-objects "$top" "$base" "$commit"
 # Replacement objects and grafts off, and a checkout with either refused:
