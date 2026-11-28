@@ -134,6 +134,7 @@ async function main(args) {
       if (job()) return 37; // launchd: service already loaded
       const failFor = fs.existsSync(path.join(dir, 'fail-bootstrap')) ? fs.readFileSync(path.join(dir, 'fail-bootstrap'), 'utf8').trim() : '';
       if (failFor && String(p.EnvironmentVariables?.PATH ?? '').includes(failFor)) {
+        if (fs.existsSync(path.join(dir, 'disable-new-launcher'))) fs.chmodSync(p.ProgramArguments[0], 0o644);
         console.error('Bootstrap failed: 5: Input/output error');
         return 5;
       }

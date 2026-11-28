@@ -208,10 +208,14 @@ output cannot renew image work. Rejected oversized output imports no images.
   beside the old one (`~/Applications/.Threadbear Runner.app.staged`) and
   rewrites the runner's own plist and launch.mjs without stopping
   anything (they take over at your next login, when launch.mjs moves the
-  new app in), logging to
-  `<data folder>/runner/reinstall.log`, and is left loaded but stopped
-  until the next one replaces it. On Linux
-  it's a transient `systemd-run --user` unit instead (`runner/src/reinstall.ts`).
+  new app in). The swap helper uses `.staged.swap` and `.staged.swap.incoming`
+  beside the app to resume or clean up an interrupted swap. A `.staged.lock`
+  file serializes exchanges, and a full install temporarily holds its
+  rollback helper and previous bundle in `.staged.install` beside the app.
+  The LaunchAgent's executable path stays available throughout the swap. The
+  update job logs to `<data folder>/runner/reinstall.log` and stays loaded
+  but stopped until the next one replaces it. On Linux it's a transient
+  `systemd-run --user` unit instead (`runner/src/reinstall.ts`).
 - **Commands:** `~/.local/bin/threadbear`, a link into your clone (only where the old Swift app was installed with `app/install.sh`), and
   `~/.local/bin/tb`, a three-line script that runs the `tb` of the runner
   release this Mac runs (`runner/scripts/link-tb.sh`; it leaves a `tb` that

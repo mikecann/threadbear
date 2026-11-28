@@ -66,11 +66,12 @@ STAGE_DIR="$PARENT/.$BASE.staging"
 OLD_DIR="$PARENT/.$BASE.old"
 mkdir -p "$PARENT"
 rm -rf "$STAGE_DIR"
-mkdir -p "$STAGE_DIR/Contents/MacOS" "$STAGE_DIR/Contents/Resources"
+mkdir -p "$STAGE_DIR/Contents/MacOS" "$STAGE_DIR/Contents/Resources" "$STAGE_DIR/Contents/Helpers"
 
 echo "Building $APP_NAME.app..."
 # One file, so swiftc on its own: no package, no .build folder.
 swiftc -O -module-name ThreadbearRunner -o "$STAGE_DIR/Contents/MacOS/$APP_NAME" "$HERE/main.swift"
+swiftc -O -D APP_SWAP_HELPER -module-name ThreadbearLauncherSwap -o "$STAGE_DIR/Contents/Helpers/replace-app" "$HERE/main.swift"
 cp "$HERE/Info.plist" "$STAGE_DIR/Contents/Info.plist"
 
 if [ -f "$ICON_SOURCE" ]; then
@@ -103,6 +104,7 @@ fi
 # swiftc signs the binary ad hoc as it builds; taking that off first keeps
 # codesign from saying "replacing existing signature" on every build.
 codesign --remove-signature "$STAGE_DIR/Contents/MacOS/$APP_NAME" 2>/dev/null || true
+codesign --force --timestamp=none --sign "$SIGN_IDENTITY" "$STAGE_DIR/Contents/Helpers/replace-app"
 codesign --force --timestamp=none --sign "$SIGN_IDENTITY" \
   ${SIGNING_REQUIREMENTS[@]+"${SIGNING_REQUIREMENTS[@]}"} "$STAGE_DIR" >/dev/null
 

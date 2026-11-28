@@ -202,6 +202,9 @@ RUNNER_APP="${RUNNER_APP%/}"
 # macOS asks about, is the app).
 LAUNCHER="$RUNNER_APP/Contents/MacOS/Threadbear Runner"
 BUILD_LAUNCHER="$RUNNER_DIR/launcher/build-launcher.sh"
+APP_SIBLING="$(dirname "$RUNNER_APP")/.$(basename "$RUNNER_APP")"
+STAGED_APP="$APP_SIBLING.staged"
+LEGACY_OLD_APP="$APP_SIBLING.old"
 PLIST="$AGENTS_DIR/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
 UNIT="$LABEL.service"
@@ -261,6 +264,21 @@ fi
 if [ "$HOME_GIVEN" = 0 ] && [ -n "${THREADBEAR_HOME:-}" ] && ! same_dir "$THREADBEAR_HOME" "$DEFAULT_HOME"; then
   echo "THREADBEAR_HOME is $THREADBEAR_HOME, but install-runner.sh only goes by --home (default $DEFAULT_HOME). Pass --home." >&2
   exit 1
+fi
+
+# A LaunchAgent from the older two-rename swap can't run launch.mjs at all
+# if its app path is empty. Repair just that path before checking the
+# checkout or the running job. The installed plist and supervisor stay put.
+if [ "$MODE" = "install" ] && [ "$LINUX" = 0 ] && [ -x "$NODE" ] && [ ! -e "$RUNNER_APP" ]; then
+  for candidate in "$LEGACY_OLD_APP" "$STAGED_APP"; do
+    if [ -x "$candidate/Contents/MacOS/Threadbear Runner" ] && /usr/bin/codesign --verify "$candidate"; then
+      # A concurrent repair can populate the path, so use rename rather
+      # than mv, which would nest the candidate inside the installed app.
+      "$NODE" -e 'require("node:fs").renameSync(process.argv[1], process.argv[2])' "$candidate" "$RUNNER_APP"
+      echo "Restored the missing $RUNNER_APP from $candidate."
+      break
+    fi
+  done
 fi
 
 # Loads a launch.mjs the way the LaunchAgent would, short of starting a
@@ -513,17 +531,18 @@ BUSY_EXIT=75
 LOADED=0
 svc_loaded && LOADED=1
 
-# Everything that can be refused is refused before anything changes.
+# Validate the checkout before replacing the LaunchAgent.
 # launch.mjs first: it is the LaunchAgent's program, nothing tests it once
 # it's in, and deploy-runner.sh can't run without it.
 if [ "$FROM_SOURCE" = 0 ] && [ "$LAUNCH_OK" = 0 ]; then
-  echo "$RUNNER_DIR/launch.mjs doesn't load, so nothing was changed." >&2
+  echo "$RUNNER_DIR/launch.mjs doesn't load, so the LaunchAgent wasn't reinstalled." >&2
   exit 1
 fi
 if [ "$FROM_SOURCE" = 0 ] && [ "$ALLOW_BRANCH" = 0 ] && ! deploy --check-branch; then
   echo "The LaunchAgent should run main. Install from main's tip, or pass --allow-branch." >&2
   exit 1
 fi
+
 # Replacing a running copy stops its CLIs, and every turn and background
 # job with them, so only when nothing is busy.
 # Staging something that isn't installed would leave a plist launchd never
@@ -560,8 +579,7 @@ rm -f "$PREV" "$PREV_LAUNCH"
 # changed since (its signature is what privacy grants are tied to, so the
 # fewer rebuilds the better; a rebuild signs it the same way regardless).
 # The new one is built beside it (STAGED_APP below), and a full install
-# keeps the old one as .Threadbear Runner.app.old until it's done, so a
-# failed install can put it back.
+# keeps the old one until it's done, so a failed install can put it back.
 # Staging writes the plist first, to a temp file beside it, so a
 # LaunchAgents folder it can't write to fails before the app or launch.mjs
 # change: one of those going in alone would make the runner's check see main
@@ -593,7 +611,6 @@ if [ "$STAGE" = 1 ]; then
     exit 1
   fi
 fi
-OLD_APP="$(dirname "$RUNNER_APP")/.$(basename "$RUNNER_APP").old"
 # A new app is built here, beside the one the job runs, never over it:
 # macOS checks the job's program against its bundle on disk for every
 # privacy grant anything under it asks for, so a bundle replaced under a
@@ -601,11 +618,9 @@ OLD_APP="$(dirname "$RUNNER_APP")/.$(basename "$RUNNER_APP").old"
 # 15 Nov 2026) until the job restarts. A full install moves it in once the
 # job is about to be reloaded (take_staged_app); a staged one is moved in
 # by launch.mjs when launchd next starts the job (takeStagedApp there).
-STAGED_APP="$(dirname "$RUNNER_APP")/.$(basename "$RUNNER_APP").staged"
 APP_STAGED=0
-APP_BUILT=0
-# $OLD_APP isn't cleared here: a launcher started before it was moved aside
-# may still run from it (take_staged_app clears it once the job stops).
+APP_SWAP_DIR="$STAGED_APP.install"
+APP_SWAP_TOOL=""
 if [ "$LINUX" = 1 ]; then
   # No app on Linux: nothing there asks for privacy grants.
   :
@@ -629,20 +644,23 @@ else
   APP_STAGED=1
 fi
 
-# Moves the staged app in, the old one aside as $OLD_APP for fail_back,
-# only once nothing runs from the old one any more (or is about to stop).
+# Atomically exchanges the staged app with the installed one. The old one
+# stays at the private backup path until the install succeeds.
 take_staged_app() {
   [ "$APP_STAGED" = 1 ] || return 0
   APP_STAGED=0
   # Gone already when the job restarted while this was building a release:
   # launch.mjs took it in then, so the app in place is the new one.
   [ -d "$STAGED_APP" ] || return 0
-  rm -rf "$OLD_APP"
-  # APP_BUILT as soon as the old one is aside, so fail_back puts it back
-  # even if the second rename fails.
-  if [ -e "$RUNNER_APP" ]; then mv "$RUNNER_APP" "$OLD_APP"; APP_BUILT=1; fi
-  mv "$STAGED_APP" "$RUNNER_APP"
-  APP_BUILT=1
+  /usr/bin/codesign --verify "$STAGED_APP"
+  # Keep the tool that performed the swap outside either bundle so it
+  # still works if the new launcher fails to start.
+  rm -rf "$APP_SWAP_DIR"
+  mkdir -m 700 "$APP_SWAP_DIR"
+  cp -p "$STAGED_APP/Contents/Helpers/replace-app" "$APP_SWAP_DIR/replace-app"
+  /usr/bin/codesign --verify "$APP_SWAP_DIR/replace-app"
+  APP_SWAP_TOOL="$APP_SWAP_DIR/replace-app"
+  "$APP_SWAP_TOOL" install "$RUNNER_APP" "$STAGED_APP" >/dev/null
 }
 
 if [ "$FROM_SOURCE" = 1 ]; then
@@ -690,10 +708,14 @@ fail_back() {
   set +e
   echo "$1" >&2
   [ -z "$TMP" ] || rm -f "$TMP"
-  if [ "$APP_BUILT" = 1 ] && [ -d "$OLD_APP" ]; then
-    rm -rf "$RUNNER_APP"
-    mv "$OLD_APP" "$RUNNER_APP"
-    echo "$RUNNER_APP is the one from before again." >&2
+  if [ -n "$APP_SWAP_TOOL" ]; then
+    local restored
+    if restored="$("$APP_SWAP_TOOL" restore "$RUNNER_APP" "$STAGED_APP")"; then
+      [ "$restored" != changed ] || echo "$RUNNER_APP is the one from before again." >&2
+      rm -rf "$APP_SWAP_DIR"
+    else
+      echo "Couldn't restore the previous $RUNNER_APP." >&2
+    fi
   fi
   if [ -f "$PREV" ]; then
     echo "Putting back the LaunchAgent as it was." >&2
@@ -822,7 +844,7 @@ if [ "$SANDBOX" = 0 ]; then
   [ "$FROM_SOURCE" = 0 ] || TB_ARGS+=(--from-source)
   bash "$RUNNER_DIR/scripts/link-tb.sh" "${TB_ARGS[@]}" || true
 fi
-[ "$LINUX" = 1 ] || rm -rf "$OLD_APP"
+[ -z "$APP_SWAP_TOOL" ] || rm -rf "$APP_SWAP_DIR"
 if [ "$LINUX" = 1 ]; then
   echo "Restart it with: systemctl --user restart $UNIT"
   # A user service stops when its user's last session ends unless lingering

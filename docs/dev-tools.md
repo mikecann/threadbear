@@ -145,9 +145,17 @@ the data dir (`<home>`, normally `~/Library/Application Support/Threadbear`):
   new one) and puts launch.mjs and the plist in
   place without stopping or loading anything, so it never waits for an
   idle moment; launchd picks them up the next time it starts the job (the
-  Mac restarting, logging in again). A full reinstall stops every runner
-  at once, handovers and all, and on Mike's Mac there was never a moment
-  with nothing busy (15 Nov). install-runner.sh refuses to run inside the
+  Mac restarting, logging in again). The swap helper takes the stage into
+  a fixed holding path and records its inode before atomically exchanging
+  it with the installed bundle. The next job start retries an interrupted
+  exchange or cleans up the displaced bundle if the exchange went through.
+  A full install keeps a private copy of the helper to roll back even if
+  the new launcher cannot start. For an earlier two-rename swap that left
+  the installed path empty, rerunning the installer restores the signed
+  `.<name>.old` bundle or a verified stage before validating the checkout.
+  A full reinstall stops every runner at once, handovers and all, and on
+  Mike's Mac there was never a moment with nothing busy (15 Nov).
+  install-runner.sh refuses to run inside the
   runner's process tree, so the script runs as a launchd job of its own,
   `<label>.reinstall`, from a one-shot plist in `<home>/runner/reinstall/`
   (a transient `systemd-run --user` unit on Linux), from the checkout the

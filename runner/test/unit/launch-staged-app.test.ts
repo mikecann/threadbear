@@ -30,23 +30,21 @@ test('the runner and launch.mjs agree on where the staged app goes', () => {
   assert.equal(stagedAppPathTs('/a/Threadbear Runner.app'), stagedAppPath('/a/Threadbear Runner.app'));
 });
 
-test('a staged app that verifies is moved in, and the old one is gone', { skip: !darwin }, () => {
-  const t = apps();
-  t.mk(t.staged, 'new');
-  const logs: string[] = [];
-  assert.equal(takeStagedApp(t.app, () => true, (_l: string, m: string) => logs.push(m)), true);
-  assert.equal(t.read(t.app), 'new');
-  assert.deepEqual(fs.readdirSync(t.dir), ['Threadbear Runner.app']);
-  assert.match(logs.join('\n'), /took in the staged/);
-});
-
 test('nothing staged, no app named, or one that does not verify: the running app stays', { skip: !darwin }, () => {
   const t = apps();
   const quiet = () => {};
   assert.equal(takeStagedApp(t.app, () => true, quiet), false);
   assert.equal(takeStagedApp(undefined, () => true, quiet), false);
   t.mk(t.staged, 'new');
-  assert.equal(takeStagedApp(t.app, () => false, quiet), false);
+  const helper = path.join(t.staged, 'Contents', 'Helpers', 'replace-app');
+  fs.mkdirSync(path.dirname(helper));
+  fs.writeFileSync(helper, 'the verifier refuses this bundle');
+  const verified: string[] = [];
+  assert.equal(takeStagedApp(t.app, (candidate: string) => {
+    verified.push(candidate);
+    return false;
+  }, quiet), false);
+  assert.deepEqual(verified, [t.staged]);
   assert.equal(t.read(t.app), 'old');
   assert.equal(t.read(t.staged), 'new');
 });

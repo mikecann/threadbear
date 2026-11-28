@@ -53,6 +53,8 @@ function env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     ...out,
     PATH: `${path.dirname(NODE)}:${process.env.PATH}`,
     THREADBEAR_NODE: NODE,
+    THREADBEAR_SIGN_IDENTITY: '-',
+    THREADBEAR_SENTRY: 'off',
     // How long a deploy watches a release that came up (20 s for real); the
     // fake runner is marked good after 200 ms, which ends it sooner.
     THREADBEAR_DEPLOY_SETTLE_MS: '1500',
@@ -318,6 +320,149 @@ test('install-runner.sh builds the first release and starts it through launch.mj
   // main.ts (here the fake) marks its release good.
   await waitFor('lastGood', () => state().lastGood === first);
   assert.equal(state().boots.at(-1)?.release, first);
+});
+
+test('the LaunchAgent executable stays runnable at each macOS launcher swap boundary', async (t) => {
+  const { stagedAppPath, takeStagedApp } = await import(pathToFileURL(path.join(RUNNER, 'launch.mjs')).href);
+  const installed = path.join(runnerDir(), 'Threadbear Runner.app');
+  const executable = (app: string) => path.join(app, 'Contents', 'MacOS', 'Threadbear Runner');
+  const helper = (app: string) => path.join(app, 'Contents', 'Helpers', 'replace-app');
+  const verify = (app: string) => spawnSync('/usr/bin/codesign', ['--verify', app], { stdio: 'ignore' }).status === 0;
+  const inode = (app: string) => fs.statSync(app).ino;
+  const bundles = () => {
+    const dir = fs.mkdtempSync(path.join(root, 'app-swap-'));
+    const app = path.join(dir, path.basename(installed));
+    const staged: string = stagedAppPath(app);
+    fs.cpSync(installed, app, { recursive: true });
+    fs.cpSync(installed, staged, { recursive: true });
+    return { dir, app, staged, oldInode: inode(app), stagedInode: inode(staged) };
+  };
+  const boot = (app: string, expectedInode: number) => {
+    assert.equal(inode(app), expectedInode);
+    assert.ok(verify(app));
+    const r = spawnSync(executable(app), [NODE, '-e', 'console.log("booted")'], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), 'booted');
+  };
+  const afterExchange = (app: string, staged: string, keepPrevious = false) => {
+    const pending = `${staged}.swap`;
+    const incoming = fs.statSync(staged, { bigint: true });
+    fs.writeFileSync(`${pending}.incoming`, JSON.stringify({ incoming: `${incoming.dev}:${incoming.ino}`, keepPrevious }));
+    fs.renameSync(app, pending);
+    fs.renameSync(staged, app);
+    return pending;
+  };
+
+  await t.test('before the swap, the old app boots and a verified stage can go in', () => {
+    const { dir, app, staged, oldInode, stagedInode } = bundles();
+    boot(app, oldInode);
+    assert.equal(takeStagedApp(app, verify), true);
+    boot(app, stagedInode);
+    assert.deepEqual(fs.readdirSync(dir).sort(), [path.basename(staged) + '.lock', path.basename(app)].sort());
+  });
+
+  await t.test('after the stage was claimed but before exchange, the next boot retries without restaging', () => {
+    const { app, staged, oldInode, stagedInode } = bundles();
+    const pending = `${staged}.swap`;
+    fs.renameSync(staged, pending);
+    boot(app, oldInode);
+    assert.equal(takeStagedApp(app, verify), true);
+    boot(app, stagedInode);
+    assert.ok(!fs.existsSync(pending));
+    assert.ok(!fs.existsSync(`${pending}.incoming`));
+  });
+
+  await t.test('after the exchange but before cleanup, a retry does not swap back', () => {
+    const { dir, app, staged, oldInode, stagedInode } = bundles();
+    const pending = afterExchange(app, staged);
+    assert.equal(inode(pending), oldInode);
+    assert.equal(takeStagedApp(app, verify), false);
+    boot(app, stagedInode);
+    assert.deepEqual(fs.readdirSync(dir).sort(), [path.basename(staged) + '.lock', path.basename(app)].sort());
+  });
+
+  await t.test('rollback can resume after an interrupted install exchange and is safe to retry', () => {
+    const { app, staged, oldInode, stagedInode } = bundles();
+    const installDir = `${staged}.install`;
+    fs.mkdirSync(installDir);
+    const tool = path.join(installDir, 'replace-app');
+    fs.copyFileSync(helper(staged), tool);
+    const pending = afterExchange(app, staged, true);
+    fs.chmodSync(executable(app), 0o644);
+    const resource = path.join('Contents', 'Resources', 'build.json');
+    const original = fs.readFileSync(path.join(pending, resource));
+    fs.appendFileSync(path.join(pending, resource), '\n');
+    assert.ok(!verify(pending), 'rollback can restore the previously installed bundle without revalidating its resources');
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const r = spawnSync(tool, ['restore', app, staged], { encoding: 'utf8', timeout: 10_000 });
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(inode(app), oldInode);
+      assert.equal(inode(path.join(installDir, 'previous.app')), stagedInode);
+    }
+    fs.writeFileSync(path.join(app, resource), original);
+    boot(app, oldInode);
+  });
+
+  await t.test('a bundle that fails verification after it was claimed stays staged', () => {
+    const { app, staged, oldInode } = bundles();
+    fs.appendFileSync(path.join(staged, 'Contents', 'Resources', 'build.json'), '\n');
+    const r = spawnSync(helper(app), ['apply', app, staged], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(r.status, 1, r.stderr);
+    assert.ok(fs.existsSync(staged));
+    assert.ok(!verify(staged));
+    boot(app, oldInode);
+  });
+});
+
+test('install-runner.sh repairs a launcher stranded by the old swap before checking the checkout', () => {
+  const dir = fs.mkdtempSync(path.join(root, 'app-recovery-'));
+  const app = path.join(dir, 'Threadbear Runner.app');
+  const old = path.join(dir, '.Threadbear Runner.app.old');
+  const staged = path.join(dir, '.Threadbear Runner.app.staged');
+  fs.cpSync(path.join(runnerDir(), path.basename(app)), old, { recursive: true });
+  const oldInode = fs.statSync(old).ino;
+  fs.cpSync(old, staged, { recursive: true });
+  const calls = launchctlCalls().length;
+  git('checkout', '-q', '-b', 'stranded-launcher');
+  commit({ v: 'stranded-launcher' }, 'leave a branch-only change');
+  try {
+    const r = sh('install-runner.sh', ['--home', home, '--label', LABEL, '--runner-app', app]);
+    assert.equal(r.status, 1, out(r));
+    assert.match(r.stderr, /The LaunchAgent should run main/);
+    assert.match(r.stdout, /Restored the missing .*Threadbear Runner\.app/);
+    assert.equal(fs.statSync(app).ino, oldInode);
+    assert.equal(spawnSync('/usr/bin/codesign', ['--verify', app]).status, 0);
+    assert.ok(fs.existsSync(staged));
+    assert.ok(!fs.existsSync(old));
+  } finally {
+    git('checkout', '-q', 'main');
+    git('branch', '-q', '-D', 'stranded-launcher');
+  }
+  assert.deepEqual(launchctlCalls().slice(calls).filter((c) => c[0] !== 'print'), []);
+});
+
+test('install-runner.sh repairs a staged-only legacy failure even when the checkout launcher is broken', () => {
+  const dir = fs.mkdtempSync(path.join(root, 'app-staged-recovery-'));
+  const app = path.join(dir, 'Threadbear Runner.app');
+  const staged = path.join(dir, '.Threadbear Runner.app.staged');
+  fs.cpSync(path.join(runnerDir(), path.basename(app)), staged, { recursive: true });
+  const stagedInode = fs.statSync(staged).ino;
+  const launchSource = path.join(rdir, 'launch.mjs');
+  const pristine = fs.readFileSync(launchSource);
+  fs.writeFileSync(launchSource, 'bad syntax (');
+  try {
+    const r = sh('install-runner.sh', ['--home', home, '--label', LABEL, '--runner-app', app]);
+    assert.equal(r.status, 1, out(r));
+    assert.match(r.stderr, /launch\.mjs doesn't load/);
+    assert.match(r.stdout, /Restored the missing .*Threadbear Runner\.app/);
+    assert.equal(fs.statSync(app).ino, stagedInode);
+    assert.ok(!fs.existsSync(staged));
+    const boot = spawnSync(path.join(app, 'Contents', 'MacOS', 'Threadbear Runner'), [NODE, '-e', 'process.exit(0)'], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(boot.status, 0, boot.stderr);
+  } finally {
+    fs.writeFileSync(launchSource, pristine);
+  }
 });
 
 test('a second release goes live through runner.restart', { timeout: 60_000 }, async () => {
@@ -1222,7 +1367,7 @@ test('reinstalling checks everything first, builds from HEAD, and puts the old s
     git('checkout', '--', 'runner/launch.mjs');
   }
   assert.equal(r.status, 1, out(r));
-  assert.match(r.stderr, /launch\.mjs doesn't load, so nothing was changed/);
+  assert.match(r.stderr, /launch\.mjs doesn't load, so the LaunchAgent wasn't reinstalled/);
   assert.doesNotMatch(r.stderr, /should run main|threads are busy/);
   assert.equal(fs.readFileSync(installed, 'utf8'), oldLaunch);
   assert.equal(broke.status, 1, out(broke));
@@ -1267,16 +1412,18 @@ test('reinstalling checks everything first, builds from HEAD, and puts the old s
   const rebuiltApp = appBuild();
 
   // Another launcher change (a commit, so a release is built from it too),
-  // but launchd won't load the new plist: the old plist, release and app
-  // all go back.
+  // but the installed launcher can't execute: the old plist, release and
+  // app all go back even though the new executable can't help.
   const keptRelease = current();
   fs.writeFileSync(launcherSrc, launcherPristine + '\n// another launcher change\n');
   commit({ v: 'launcher change 2' }, 'another launcher change');
   fs.writeFileSync(path.join(launchd, 'fail-bootstrap'), '/fail/here');
+  fs.writeFileSync(path.join(launchd, 'disable-new-launcher'), '');
   try {
     r = install(['--path', '/fail/here:/usr/bin:/bin']);
   } finally {
     fs.rmSync(path.join(launchd, 'fail-bootstrap'));
+    fs.rmSync(path.join(launchd, 'disable-new-launcher'));
     fs.writeFileSync(launcherSrc, launcherPristine + '\n// a launcher change\n');
     commit({ v: 'launcher change' }, 'launcher back');
   }
