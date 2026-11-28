@@ -89,18 +89,28 @@ KEEP_PHASE=""
 set_phase() { printf '%s\n' "$*" >"$PHASE.tmp" && mv -f "$PHASE.tmp" "$PHASE"; }
 trap '[[ -n "$KEEP_PHASE" ]] || rm -f "$PHASE"; rm -rf "$LOCK"' EXIT
 
-MAIN="$(git -C "$CHECKOUT" rev-parse --verify -q refs/heads/main)" || { echo "$CHECKOUT has no main branch." >&2; exit 2; }
-echo "Staging main ($(git -C "$CHECKOUT" rev-parse --short "$MAIN")) from $CHECKOUT into $NEXT_DIR"
+# git that runs nothing the checkout's config names: no fsmonitor or hooks,
+# no transport but a local one, no lazy fetch. And the checkout's own
+# upload-pack, which git starts with none of these settings (a local
+# transport drops them), named here as a fixed command with Threadbear's,
+# as runner/src/safe-git.ts does (Gemini's eighth break-it review of
+# 187/188, 28 Nov 2026).
+cgit() { GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=file git -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
+UPLOAD_PACK="GIT_ALLOW_PROTOCOL=none GIT_NO_LAZY_FETCH=1 git -c core.alternateRefsCommand=true -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.allow=never upload-pack"
+MAIN="$(cgit -C "$CHECKOUT" rev-parse --verify -q refs/heads/main)" || { echo "$CHECKOUT has no main branch." >&2; exit 2; }
+echo "Staging main ($(cgit -C "$CHECKOUT" rev-parse --short "$MAIN")) from $CHECKOUT into $NEXT_DIR"
 
 # A clone of the checkout, moved to its main: only the files that changed get
-# new times, so the build is incremental wherever it happens.
+# new times, so the build is incremental wherever it happens. --no-local:
+# objects come as a pack that git checks against their ids, never as the
+# checkout's own files linked across.
 if [[ ! -d "$SRC/.git" ]]; then
   rm -rf "$SRC"
-  git clone -q --no-checkout "$CHECKOUT" "$SRC"
+  cgit clone -q --no-checkout --no-local --template= --upload-pack="$UPLOAD_PACK" "$CHECKOUT" "$SRC"
 fi
-git -C "$SRC" fetch -q "$CHECKOUT" "refs/heads/main"
-git -C "$SRC" checkout -q --detach FETCH_HEAD
-git -C "$SRC" clean -qfd -e target
+cgit -C "$SRC" fetch -q --upload-pack="$UPLOAD_PACK" "$CHECKOUT" "refs/heads/main"
+cgit -C "$SRC" checkout -q --detach FETCH_HEAD
+cgit -C "$SRC" clean -qfd -e target
 
 # runner.json's updateBuildHosts and checkHosts, from the data folder the app
 # uses. A name ssh would read as an option is never one.

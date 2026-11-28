@@ -51,8 +51,36 @@ TARGET="$HOME/Applications/Threadbear GPUI.app"
 work="$(mktemp -d "${TMPDIR:-/tmp}/threadbear-switch-XXXX")"
 trap 'rm -rf "$work"' EXIT
 
+# git in the checkout that runs nothing its config names and reads objects
+# as their ids name them: no replacement objects, grafts or commit-graph.
+cgit() { GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none git -c core.commitGraph=false -c core.fsmonitor=false -c core.hooksPath=/dev/null -C "$CHECKOUT" "$@"; }
+# An object's bytes into $3, only if they hash to its id $2: a loose object
+# or pack from the checkout is just a file, whatever its name says.
+verified_object() {
+  cgit cat-file "$1" "$2" >"$3" 2>/dev/null || return 1
+  [[ "$(cgit hash-object --no-filters -t "$1" "$3" 2>/dev/null)" == "$2" ]]
+}
+# main's copy of desktop/scripts/$1, read as main's commit names it, each
+# object on the way checked: a checkout with replacement refs or grafts is
+# refused, as the runner's deploy is (runner/scripts/deploy-git.mjs; Gemini's
+# eighth break-it review of 187/188, 28 Nov 2026). No Node here: the Swift
+# app's thread runs this script from main, without the rest of the repo.
 from_main() {
-  git -C "$CHECKOUT" show "refs/heads/main:desktop/scripts/$1" > "$work/$1" || { echo "main has no desktop/scripts/$1." >&2; exit 1; }
+  local common commit tree id mode type name comp
+  common="$(cgit rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || { echo "Couldn't read the checkout's git folder." >&2; exit 1; }
+  if [[ -n "$(cgit for-each-ref --count=1 --format='%(refname)' refs/replace/ 2>/dev/null)" || -e "$common/info/grafts" ]]; then
+    echo "The checkout has git replacement refs or grafts; remove them before installing the app." >&2; exit 1
+  fi
+  commit="$(cgit rev-parse --verify -q 'refs/heads/main^{commit}')" || { echo "The checkout has no main branch." >&2; exit 1; }
+  verified_object commit "$commit" "$work/.object" || { echo "main's commit doesn't match its id." >&2; exit 1; }
+  tree="$(sed -n '1s/^tree //p' "$work/.object")"
+  for comp in desktop scripts "$1"; do
+    verified_object tree "$tree" "$work/.object" || { echo "A tree on the way to desktop/scripts/$1 doesn't match its id." >&2; exit 1; }
+    IFS=$' \t' read -r mode type id name < <(cgit ls-tree "$tree" -- "$comp") || true
+    [[ "$name" == "$comp" && "$type" == "$([[ "$comp" == "$1" ]] && echo blob || echo tree)" ]] || { echo "main has no desktop/scripts/$1." >&2; exit 1; }
+    tree="$id"
+  done
+  verified_object blob "$id" "$work/$1" || { echo "main's desktop/scripts/$1 doesn't match its id." >&2; exit 1; }
   chmod +x "$work/$1"
 }
 
@@ -147,7 +175,7 @@ behind_main() {
   built="$(/usr/bin/python3 -I -c 'import json,sys
 try: print(json.load(open(sys.argv[1])).get("appTree") or "")
 except Exception: print("")' "$TARGET/Contents/Resources/build.json" 2>/dev/null)" || built=""
-  main="$(git -C "$CHECKOUT" rev-parse -q --verify 'refs/heads/main:desktop' 2>/dev/null)" || main=""
+  main="$(cgit rev-parse -q --verify 'refs/heads/main:desktop' 2>/dev/null)" || main=""
   [[ -n "$built" && -n "$main" && "$built" != "$main" ]] && echo "$main"
   return 0
 }

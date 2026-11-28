@@ -229,3 +229,35 @@ test("a build that couldn't run says what to do in this thread, not that an app 
   assert.equal(r.status, 4, r.stdout + r.stderr);
   assert.match(r.stderr, /run this again/i);
 });
+
+// It runs main's stage-update.sh, read as main's commit names it: not
+// through replacement refs, grafts or the commit-graph, and every object on
+// the way checked against its id, so a checkout's metadata can't hand it
+// other bytes (Gemini's eighth break-it review of 187/188, 28 Nov 2026).
+function evil(w: { home: string; checkout: string }): { marker: string; evilBlob: string; realBlob: string } {
+  const marker = path.join(w.home, 'evil-ran');
+  const evilFile = path.join(w.home, 'evil.sh');
+  fs.writeFileSync(evilFile, `#!/bin/bash\ntouch '${marker}'\n`);
+  const out = (...args: string[]) => spawnSync('git', ['-C', w.checkout, ...args], { encoding: 'utf8' }).stdout.trim();
+  return { marker, evilBlob: out('hash-object', '-w', evilFile), realBlob: out('rev-parse', 'HEAD:desktop/scripts/stage-update.sh') };
+}
+
+test("main's script is read past replacement refs, and a checkout with them is refused", mac, () => {
+  const w = world();
+  const e = evil(w);
+  git(w.checkout, 'replace', e.realBlob, e.evilBlob);
+  const r = run(w, 8 * GiB);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(fs.existsSync(e.marker), false, 'the replacement never ran');
+});
+
+test("a loose object whose bytes don't hash to its name is refused", mac, () => {
+  const w = world();
+  const e = evil(w);
+  const file = (id: string) => path.join(w.checkout, '.git', 'objects', id.slice(0, 2), id.slice(2));
+  fs.chmodSync(file(e.realBlob), 0o644);
+  fs.copyFileSync(file(e.evilBlob), file(e.realBlob));
+  const r = run(w, 8 * GiB);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.equal(fs.existsSync(e.marker), false, 'the substituted bytes never ran');
+});

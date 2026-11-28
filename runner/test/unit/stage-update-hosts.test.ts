@@ -371,3 +371,19 @@ test('make-bundle.sh public release clears checkout/origin and writes the tag ve
   assert.equal(build.origin, '');
   assert.equal(build.builtOn, 'github-macos');
 });
+
+// The update clones and fetches the checkout's main; git starts
+// git-upload-pack there with none of the command's settings, so the script
+// names that server itself, with Threadbear's (no hooks, no alternate-refs
+// program, no transport of its own), as untrustedGit does (Gemini's eighth
+// break-it review of 187/188, 28 Nov 2026). Trace2 shows the server's own
+// command line.
+test("the update's clone and fetch of the checkout run upload-pack with Threadbear's settings", () => {
+  const run = setup({});
+  const trace = path.join(tmpDir(), 'trace');
+  const r = run({ GIT_TRACE2_EVENT: trace });
+  assert.equal(r.status, 0, r.out);
+  const server = fs.readFileSync(trace, 'utf8').split('\n').filter((l) => /"event":"start"/.test(l) && /"upload-pack"/.test(l));
+  assert.ok(server.length >= 2, `clone and fetch both start one: ${server.length}`);
+  for (const l of server) assert.match(l, /core\.alternateRefsCommand=true[\s\S]*core\.hooksPath=\/dev\/null/, l);
+});

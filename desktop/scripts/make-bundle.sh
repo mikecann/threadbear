@@ -103,15 +103,19 @@ rm -rf "$(dirname "$iconset")"
 # Public GitHub release archives (THREADBEAR_PUBLIC_RELEASE=1) clear checkout
 # and origin so a downloaded copy never tries to rebuild from CI's checkout
 # path and never reports crashes to Mike's Sentry (BuildInfo::is_mikes_repo).
-commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
-short="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || true)"
-tree="$(git -C "$root" rev-parse HEAD:desktop 2>/dev/null || true)"
+# Read with git that runs nothing a checkout's config names and reads
+# objects as their ids name them (no replacement objects, grafts or
+# commit-graph: Gemini's eighth break-it review of 187/188).
+lgit() { GIT_NO_REPLACE_OBJECTS=1 GIT_GRAFT_FILE=/dev/null GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL=none git -c core.commitGraph=false -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"; }
+commit="$(lgit -C "$root" rev-parse HEAD 2>/dev/null || true)"
+short="$(lgit -C "$root" rev-parse --short HEAD 2>/dev/null || true)"
+tree="$(lgit -C "$root" rev-parse HEAD:desktop 2>/dev/null || true)"
 if [ "${THREADBEAR_PUBLIC_RELEASE:-}" = "1" ]; then
   build_checkout=""
   origin=""
 else
   build_checkout="$checkout"
-  origin="$(git -C "$checkout" remote get-url origin 2>/dev/null || true)"
+  origin="$(lgit -C "$checkout" remote get-url origin 2>/dev/null || true)"
 fi
 # builtOn: the host the binaries came from ("" for this Mac), when the caller
 # says (stage-update.sh does), so the log can tell which Mac made what runs.

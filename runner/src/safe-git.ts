@@ -140,7 +140,7 @@ export type UntrustedGitOptions = {
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true', '-c', 'rebase.backend=merge', '-c', 'rerere.enabled=false', '-c', 'rerere.autoUpdate=false', '-c', 'pull.twohead=ort', '-c', 'pull.octopus=octopus', '-c', 'fetch.all=false', '-c', 'commit.template=', '-c', 'rebase.rebaseMerges=false'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true', '-c', 'rebase.backend=merge', '-c', 'rerere.enabled=false', '-c', 'rerere.autoUpdate=false', '-c', 'pull.twohead=ort', '-c', 'pull.octopus=octopus', '-c', 'fetch.all=false', '-c', 'commit.template=', '-c', 'rebase.rebaseMerges=false', '-c', 'rebase.autoSquash=false', '-c', 'rebase.missingCommitsCheck=ignore', '-c', 'merge.directoryRenames=conflict', '-c', 'merge.renames=true', '-c', 'diff.renames=true', '-c', 'merge.renormalize=false', '-c', 'merge.ff=true', '-c', 'push.followTags=false', '-c', 'push.default=simple'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -193,7 +193,7 @@ const LOCAL_KEYS = [
   /^core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|autocrlf|eol|checkstat|trustctime|worktree|sparsecheckout|sparsecheckoutcone|fsmonitor|untrackedcache|hookspath|sshcommand|askpass|alternaterefscommand|pager|attributesfile|excludesfile|longpaths|commitgraph)$/,
   /^remote\.[\s\S]+\.(url|pushurl|fetch|tagopt|prune|prunetags|gh-resolved|skipdefaultupdate|skipfetchall|promisor|partialclonefilter|uploadpack|receivepack|proxy|proxyauthmethod)$/,
   /^branch\.[\s\S]+\.(remote|merge|pushremote|rebase|description|mergeoptions)$/,
-  /^extensions\.(worktreeconfig|objectformat|refstorage|partialclone)$/,
+  /^extensions\.(worktreeconfig|objectformat|refstorage|partialclone|relativeworktrees)$/,
   /^user\.(name|email|signingkey)$/,
   /^credential\.[\s\S]+$/,
   /^filter\.[\s\S]*\.(clean|smudge|process|required)$/,
@@ -224,6 +224,9 @@ function localKeyOk(key: string): boolean {
   // A merge driver's recursive one picks another way to merge (binary,
   // union) that a blanked driver can't stand in for (Gemini's fifth review).
   if (/^merge\.[\s\S]+\.recursive$/.test(key)) return false;
+  // A remote's mirror or push refspec changes what a plain push sends
+  // (Gemini's eighth review).
+  if (/^remote\.[\s\S]+\.(mirror|push)$/.test(key)) return false;
   if (LOCAL_KEYS.some((p) => p.test(key))) return true;
   return PASSIVE_SECTIONS.test(key) && !NAMES_A_PROGRAM.test(key.slice(key.lastIndexOf('.') + 1));
 }
@@ -461,6 +464,9 @@ function localGitDirs(dirs: readonly string[], word: string, home: string): stri
     // As git's url_is_local_not_ssh, with a backslash also counted as a
     // slash: taking more words as paths only checks more.
     const colon = word.indexOf(':'), slash = word.search(/[\\/]/);
+    // C:evil is relative to drive C's own current folder on Windows (git
+    // takes it as local there): it can't be followed, so it's refused.
+    if (/^[A-Za-z]:(?![\\/])/.test(word)) throw refuse(`it can't follow a drive-relative path (${JSON.stringify(word.slice(0, 200))}).`);
     if (colon >= 0 && !(slash >= 0 && slash < colon) && !/^[A-Za-z]:[\\/]/.test(word)) return [];
     if (/^~(?:[\\/]|$)/.test(word)) raw = home + word.slice(1);
     else if (word.startsWith('~')) throw refuse(`it can't check ${JSON.stringify(word.slice(0, 200))}, another user's home, which git would open.`);
@@ -612,7 +618,8 @@ function serverCommand(kind: 'upload-pack' | 'receive-pack'): string {
 function localAddress(address: string): boolean {
   if (/^file:\/\//i.test(address)) return true;
   const colon = address.indexOf(':'), slash = address.search(/[\\/]/);
-  return colon < 0 || (slash >= 0 && slash < colon) || /^[A-Za-z]:[\\/]/.test(address);
+  // Git for Windows takes any drive letter as local, C:evil included.
+  return colon < 0 || (slash >= 0 && slash < colon) || /^[A-Za-z]:/.test(address);
 }
 
 // Works out the repositories git will use for the transfer, as git picks
@@ -724,6 +731,11 @@ function execGitSync(dir: string, args: readonly string[], env: NodeJS.ProcessEn
   }
 }
 
+// What the update clone writes into its own .git/info/attributes (update.ts)
+// to check out main's files exactly as committed: every attribute that
+// changes the bytes written, unset for every path, over any .gitattributes.
+// The one content of info/attributes untrustedGit takes.
+export const NEUTRAL_ATTRIBUTES = '* -text -eol -crlf -ident -filter -working-tree-encoding\n';
 const WRITES_FILES = new Set(['merge', 'merge-tree', 'rebase', 'cherry-pick', 'checkout', 'reset', 'commit', 'worktree', 'checkout-index', 'read-tree', 'add']);
 const MODULE_BLOBS = [':0:.gitmodules', ':1:.gitmodules', ':2:.gitmodules', ':3:.gitmodules', 'HEAD:.gitmodules', 'MERGE_HEAD:.gitmodules', 'CHERRY_PICK_HEAD:.gitmodules', 'REBASE_HEAD:.gitmodules'];
 
@@ -799,7 +811,7 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
       // opened it, and a link could point at anything.
       let st: fs.Stats | undefined;
       try { st = fs.lstatSync(path.resolve(dir, at.stdout.trim())); } catch (e) { if (!['ENOENT', 'ENOTDIR'].includes((e as NodeJS.ErrnoException).code ?? '')) throw e; }
-      if (st && (!st.isFile() || st.size > 0)) throw new Error("This repository has its own .git/info/attributes, which would change how Threadbear's git merges and writes files; empty or remove it first.");
+      if (st && (!st.isFile() || (st.size > 0 && fs.readFileSync(path.resolve(dir, at.stdout.trim()), 'utf8') !== NEUTRAL_ATTRIBUTES))) throw new Error("This repository has its own .git/info/attributes, which would change how Threadbear's git merges and writes files; empty or remove it first.");
     }
     if (TRANSFERS.has(sub)) transport = yield* checkTransfer(dir, sub, rest, entries, listEnv, short);
     if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
@@ -827,7 +839,9 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
         if (m.ok && m.bytes) entries.push(...moduleEntries(m.bytes));
       }
     }
-    config = repoProofConfig(entries, opts.network);
+    // A transfer that's local doesn't use the repo's http.* settings (a big
+    // repo's http.postBuffer), so only a network one is refused for them.
+    config = repoProofConfig(transport === 'local' ? entries.filter((e) => TRUSTED_SCOPES.has(e.scope) || !/^http\./.test(e.key)) : entries, opts.network);
   } catch (e) {
     return { result: { ok: false, code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) } };
   }

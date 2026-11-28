@@ -18,7 +18,6 @@
 //
 // The daily schedule runs it as its check: an agent starts only when it
 // prints, which is only when something failed.
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,6 +26,7 @@ import { RunnerClient } from '../src/client.ts';
 import { loadConfig, readToken, runnerUrl } from '../src/config.ts';
 import { makePng } from '../test/helpers/png.ts';
 import { forTerminal } from '../src/terminal-text.ts';
+import { untrustedGitRunSync } from '../src/safe-git.ts';
 
 type Ev = { seq: number; type: string; text?: string; outcome?: string; asks?: { action: string; options?: string[]; optionNotes?: string[] }[] };
 type Runner = { id: string; name: string; online: boolean };
@@ -155,12 +155,17 @@ async function releasesGoingOut(): Promise<void> {
   const STALL_DAYS = 2;
   const { upstream } = await read<{ upstream: { checkout?: string; held?: { commit: string; why: string } } }>('upstream.status', {});
   if (!upstream.checkout) return say(false, "releases: this runner doesn't say which checkout it publishes from");
-  const tags = execFileSync('git', ['-C', upstream.checkout, 'tag', '--list', 'release/*', '--sort=-refname'], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  // Through safe-git.ts, as any git in a checkout (Gemini's eighth review).
+  const listed = untrustedGitRunSync(upstream.checkout, ['for-each-ref', '--sort=-refname', '--format=%(refname:short)', 'refs/tags/release/']);
+  if (!listed.ok) return say(false, `releases: couldn't read the checkout's tags: ${listed.stderr.trim()}`);
+  const tags = listed.stdout.split('\n').filter(Boolean);
   const newest = tags[0];
   if (!newest) return say(false, 'releases: no release/ tags in the checkout');
   // Counted from the oldest commit main has that the newest release doesn't:
   // a quiet main with nothing to release isn't a stall (Codex's review).
-  const unreleased = execFileSync('git', ['-C', upstream.checkout, 'log', '--format=%ct', '--reverse', `${newest}..refs/heads/main`], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  const log = untrustedGitRunSync(upstream.checkout, ['log', '--format=%ct', '--reverse', `${newest}..refs/heads/main`]);
+  if (!log.ok) return say(false, `releases: couldn't read main's history: ${log.stderr.trim()}`);
+  const unreleased = log.stdout.split('\n').filter(Boolean);
   if (!unreleased.length) return say(true, `releases: main has nothing since ${newest}`);
   const days = Math.floor((Date.now() - Number(unreleased[0]) * 1000) / 86_400_000);
   if (days < STALL_DAYS) return say(true, `releases: the newest is ${newest}`);

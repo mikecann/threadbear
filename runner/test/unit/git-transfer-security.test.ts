@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
-import { untrustedGit, untrustedGitRunSync, moduleHistoryBlobs, repoProofConfig, fileUrlPath } from '../../src/safe-git.ts';
+import { untrustedGit, untrustedGitRunSync, moduleHistoryBlobs, repoProofConfig, fileUrlPath, NEUTRAL_ATTRIBUTES } from '../../src/safe-git.ts';
 
 const IS_WINDOWS = process.platform === 'win32';
 const ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
@@ -603,4 +603,38 @@ test('info/attributes: merge-tree is covered, and only an empty regular file pas
 test('commit.template and rebase.rebaseMerges are pinned', () => {
   const out = repoProofConfig([]).join(' ');
   for (const pin of ['commit.template=', 'rebase.rebaseMerges=false']) assert.ok(out.includes(` ${pin} `) || out.endsWith(` ${pin}`), pin);
+});
+
+// Git for Windows takes any drive-letter prefix as a local path (C:evil is
+// relative to C:'s current folder): such a word is refused everywhere, and
+// counts as local for a partial clone's promisor (Gemini's eighth review).
+test('a drive-relative path is refused, and counts as local', async () => {
+  const { dest } = fixture();
+  await refusedBoth(dest, ['fetch', '-q', 'C:evil', 'main'], 'C:evil');
+  const local = (key: string, value: string) => ({ scope: 'local', key, value });
+  assert.throws(() => repoProofConfig([local('extensions.partialclone', 'origin'), local('remote.origin.url', 'C:evil')]), /promisor/);
+});
+
+// What a plain merge, rebase or push does is git's default, whatever the
+// repo says: remote.<name>.mirror and remote.<name>.push (which would change
+// what a push sends) are refused (Gemini's eighth review).
+test("merge, rebase and push defaults are pinned, and a remote's mirror or push refspec is refused", () => {
+  const out = repoProofConfig([]).join(' ');
+  for (const pin of ['rebase.autoSquash=false', 'rebase.missingCommitsCheck=ignore', 'merge.directoryRenames=conflict', 'merge.renames=true', 'diff.renames=true', 'merge.renormalize=false', 'merge.ff=true', 'push.followTags=false', 'push.default=simple']) assert.ok(out.includes(pin), pin);
+  const local = (key: string, value: string) => ({ scope: 'local', key, value });
+  for (const key of ['remote.origin.mirror', 'remote.origin.push']) assert.throws(() => repoProofConfig([local(key, 'x')]), /must move/, key);
+  assert.doesNotThrow(() => repoProofConfig([local('extensions.relativeworktrees', 'true')]));
+});
+
+// A strictly local clone (tb land's single-branch check clone) doesn't care
+// for the repo's http.* settings (http.postBuffer is common in big repos),
+// and the update clone's own neutral info/attributes is allowed.
+test("a local clone ignores the repo's http settings; Threadbear's own neutral info/attributes passes", { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  g(dest, 'config', 'http.postBuffer', '524288000');
+  const common = path.join(dest, '.git');
+  const r = await untrustedGit(common, ['clone', '-q', '--shared', '--no-checkout', common, path.join(root, 'check')], { network: 'remote' });
+  assert.ok(r.ok, r.stderr);
+  fs.writeFileSync(path.join(dest, '.git', 'info', 'attributes'), NEUTRAL_ATTRIBUTES);
+  assert.ok((await untrustedGit(dest, ['merge', '--ff-only', 'HEAD'])).ok);
 });
