@@ -312,10 +312,10 @@ test("a listing's settings refuse a transport the repo allows itself, even where
 // still don't.
 test('settings tools write go through; ones that could run a program or redirect a fetch still fail closed', () => {
   const local = (key: string, value = 'x') => ({ scope: 'local', key, value });
-  for (const key of ['branch.feature/x.vscode-merge-base', 'branch.main.github-pr-owner-number', 'branch.main.gh-merge-base', 'submodule.active', 'core.fscache', 'core.sharedrepository', 'merge.conflictstyle', 'advice.detachedhead', 'remote.pushdefault', 'lfs.https://example.invalid/x.git/info/lfs.locksverify', 'alias.st', 'rerere.autoupdate', 'pull.rebase']) {
+  for (const key of ['branch.feature/x.vscode-merge-base', 'branch.main.github-pr-owner-number', 'branch.main.gh-merge-base', 'submodule.active', 'core.fscache', 'core.sharedrepository', 'merge.conflictstyle', 'advice.detachedhead', 'remote.pushdefault', 'lfs.https://example.invalid/x.git/info/lfs.locksverify', 'rerere.autoupdate', 'pull.rebase']) {
     assert.doesNotThrow(() => repoProofConfig([local(key)]), key);
   }
-  for (const key of ['core.gitproxy', 'remote.origin.vcs', 'fetch.bundleuri', 'transfer.bundleuri', 'pager.log', 'some.thing.command', 'notes.displayref.helper', 'web.browser', 'sendemail.smtpserver']) {
+  for (const key of ['core.gitproxy', 'remote.origin.vcs', 'fetch.bundleuri', 'transfer.bundleuri', 'pager.log', 'some.thing.command', 'notes.displayref.helper', 'web.browser', 'sendemail.smtpserver', 'alias.st', 'merge.x.recursive']) {
     assert.throws(() => repoProofConfig([local(key)]), /must move/, key);
   }
 });

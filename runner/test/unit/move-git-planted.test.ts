@@ -35,7 +35,7 @@ function programs(root: string) {
 
 // Plants every program a repo's config can name for the commands a move
 // runs, in `repo` (its .git/config and .gitattributes) and its hooks.
-function plant(repo: string, prog: (name: string, body?: string) => string) {
+function plant(repo: string, prog: (name: string, body?: string) => string, opts: { serverProgram?: boolean } = {}) {
   const hooks = path.join(path.dirname(prog('x')), 'hooks');
   fs.mkdirSync(hooks, { recursive: true });
   for (const h of ['reference-transaction', 'post-index-change', 'post-checkout', 'pre-auto-gc', 'post-merge']) {
@@ -55,7 +55,10 @@ function plant(repo: string, prog: (name: string, body?: string) => string) {
   set('core.hooksPath', hooks);
   set('commit.gpgSign', 'true');
   set('gpg.program', prog('gpg', 'exit 1'));
-  set('remote.origin.uploadpack', prog('uploadpack', 'exit 1'));
+  // A remote's own server program is refused outright now (safe-git.ts:
+  // a lazy fetch git starts by itself wouldn't get the command line's), so
+  // only the check that plain git runs it plants one.
+  if (opts.serverProgram) set('remote.origin.uploadpack', prog('uploadpack', 'exit 1'));
   set('core.askPass', prog('askpass', 'exit 1'));
   set('credential.helper', `!${prog('credential', 'exit 1')}`);
   set('core.alternateRefsCommand', prog('alternate-refs', 'exit 0'));
@@ -97,8 +100,8 @@ function repos() {
 
 test('the planted programs really run under plain git, so the checks below mean something', () => {
   const { s, t, prog, ran } = repos();
-  plant(s, prog);
-  plant(t, prog);
+  plant(s, prog, { serverProgram: true });
+  plant(t, prog, { serverProgram: true });
   write(s, 'filtered.txt', 'two\n');
   write(s, 'proc.txt', 'two\n');
   try {
@@ -283,4 +286,15 @@ test('a move whose commits are named as anything but commit ids is refused befor
     assert.equal(git(tw, 'rev-parse', 'HEAD').trim(), tip, 'nothing changed');
   }
   assert.ok((await unpackGit(tw, packed.meta, packed.bundle)).ok, 'the real names still come in');
+});
+
+// A repo that names a remote's server program is refused before any git
+// runs (Gemini's fifth break-it review of 187/188, 28 Nov 2026).
+test("a move in a repo that names a remote's server program is refused, running nothing", async () => {
+  const { root, s, prog, ran } = repos();
+  plant(s, prog, { serverProgram: true });
+  write(s, 'filtered.txt', 'two\n');
+  const packed = await packGit(s, s, path.join(root, 'move.bundle'));
+  assert.equal(packed.ok, false);
+  assert.deepEqual(ran(), []);
 });

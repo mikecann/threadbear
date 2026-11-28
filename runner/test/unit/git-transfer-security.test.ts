@@ -442,3 +442,34 @@ test('a file:// address reads the same on Windows, and is refused where a parser
   assert.equal(fileUrlPath('file:///tmp/r', false), '/tmp/r');
   assert.throws(() => fileUrlPath('file:///tmp/a\\b', false), /refused/);
 });
+
+// A remote's own server program (remote.<name>.uploadpack, .receivepack)
+// is never the repo's to name, and a promisor remote on this machine is
+// refused whatever repository a command names: on a git that ignores
+// GIT_NO_LAZY_FETCH, a missing object made git fetch from it with its own
+// settings (Gemini's fifth break-it review, 28 Nov 2026). A promisor across
+// the network (a partial clone from GitHub) still works.
+test("a repo can't name a remote's server program or keep a promisor on this machine", async () => {
+  const { root, dest } = fixture();
+  for (const key of ['remote.origin.uploadpack', 'remote.origin.receivepack']) {
+    g(dest, 'config', key, 'git-upload-pack');
+    for (const args of [['status'], ['fetch', '-q', 'origin']]) await refusedBoth(dest, args, `${key}: ${args[0]}`);
+    g(dest, 'config', '--unset', key);
+  }
+  g(dest, 'remote', 'add', 'origin', 'https://example.invalid/owner/repo.git');
+  g(dest, 'config', 'remote.origin.promisor', 'true');
+  g(dest, 'config', 'extensions.partialClone', 'origin');
+  assert.ok((await untrustedGit(dest, ['status'])).ok, 'a promisor across the network is fine');
+  const other = repoAt(path.join(root, 'other.git'), { bare: true });
+  g(dest, 'remote', 'add', 'evil', other);
+  g(dest, 'config', 'remote.evil.promisor', 'true');
+  for (const args of [['status'], ['fetch', '-q', 'origin']]) await refusedBoth(dest, args, `a local promisor: ${args[0]}`);
+});
+
+test('merges are always ort or octopus, and push never takes --repo', async () => {
+  const out = repoProofConfig([]).join(' ');
+  for (const pin of ['pull.twohead=ort', 'pull.octopus=octopus']) assert.ok(out.includes(pin), pin);
+  const { root, dest } = fixture();
+  const target = repoAt(path.join(root, 't.git'), { bare: true });
+  for (const args of [['push', '--repo=https://example.invalid/a', target, 'HEAD:refs/heads/x'], ['push', '--repo', 'x', target], ['push', '--rep=x', target]]) await refusedBoth(dest, args, args.join(' '));
+});

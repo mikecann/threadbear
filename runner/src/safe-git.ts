@@ -140,7 +140,7 @@ export type UntrustedGitOptions = {
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true', '-c', 'rebase.backend=merge', '-c', 'rerere.enabled=false', '-c', 'rerere.autoUpdate=false'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false', '-c', 'log.follow=false', '-c', 'core.protectNTFS=true', '-c', 'core.protectHFS=true', '-c', 'rebase.backend=merge', '-c', 'rerere.enabled=false', '-c', 'rerere.autoUpdate=false', '-c', 'pull.twohead=ort', '-c', 'pull.octopus=octopus'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -198,7 +198,7 @@ const LOCAL_KEYS = [
   /^credential\.[\s\S]+$/,
   /^filter\.[\s\S]*\.(clean|smudge|process|required)$/,
   /^diff\.[\s\S]*\.(command|textconv|binary|cachetextconv|xfuncname|wordregex|algorithm)$/,
-  /^merge\.[\s\S]*\.(name|driver|recursive)$/,
+  /^merge\.[\s\S]*\.(name|driver)$/,
   /^hook\.[\s\S]*\.(command|event|enabled)$/,
   /^submodule\.[\s\S]*\.(url|path|active|ignore|branch|fetchrecursesubmodules|update|shallow)$/,
   /^protocol\.[\s\S]*\.allow$/,
@@ -218,9 +218,12 @@ const LOCAL_KEYS = [
 // in the commands untrustedGit runs goes through too, unless its name says
 // it names a program or moves a transfer. Any other section still fails
 // closed (pager.*, sendemail.*, web.*, a tool's own section).
-const PASSIVE_SECTIONS = /^(advice|alias|am|apply|blame|branch|checkout|color|column|commit|core|diff|feature|fetch|format|gc|gui|help|i18n|index|init|interactive|lfs|log|maintenance|merge|notes|pack|pretty|pull|push|rebase|remote|repack|rerere|status|submodule|tag|transfer|user|worktree)\./;
+const PASSIVE_SECTIONS = /^(advice|am|apply|blame|branch|checkout|color|column|commit|core|diff|feature|fetch|format|gc|gui|help|i18n|index|init|interactive|lfs|log|maintenance|merge|notes|pack|pretty|pull|push|rebase|remote|repack|rerere|status|submodule|tag|transfer|user|worktree)\./;
 const NAMES_A_PROGRAM = /(command|cmd|program|helper|hook|proxy|exec|vcs|bundleuri|filter)$/;
 function localKeyOk(key: string): boolean {
+  // A merge driver's recursive one picks another way to merge (binary,
+  // union) that a blanked driver can't stand in for (Gemini's fifth review).
+  if (/^merge\.[\s\S]+\.recursive$/.test(key)) return false;
   if (LOCAL_KEYS.some((p) => p.test(key))) return true;
   return PASSIVE_SECTIONS.test(key) && !NAMES_A_PROGRAM.test(key.slice(key.lastIndexOf('.') + 1));
 }
@@ -287,6 +290,28 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
 // One git the checks before a command need, run the same way by the async
 // and the sync entry points (as objectChecks, below).
 type GitStep = { cwd: string; args: string[]; env: NodeJS.ProcessEnv; timeoutMs: number; bytes?: boolean; input?: string | Buffer };
+
+// A partial clone fetches what it lacks from its promisor remotes by
+// itself, with that remote's settings and none of the command's, on a git
+// that ignores GIT_NO_LAZY_FETCH (before 2.44, unless patched). One across
+// the network is bounded by GIT_ALLOW_PROTOCOL and the owner's transport
+// programs; one on this machine (a path, file://) would run a git server
+// with that repository's own config, so it's refused, whatever repository
+// a command names (Gemini's fifth break-it review, 28 Nov 2026).
+function* checkPromisors(dir: string, entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv, timeoutMs: number): Generator<GitStep, void, UntrustedGitResult> {
+  const names = new Set<string>();
+  for (const e of entries) {
+    if (TRUSTED_SCOPES.has(e.scope)) continue;
+    if (e.key === 'extensions.partialclone' && e.value) names.add(e.value);
+    const m = /^remote\.([\s\S]+)\.promisor$/.exec(e.key);
+    if (m && !/^(false|no|off|0)$/i.test(e.value)) names.add(m[1]!);
+  }
+  for (const name of names) {
+    const urls = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', 'get-url', '--all', '--', name], env, timeoutMs };
+    const got = urls.ok ? urls.stdout.split('\n').filter(Boolean) : [];
+    for (const u of got.length ? got : [name]) if (localAddress(u)) throw new Error(`Threadbear refused to run git in this partial clone: its promisor remote (${name}) is on this machine, and git would fetch from it by itself with that repository's own settings.`);
+  }
+}
 
 function* checkWorktree(dir: string, entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv): Generator<GitStep, void, UntrustedGitResult> {
   if (!entries.some((e) => !TRUSTED_SCOPES.has(e.scope) && e.key === 'core.worktree')) return;
@@ -523,7 +548,7 @@ function namesAServer(sub: string, arg: string): boolean {
   return sub === 'clone' && /^-[^-]*u/.test(arg);
 }
 
-type TransferWords = { positionals: string[]; values: string[]; known: boolean; all: boolean; multiple: boolean; repo?: string };
+type TransferWords = { positionals: string[]; values: string[]; known: boolean; all: boolean; multiple: boolean };
 function readTransfer(sub: string, rest: readonly string[]): TransferWords {
   const grammar = TRANSFER_GRAMMAR[sub]!;
   const out: TransferWords = { positionals: [], values: [], known: true, all: false, multiple: false };
@@ -532,8 +557,11 @@ function readTransfer(sub: string, rest: readonly string[]): TransferWords {
     if (a === '--') { out.positionals.push(...rest.slice(i + 1)); break; }
     if (!a.startsWith('-') || a === '-') { out.positionals.push(a); continue; }
     if (namesAServer(sub, a)) throw refuse(`it picks the program a transfer's server runs itself, so it doesn't take ${JSON.stringify(a.slice(0, 80))}.`);
-    if (sub === 'push' && a === '--repo') { out.repo = rest[++i]; continue; }
-    if (sub === 'push' && a.startsWith('--repo=')) { out.repo = a.slice(7); continue; }
+    // push's --repo stands in for the repository only when none is named
+    // after it; nothing here uses it, so it's refused rather than read
+    // (Gemini's fifth break-it review).
+    const long = /^--([a-z-]+)(=|$)/.exec(a)?.[1];
+    if (sub === 'push' && long && long.length >= 3 && 'repo'.startsWith(long)) throw refuse("it doesn't take push's --repo; name the repository instead.");
     if (grammar.values.has(a)) { if (i + 1 < rest.length) out.values.push(rest[++i]!); continue; }
     if (a === '--all') out.all = true;
     if (a === '--multiple') out.multiple = true;
@@ -612,11 +640,11 @@ function* checkTransfer(dir: string, sub: string, rest: readonly string[], entri
   if (sub === 'clone') specs = read.positionals.slice(0, 1);
   else if (sub === 'fetch' && read.all) specs = yield* remoteNames();
   else if (sub === 'fetch' && read.multiple) specs = read.positionals.length ? read.positionals : yield* remoteNames();
-  else specs = [(push ? read.repo : undefined) ?? read.positionals[0] ?? (yield* branchDefault(push))];
+  else specs = [read.positionals[0] ?? (yield* branchDefault(push))];
   if (!read.known) {
     // Every repository the command could reach: each word, each remote and
     // the branch's choice.
-    specs = [...new Set([...specs, ...read.positionals, ...(read.repo ? [read.repo] : []), ...(yield* remoteNames()), yield* branchDefault(push)])];
+    specs = [...new Set([...specs, ...read.positionals, ...(yield* remoteNames()), yield* branchDefault(push)])];
   }
   const repos: string[] = [];
   for (const spec of specs) repos.push(...(sub === 'clone' ? [spec] : yield* resolve(spec, push)));
@@ -709,6 +737,11 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
     // break-it review). The release check (upstream.ts) checks nothing out,
     // and keeps taking such a fork's releases with nothing included running.
     for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^include\./i.test(e.key)) throw new Error(`This repo's own git config includes another file (${e.key}). Move it to your global git config before Threadbear runs git here.`);
+    // A remote's server program is never the repo's to name: a fetch git
+    // starts by itself (a partial clone's lazy fetch) doesn't get the
+    // command line's (Gemini's fifth break-it review).
+    for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^remote\.[\s\S]+\.(uploadpack|receivepack)$/.test(e.key)) throw new Error(`This repo's git setting (${e.key}) names a remote's server program; it must move to your global git config before Threadbear runs git here.`);
+    yield* checkPromisors(dir, entries, listEnv, short);
     yield* checkWorktree(dir, entries, listEnv);
     if (TRANSFERS.has(sub)) transport = yield* checkTransfer(dir, sub, rest, entries, listEnv, short);
     if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {
