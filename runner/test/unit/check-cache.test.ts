@@ -567,10 +567,13 @@ test("GitHub's runs read no records, and no test file inherits the records folde
 test('the script runs from a folder with a space in its name', () => {
   const root = tmp('space');
   try {
+    // A checkout's layout: check-cache.mjs reads git through the runner's
+    // hardened wrapper beside it (runner/scripts/deploy-git.mjs).
     const dir = path.join(root, 'Application Support');
-    fs.mkdirSync(dir);
-    fs.copyFileSync(path.join(repo, 'scripts/check-cache.mjs'), path.join(dir, 'check-cache.mjs'));
-    const r = spawnSync(process.execPath, [path.join(dir, 'check-cache.mjs')], { encoding: 'utf8' });
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+    fs.copyFileSync(path.join(repo, 'scripts/check-cache.mjs'), path.join(dir, 'scripts', 'check-cache.mjs'));
+    copyCheckGitFiles(dir);
+    const r = spawnSync(process.execPath, [path.join(dir, 'scripts', 'check-cache.mjs')], { encoding: 'utf8' });
     assert.equal(r.status, 2, r.stderr);
     assert.match(r.stderr, /usage: check-cache\.mjs/);
   } finally {
