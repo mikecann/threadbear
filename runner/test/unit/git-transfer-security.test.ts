@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tmpDir } from '../helpers/fakes.ts';
-import { untrustedGit, untrustedGitRunSync, moduleHistoryBlobs } from '../../src/safe-git.ts';
+import { untrustedGit, untrustedGitRunSync, moduleHistoryBlobs, repoProofConfig } from '../../src/safe-git.ts';
 
 const IS_WINDOWS = process.platform === 'win32';
 const ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
@@ -298,4 +298,70 @@ test("the submodule history read isn't narrowed by the repo's log or diff settin
   const r = await untrustedGit(path.join(repo, 'sub'), ['merge', '--ff-only', 'HEAD'], { env: { GIT_TRACE2_EVENT: trace } });
   assert.ok(r.ok, r.stderr);
   assert.match(fs.readFileSync(trace, 'utf8'), /submodule\.evilroot\.ignore=all/);
+});
+
+// git hands a local transport's server (upload-pack, receive-pack) none of
+// the -c settings, so it reads the repository's own config. untrustedGit
+// starts that server itself, as a fixed command with its own settings, so
+// nothing a source or target names runs whatever the checks above miss
+// (Gemini's third break-it review, 28 Nov 2026). Trace2's events show each
+// git's whole command line, the server's too.
+test("a local transfer's server runs with Threadbear's settings, not the repository's", { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const src = repoAt(path.join(root, 'src'));
+  const target = repoAt(path.join(root, 'target.git'), { bare: true });
+  const trace = path.join(root, 'trace');
+  for (const args of [['fetch', '-q', src, 'main'], ['ls-remote', src], ['push', '-q', target, 'HEAD:refs/heads/main'], ['clone', '-q', '--no-checkout', src, path.join(root, 'copy')]]) {
+    fs.rmSync(trace, { force: true });
+    const r = await untrustedGit(args[0] === 'clone' ? root : dest, args, { network: 'remote', env: { GIT_TRACE2_EVENT: trace } });
+    assert.ok(r.ok, `${args[0]}: ${r.stderr}`);
+    const server = fs.readFileSync(trace, 'utf8').split('\n').filter((l) => /"event":"start"/.test(l) && /"(upload|receive)-pack"/.test(l));
+    assert.ok(server.length > 0, `${args[0]}: no server start in the trace`);
+    for (const l of server) assert.match(l, /core\.alternateRefsCommand=true[\s\S]*core\.hooksPath=/, `${args[0]}: ${l}`);
+  }
+  // And, as a second layer, a source naming the program its alternates run is refused.
+  g(src, 'config', 'core.alternateRefsCommand', 'true');
+  await refusedBoth(dest, ['fetch', '-q', src, 'main'], 'a source with core.alternateRefsCommand');
+});
+
+// git takes a file:// path as written; a URL parser collapses `..` and, on
+// a Mac or Linux, turns a backslash into a slash. Such an address isn't
+// followed. A relative remote address is read against the repository's top
+// folder (as git chdirs there) as well as the folder the command runs in.
+test('a file:// address a URL parser would change, and a relative remote, are read as git reads them', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  for (const word of [`file://${root}/link/../evil`, `file://${root}/a\\b`, `file://${root}/./x`]) await refusedBoth(dest, ['fetch', '-q', word, 'main'], word);
+  makeHostile(repoAt(path.join(dest, 'evil')));
+  fs.appendFileSync(path.join(dest, '.git', 'info', 'exclude'), 'evil/\n');
+  fs.mkdirSync(path.join(dest, 'sub'));
+  g(dest, 'remote', 'add', 'origin', './evil');
+  await refusedBoth(path.join(dest, 'sub'), ['fetch', '-q', 'origin'], 'a relative remote read from a subfolder');
+});
+
+// A name git writes a checkout into is checked against .git's other
+// spellings on every system (core.protectNTFS, core.protectHFS), whatever
+// the repo says, and a repo that switches that off is refused.
+test("protectNTFS and protectHFS are on for every command, and a repo can't switch them off", () => {
+  const local = (key: string, value: string) => ({ scope: 'local', key, value });
+  const out = repoProofConfig([]).join(' ');
+  assert.match(out, /core\.protectNTFS=true/); assert.match(out, /core\.protectHFS=true/);
+  for (const key of ['core.protectntfs', 'core.protecthfs']) assert.throws(() => repoProofConfig([local(key, 'false')]), /must move|protect/, key);
+});
+
+// The history read takes a .gitmodules a rename brought in, whatever
+// log.follow says.
+test('a .gitmodules brought in by a rename is still read with log.follow on', { skip: IS_WINDOWS }, async () => {
+  const root = tmpDir();
+  const repo = path.join(root, 'r');
+  fs.mkdirSync(repo);
+  g(repo, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, 'template'), '[submodule "renamed"]\n\tpath = evil\n\turl = ./evil\n');
+  g(repo, 'add', '.'); g(repo, 'commit', '-qm', 'template');
+  g(repo, 'mv', 'template', '.gitmodules'); g(repo, 'commit', '-qm', 'rename');
+  g(repo, 'rm', '-q', '.gitmodules'); fs.writeFileSync(path.join(repo, 'k'), 'k\n'); g(repo, 'add', 'k'); g(repo, 'commit', '-qm', 'gone');
+  g(repo, 'config', 'log.follow', 'true');
+  const trace = path.join(root, 'trace');
+  const r = await untrustedGit(repo, ['merge', '--ff-only', 'HEAD'], { env: { GIT_TRACE2_EVENT: trace } });
+  assert.ok(r.ok, r.stderr);
+  assert.match(fs.readFileSync(trace, 'utf8'), /submodule\.renamed\.ignore=all/);
 });

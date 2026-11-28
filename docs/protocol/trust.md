@@ -948,7 +948,8 @@ wrapper: a setting in a section whose settings run nothing here (`branch.*`,
 `core.*`, `lfs.*` and the like, as tools write them) passes unless its name
 says it names a program or moves a transfer (`*command`, `*helper`, `*proxy`,
 `*hook`, `*filter`, `*bundleuri`); any other setting fails closed with guidance to move it
-to global configuration. Owner-global configuration remains the owner's choice. Network operations
+to global configuration. `core.protectNTFS` and `core.protectHFS` are always on,
+and a repository that switches either off is refused. Owner-global configuration remains the owner's choice. Network operations
 refuse repository-local URL rewrites and HTTP configuration; move those settings
 to the owner's global configuration when needed. Setup's upstream check uses
 that boundary too.
@@ -956,12 +957,17 @@ that boundary too.
 A fetch, clone, ls-remote or push to a repository on the same machine starts
 git-upload-pack or git-receive-pack there, which read that repository's own
 config (command-line settings don't reach them) and, for a push, run its
-hooks. Before any transfer the wrapper reads every repository the command could
+hooks. So the wrapper names that server itself, as a fixed command with its
+own settings (no hooks, no alternate-refs program, no transport of its own),
+and refuses a transfer that could reach repositories both on this machine and
+across the network. Before any transfer, as a second layer, the wrapper reads every repository the command could
 open: each word of the command and each option's value, and for a fetch, push
 or ls-remote every remote the repo has (including `.git/remotes` and
 `.git/branches` ones), found as Git finds them (`~/` under HOME, `file://`
-decoded, trailing slashes dropped, each `.git` suffix Git tries, `.git` files
-followed; a `file://` address with `?`, `#` or `%` is refused). A fetch or push
+decoded, trailing slashes dropped, a relative one read from the repository's
+top folder and `.git` too, each `.git` suffix Git tries, `.git` files followed;
+a `file://` address with `?`, `#` or `%`, or one a URL parser would change, is
+refused). A fetch or push
 whose repository is a path or address uses no remote, so then only it is read.
 It refuses the
 transfer when one says it's a partial clone, has conditional includes or a
