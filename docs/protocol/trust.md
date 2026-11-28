@@ -947,7 +947,7 @@ worktree exists. Local settings must be passive or explicitly neutralized by thi
 wrapper: a setting in a section whose settings run nothing here (`branch.*`,
 `core.*`, `lfs.*` and the like, as tools write them) passes unless its name
 says it names a program or moves a transfer (`*command`, `*helper`, `*proxy`,
-`*hook`, `*bundleuri`); any other setting fails closed with guidance to move it
+`*hook`, `*filter`, `*bundleuri`); any other setting fails closed with guidance to move it
 to global configuration. Owner-global configuration remains the owner's choice. Network operations
 refuse repository-local URL rewrites and HTTP configuration; move those settings
 to the owner's global configuration when needed. Setup's upstream check uses
@@ -965,8 +965,11 @@ followed; a `file://` address with `?`, `#` or `%` is refused). A fetch or push
 whose repository is a path or address uses no remote, so then only it is read.
 It refuses the
 transfer when one says it's a partial clone, has conditional includes or a
-setting it hasn't been checked for, or, for a push target, has a hook or a
-setting that names a program. Another user's `~name` path isn't followed, so it
+setting it hasn't been checked for; a local push target must be a bare
+repository of its own with only plain settings (no `receive.*`, `lfs.*` or
+`core.worktree`) and no hooks. With no repository named, the ones the branch's
+settings name (`branch.*.remote`, `branch.*.pushRemote`, `remote.pushDefault`)
+are read too. Another user's `~name` path isn't followed, so it
 is refused.
 
 A prepared release merge verifies tip/history and recursive merge-base objects,

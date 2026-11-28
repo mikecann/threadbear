@@ -11,7 +11,6 @@ import path from 'node:path';
 const SRC = path.resolve(import.meta.dirname, '../../src');
 const ALLOWED: Record<string, string> = {
   'checkup.ts': 'listing-only config and environment from safe-git.ts (LISTING_GIT_CONFIG, LISTING_GIT_ENV), on this copy of Threadbear',
-  'sentry.ts': "reads this copy of Threadbear's origin for the release tag, nothing a thread's repo can reach",
   'shell-allowlist.ts': "a live command's git: its own checks refuse any repo config that could run something",
   'tb-dev.ts': 'the developer tool, run by hand in a checkout of Threadbear',
   'upstream.ts': 'the release check, with its own configless, repo-proof git',

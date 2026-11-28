@@ -15,7 +15,6 @@
 // message (WARN as Sentry warnings). An error's own words never go, only its
 // kind and stack (errorKind; Daybreak finding 155), and every event is
 // scrubbed as it leaves (scrubEvent), or not sent.
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +23,7 @@ import { defaultHome } from './config.ts';
 import { RELEASE, readRelease } from './release.ts';
 import { redactSecrets } from './redaction.ts';
 import { repoKey } from './upstream.ts';
+import { untrustedGitRunSync } from './safe-git.ts';
 
 const MIKES_REPO = 'github.com/mikecann/threadbear';
 
@@ -53,8 +53,8 @@ function realPath(p: string): string {
 function releaseOrigin(): string | undefined {
   const checkout = readRelease()?.checkout;
   if (!checkout) return undefined;
-  const r = spawnSync('git', ['-C', checkout, 'remote', 'get-url', 'origin'], { encoding: 'utf8' });
-  return r.status === 0 ? r.stdout.trim() : undefined;
+  const r = untrustedGitRunSync(checkout, ['remote', 'get-url', 'origin']);
+  return r.ok ? r.stdout.trim() : undefined;
 }
 
 // Whether this runner reports: a release of Mike's own repo, on the real

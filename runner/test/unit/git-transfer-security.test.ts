@@ -225,3 +225,77 @@ test('a fetch from a named repository is not stopped by an unrelated remote', { 
   await refusedBoth(dest, ['fetch', '-q', 'other'], 'fetching the hostile remote itself');
   await refusedBoth(dest, ['fetch', '-q', '--some-option-it-does-not-know', src, 'main'], 'an option it does not know still checks every remote');
 });
+
+// A push to a repository on this machine writes into it as receive-pack
+// decides, by that repository's config: receive.denyCurrentBranch
+// updateInstead checks the pushed tree out (through git-lfs's filter and the
+// target's own lfs.* programs) into its work tree, which core.worktree can
+// put anywhere. So a local push target has to be a bare repository with
+// nothing beyond the plainest settings (Gemini's second break-it review,
+// 28 Nov 2026).
+test('a local push target must be a plain bare repository', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const nonBare = repoAt(path.join(root, 'checkout'));
+  g(nonBare, 'checkout', '-q', '-b', 'other');
+  await refusedBoth(dest, ['push', '-q', nonBare, 'HEAD:refs/heads/main'], 'a repository with a work tree');
+  for (const [key, value] of [['receive.denyCurrentBranch', 'updateInstead'], ['lfs.extension.x.smudge', 'true'], ['lfs.customtransfer.x.path', '/bin/true'], ['core.worktree', root], ['transfer.fsckObjects', 'true'], ['uploadpack.allowFilter', 'true']] as const) {
+    const bare = repoAt(path.join(root, `${key.replace(/\W/g, '-')}.git`), { bare: true });
+    g(bare, 'config', key, value);
+    await refusedBoth(dest, ['push', '-q', bare, 'HEAD:refs/heads/main'], key);
+  }
+  const flipped = repoAt(path.join(root, 'flipped.git'), { bare: true });
+  g(flipped, 'config', 'core.bare', 'false');
+  await refusedBoth(dest, ['push', '-q', flipped, 'HEAD:refs/heads/main'], 'core.bare false');
+});
+
+// With no repository named, git takes it from branch.<name>.pushRemote,
+// remote.pushDefault or branch.<name>.remote, each a remote's name or a path.
+test("a push or fetch with no repository named checks the one git would take from the branch's settings", { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const target = repoAt(path.join(root, 'hooked.git'), { bare: true });
+  fs.writeFileSync(path.join(target, 'hooks', 'pre-receive'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  g(dest, 'config', 'branch.main.pushRemote', target);
+  await refusedBoth(dest, ['push', '-q'], 'branch.main.pushRemote');
+  g(dest, 'config', '--unset', 'branch.main.pushRemote');
+  g(dest, 'config', 'remote.pushDefault', target);
+  await refusedBoth(dest, ['push', '-q'], 'remote.pushDefault');
+  g(dest, 'config', '--unset', 'remote.pushDefault');
+  const hostile = repoAt(path.join(root, 'promisor'));
+  makeHostile(hostile);
+  g(dest, 'config', 'branch.main.remote', hostile);
+  await refusedBoth(dest, ['fetch', '-q'], 'branch.main.remote');
+});
+
+// Naming a remote checks that remote, as git uses only it: a branch that
+// tracks a local one (branch.<name>.remote ".") doesn't stop a landing's
+// push to origin.
+test('a push to a named remote checks that remote, not the rest of the settings', { skip: IS_WINDOWS }, async () => {
+  const { root, dest } = fixture();
+  const origin = repoAt(path.join(root, 'origin.git'), { bare: true });
+  g(dest, 'remote', 'add', 'origin', origin);
+  g(dest, 'branch', '-q', '--track', 'feature', 'main');
+  const r = await untrustedGit(dest, ['push', '-q', 'origin', 'HEAD:refs/heads/main'], { network: 'remote' });
+  assert.ok(r.ok, r.stderr);
+  fs.writeFileSync(path.join(origin, 'hooks', 'pre-receive'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  await refusedBoth(dest, ['push', '-q', 'origin', 'HEAD:refs/heads/main'], 'the named remote itself');
+});
+
+// The history read takes every commit's .gitmodules, the first commit's too
+// and from any folder, whatever log.showRoot or diff.relative the repo sets.
+test("the submodule history read isn't narrowed by the repo's log or diff settings", { skip: IS_WINDOWS }, async () => {
+  const root = tmpDir();
+  const repo = path.join(root, 'r');
+  fs.mkdirSync(path.join(repo, 'sub'), { recursive: true });
+  g(repo, 'init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, '.gitmodules'), '[submodule "evilroot"]\n\tpath = evil\n\turl = ./evil\n');
+  fs.writeFileSync(path.join(repo, 'sub', 'k'), 'k\n');
+  g(repo, 'add', '.'); g(repo, 'commit', '-qm', 'root');
+  g(repo, 'rm', '-q', '.gitmodules'); g(repo, 'commit', '-qm', 'gone');
+  g(repo, 'config', 'log.showRoot', 'false');
+  g(repo, 'config', 'diff.relative', 'true');
+  const trace = path.join(root, 'trace');
+  // Trace2's events carry each git's whole command line, its -c settings too.
+  const r = await untrustedGit(path.join(repo, 'sub'), ['merge', '--ff-only', 'HEAD'], { env: { GIT_TRACE2_EVENT: trace } });
+  assert.ok(r.ok, r.stderr);
+  assert.match(fs.readFileSync(trace, 'utf8'), /submodule\.evilroot\.ignore=all/);
+});

@@ -40,6 +40,11 @@ export function untrustedGitArgs(dir: string, args: readonly string[]): string[]
 export function untrustedGitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...base };
   for (const k of Object.keys(env)) if (/^GIT_/i.test(k) && !/^GIT_(?:(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|CEILING_DIRECTORIES)$/.test(k)) delete env[k];
+  // Git for Windows starts helpers by name (ssh, git merge-file) in the
+  // repo's folder; scripts run outside the runner (setup, deploy,
+  // merge-prepared) don't have the runner's setting (Gemini's second
+  // break-it review of 187/188, 28 Nov 2026).
+  if (process.platform === 'win32') env.NoDefaultCurrentDirectoryInExePath = '1';
   return env;
 }
 
@@ -135,7 +140,7 @@ export type UntrustedGitOptions = {
 export const TRUSTED_SCOPES: ReadonlySet<string> = new Set(['system', 'global', 'unknown']); // 'unknown': Apple's own git config
 // diff.external too: a blank one is no program, even with --ext-diff (git
 // fails rather than run one).
-const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false'];
+const ALWAYS: readonly string[] = ['-c', 'diff.external=', '-c', 'safe.bareRepository=explicit', '-c', 'http.saveCookies=false', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.commitGraph=false', '-c', 'core.sparseCheckout=false', '-c', 'core.sparseCheckoutCone=false', '-c', 'merge.autoStash=false', '-c', 'rebase.autoStash=false', '-c', 'rebase.updateRefs=false', '-c', 'rebase.instructionFormat=%s', '-c', 'core.pager=cat', '-c', 'log.showSignature=false', '-c', 'format.pretty=medium', '-c', 'gpg.program=', '-c', 'gpg.openpgp.program=', '-c', 'gpg.x509.program=', '-c', 'gpg.ssh.program=', '-c', 'gpg.ssh.defaultKeyCommand=', '-c', 'merge.verifySignatures=false', '-c', 'push.gpgSign=false', '-c', 'push.recurseSubmodules=no', '-c', 'core.attributesFile=' + os.devNull, '-c', 'merge.default=text', '-c', 'init.templateDir=', '-c', 'core.alternateRefsCommand=true', '-c', 'diff.ignoreSubmodules=all', '-c', 'status.submoduleSummary=false', '-c', 'fsck.skipList=' + os.devNull, '-c', 'advice.graftFileDeprecated=false', '-c', 'log.showRoot=true', '-c', 'diff.relative=false', '-c', 'color.ui=false'];
 // Transport programs a fetch or clone may run, with what stands in when the
 // owner's config has none.
 const TRANSPORT: { key: RegExp; fallback: string }[] = [
@@ -213,8 +218,8 @@ const LOCAL_KEYS = [
 // in the commands untrustedGit runs goes through too, unless its name says
 // it names a program or moves a transfer. Any other section still fails
 // closed (pager.*, sendemail.*, web.*, a tool's own section).
-const PASSIVE_SECTIONS = /^(advice|alias|am|apply|blame|branch|checkout|color|column|commit|core|diff|feature|fetch|format|gc|gui|help|i18n|index|init|interactive|lfs|log|maintenance|merge|notes|pack|pretty|pull|push|rebase|receive|remote|repack|rerere|status|submodule|tag|transfer|uploadpack|user|worktree)\./;
-const NAMES_A_PROGRAM = /(command|cmd|program|helper|hook|proxy|exec|vcs|bundleuri)$/;
+const PASSIVE_SECTIONS = /^(advice|alias|am|apply|blame|branch|checkout|color|column|commit|core|diff|feature|fetch|format|gc|gui|help|i18n|index|init|interactive|lfs|log|maintenance|merge|notes|pack|pretty|pull|push|rebase|remote|repack|rerere|status|submodule|tag|transfer|user|worktree)\./;
+const NAMES_A_PROGRAM = /(command|cmd|program|helper|hook|proxy|exec|vcs|bundleuri|filter)$/;
 function localKeyOk(key: string): boolean {
   if (LOCAL_KEYS.some((p) => p.test(key))) return true;
   return PASSIVE_SECTIONS.test(key) && !NAMES_A_PROGRAM.test(key.slice(key.lastIndexOf('.') + 1));
@@ -366,6 +371,7 @@ function moduleRevCandidates(rest: readonly string[]): string[] {
 //   hooks folder, core.hooksPath, hook.*) and no setting that names a program.
 const TRANSFERS = new Set(['fetch', 'clone', 'ls-remote', 'push']);
 const ENTER_REPO_SUFFIXES = ['/.git', '', '.git/.git', '.git'];
+const PUSH_TARGET_KEYS = /^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|ignorecase|precomposeunicode|symlinks|sharedrepository)|extensions\.(objectformat|refstorage)|remote\.[\s\S]+\.(url|pushurl|fetch|tagopt|mirror)|branch\.[\s\S]+\.(remote|merge|description)|user\.(name|email)|init\.defaultbranch|gc\.auto|advice\.[^.]+)$/;
 const RUNS_ON_PUSH = /^(core\.(hookspath|fsmonitor|sshcommand|askpass|alternaterefscommand|pager|editor)$|hook\.|filter\.|credential\.|gpg\.|sequence\.editor$|merge\.[\s\S]*\.driver$|diff\.[\s\S]*\.(command|textconv)$)/;
 
 function refuse(why: string): Error {
@@ -452,6 +458,16 @@ function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
     if (!localKeyOk(e.key)) throw refuse(`the repository at ${gitDir} has a git setting (${e.key}) Threadbear hasn't been checked for; move it to your global git config.`);
   }
   if (!push) return;
+  // A push writes into the target as its own config says (receive.* can
+  // check the pushed tree out, through git-lfs and the target's lfs.*
+  // programs, into a work tree core.worktree puts anywhere: Gemini's second
+  // break-it review, 28 Nov 2026). So a local push target is a bare
+  // repository, of its own (not a linked worktree's), with only the plainest
+  // settings, rather than a list of the dangerous ones.
+  const local = parseConfigListBytes(listing).filter((e) => e.scope !== 'command' && !TRUSTED_SCOPES.has(e.scope));
+  const bare = local.filter((e) => e.key === 'core.bare').pop();
+  if (!bare || !/^(true|yes|on|1)$/i.test(bare.value) || fs.existsSync(path.join(gitDir, 'commondir'))) throw refuse(`it pushes only to a bare repository on this machine, and ${gitDir} isn't one.`);
+  for (const e of local) if (!PUSH_TARGET_KEYS.test(e.key)) throw refuse(`the push target ${gitDir} has a git setting (${e.key}) beyond what a plain bare repository has.`);
   let common = gitDir;
   try {
     common = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
@@ -466,19 +482,21 @@ function checkEndpoint(gitDir: string, listing: Buffer, push: boolean): void {
   }
 }
 
-// A fetch, push or ls-remote whose repository is a path or address (a word
-// with a slash, which no remote's name has) uses no remote, so the repo's
-// remotes needn't be checked: one that couldn't be fetched from mustn't stop
-// a fetch from Threadbear's own temporary repo (merge-prepared.mjs) or the
-// update clone's checkout. Only with options known to take no repository of
-// their own, or the first word might not be the repository.
+// The repository a fetch, push or ls-remote names, when it can be told: its
+// first word, with only options known to take no value of their own (or the
+// first word might not be the repository). A word with a slash is a path or
+// address (no remote's name has one, and git reads no .git/remotes file by
+// such a name); one without names a remote if there is one by that name, and
+// is a path if not. Then git uses only that repository, so only it is
+// checked: one remote that couldn't be fetched from mustn't stop a fetch
+// from Threadbear's own temporary repo (merge-prepared.mjs) or a landing's
+// push to origin.
 const PLAIN_TRANSFER_OPTION = /^(-q|--quiet|-v|--verbose|-f|--force|--no-tags|--tags|--no-write-fetch-head|--prune|--no-prune|--no-prune-tags|--no-recurse-submodules|--recurse-submodules=no|--atomic|--signed=false|--upload-pack=git-upload-pack|--receive-pack=git-receive-pack|--depth=\d+|--refs|--heads)$/;
-function namesItsRepository(rest: readonly string[]): boolean {
+function namedRepository(rest: readonly string[]): string | undefined {
   const end = rest.indexOf('--');
-  const opts = end < 0 ? rest.filter((a) => a.startsWith('-')) : rest.slice(0, end).filter((a) => a.startsWith('-'));
-  if (!opts.every((a) => PLAIN_TRANSFER_OPTION.test(a))) return false;
-  const first = end < 0 ? rest.find((a) => !a.startsWith('-')) : rest.slice(0, end).find((a) => !a.startsWith('-')) ?? rest[end + 1];
-  return first !== undefined && /[\\/]/.test(first);
+  const before = end < 0 ? rest : rest.slice(0, end);
+  if (!before.filter((a) => a.startsWith('-')).every((a) => PLAIN_TRANSFER_OPTION.test(a))) return undefined;
+  return before.find((a) => !a.startsWith('-')) ?? (end < 0 ? undefined : rest[end + 1]);
 }
 
 function* checkTransfer(dir: string, sub: string, rest: readonly string[], entries: readonly ConfigEntry[], env: NodeJS.ProcessEnv, timeoutMs: number): Generator<GitStep, void, UntrustedGitResult> {
@@ -493,8 +511,18 @@ function* checkTransfer(dir: string, sub: string, rest: readonly string[], entri
     }
     words.push(a);
   }
-  if (sub !== 'clone' && !namesItsRepository(rest)) {
-    for (const e of entries) if (/^remote\.[\s\S]+\.(url|pushurl)$/.test(e.key)) words.push(e.value);
+  const named = sub === 'clone' ? undefined : namedRepository(rest);
+  if (named !== undefined && !/[\\/]/.test(named)) {
+    // A remote's own addresses, as git resolves them (url rewriting and
+    // .git/remotes included); a name that isn't a remote's is a path.
+    for (const push of [[], ['--push']]) {
+      const urls = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', 'get-url', ...push, '--all', '--', named], env, timeoutMs };
+      if (urls.ok) words.push(...urls.stdout.split('\n').filter(Boolean));
+    }
+  } else if (sub !== 'clone' && named === undefined) {
+    // No repository named (or it can't be told): git takes it from the
+    // branch's settings, so every remote and every repository those name.
+    for (const e of entries) if (/^remote\.[\s\S]+\.(url|pushurl)$/.test(e.key) || /^branch\.[\s\S]+\.(remote|pushremote)$/.test(e.key) || e.key === 'remote.pushdefault') words.push(e.value);
     const common = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'], env, timeoutMs };
     if (common.ok) {
       const listed = yield { cwd: dir, args: [...LISTING_GIT_CONFIG, '-C', dir, 'remote', '-v'], env, timeoutMs };
@@ -597,7 +625,7 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
         const baseConfig = repoProofConfig(entries);
         const revCheck = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'cat-file', '--batch-check=%(objecttype) %(objectname)'], env, timeoutMs: short, input: moduleRevCandidates(rest).map((r) => `${r}^{commit}\n`).join('') };
         const extraCommits = revCheck.ok ? revCheck.stdout.split('\n').flatMap((l) => (/^commit ([0-9a-f]{40,64})$/.exec(l)?.[1] ? [l.slice(7)] : [])) : [];
-        const history = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'log', '-m', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', '.gitmodules'], env, timeoutMs: timeout };
+        const history = yield { cwd: dir, args: [...baseConfig, '-C', dir, 'log', '-m', '--root', '--raw', '--no-abbrev', '--format=', '--all', ...extraCommits, '--', ':(top,literal).gitmodules'], env, timeoutMs: timeout };
         if (!history.ok) throw new Error('Cannot inspect submodule history safely.');
         for (const oid of moduleHistoryBlobs(history.stdout)) {
           const m = yield blobConfig(oid);

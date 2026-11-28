@@ -319,3 +319,17 @@ test('settings tools write go through; ones that could run a program or redirect
     assert.throws(() => repoProofConfig([local(key)]), /must move/, key);
   }
 });
+
+// Git for Windows starts helpers by name (ssh, git merge-file), and a script
+// run outside the runner (setup, deploy, merge-prepared) doesn't have the
+// runner's NoDefaultCurrentDirectoryInExePath (Gemini's second break-it
+// review, 28 Nov 2026), so untrustedGit's environment carries it.
+test("untrustedGit's environment keeps Windows from running a program from the repo's folder", () => {
+  const saved = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    assert.equal(untrustedGitEnv({ PATH: 'x' }).NoDefaultCurrentDirectoryInExePath, '1');
+  } finally {
+    Object.defineProperty(process, 'platform', saved);
+  }
+});
