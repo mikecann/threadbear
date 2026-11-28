@@ -605,8 +605,9 @@ export function untrustedGitRunSync(dir: string, args: readonly string[], opts: 
 }
 
 // What untrustedGit runs. `git submodule` isn't one: it runs git in each
-// submodule with that submodule's own config.
-const SUBCOMMANDS = new Set(['add', 'checkout', 'checkout-index', 'cherry', 'cherry-pick', 'clean', 'commit', 'config', 'diff-tree', 'hash-object', 'log', 'ls-tree', 'merge', 'merge-tree', 'push', 'rebase', 'reflog', 'show', 'var', 'update-index', 'branch', 'bundle', 'cat-file', 'clone', 'commit-tree', 'diff', 'diff-files', 'diff-index', 'fetch', 'for-each-ref', 'fsck', 'ls-files', 'ls-remote', 'merge-base', 'read-tree', 'remote', 'reset', 'rev-list', 'rev-parse', 'status', 'symbolic-ref', 'update-ref', 'worktree', 'write-tree']);
+// submodule with that submodule's own config. check-ignore reads ignore
+// rules only (the build cache cleanup asks it what a worktree ignores).
+const SUBCOMMANDS = new Set(['add', 'checkout', 'checkout-index', 'check-ignore', 'cherry', 'cherry-pick', 'clean', 'commit', 'config', 'diff-tree', 'hash-object', 'log', 'ls-tree', 'merge', 'merge-tree', 'push', 'rebase', 'reflog', 'show', 'var', 'update-index', 'branch', 'bundle', 'cat-file', 'clone', 'commit-tree', 'diff', 'diff-files', 'diff-index', 'fetch', 'for-each-ref', 'fsck', 'ls-files', 'ls-remote', 'merge-base', 'read-tree', 'remote', 'reset', 'rev-list', 'rev-parse', 'status', 'symbolic-ref', 'update-ref', 'worktree', 'write-tree']);
 
 // A submodule is a repo of its own, with its own config (.git/modules/<name>/
 // config, or a .git inside it), and the settings above only switch off what
