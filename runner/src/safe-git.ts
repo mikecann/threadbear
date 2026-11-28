@@ -232,10 +232,6 @@ export function repoProofConfig(entries: readonly ConfigEntry[], network?: 'bund
   // a checkout under another spelling of .git (Gemini's third break-it review).
   for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^core\.protect(ntfs|hfs)$/.test(e.key) && !/^(true|yes|on|1)$/i.test(e.value)) throw new Error(`This repo switches off git's check of .git's other spellings (${e.key}); remove it before Threadbear runs git here.`);
   for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^includeif\./i.test(e.key)) throw new Error('This repo has conditional git includes. Move them to your global git config before Threadbear changes worktrees.');
-  // A repo's own include.path names a file the operation itself can rewrite
-  // (a checkout), which a git started mid-way (rebase's am) reads again after
-  // these settings were read (Gemini's fourth break-it review).
-  for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^include\./i.test(e.key)) throw new Error(`This repo's own git config includes another file (${e.key}). Move it to your global git config before Threadbear runs git here.`);
   const drivers = new Set<string>();
   const hooks = new Set<string>();
   const submodules = new Set<string>();
@@ -707,6 +703,12 @@ function* prepare(dir: string, args: readonly string[], opts: UntrustedGitOption
   let transport: 'local' | 'network' | undefined;
   try {
     const entries = parseConfigListBytes(listed.bytes ?? Buffer.from(listed.stdout));
+    // A repo's own include.path names a file the command itself can rewrite
+    // (a checkout), which a git it starts part-way (rebase's am) reads again
+    // after these settings were read and switched off (Gemini's fourth
+    // break-it review). The release check (upstream.ts) checks nothing out,
+    // and keeps taking such a fork's releases with nothing included running.
+    for (const e of entries) if (!TRUSTED_SCOPES.has(e.scope) && /^include\./i.test(e.key)) throw new Error(`This repo's own git config includes another file (${e.key}). Move it to your global git config before Threadbear runs git here.`);
     yield* checkWorktree(dir, entries, listEnv);
     if (TRANSFERS.has(sub)) transport = yield* checkTransfer(dir, sub, rest, entries, listEnv, short);
     if (['merge', 'rebase', 'commit', 'cherry-pick', 'checkout', 'reset'].includes(sub)) {

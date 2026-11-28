@@ -419,10 +419,17 @@ test('a local repository after an option with a value still gets the hardened se
 // A repo's own include.path names a file the operation itself can rewrite
 // (a checkout), read again by a git started mid-way (rebase's am), after
 // the settings were read and switched off: refused, as includeIf is.
-test('a repo-local include is refused; rebase, rerere settings are pinned', () => {
-  const local = (key: string, value = 'x') => ({ scope: 'local', key, value });
-  assert.throws(() => repoProofConfig([local('include.path', '../evil.gitconfig')]), /include/);
-  assert.doesNotThrow(() => repoProofConfig([{ scope: 'global', key: 'include.path', value: '~/.gitconfig.local' }]));
+test('a repo-local include is refused; rebase, rerere settings are pinned', async () => {
+  const { root, dest } = fixture();
+  g(dest, 'config', 'include.path', '../evil.gitconfig');
+  for (const args of [['status'], ['rebase', 'main'], ['merge', '--ff-only', 'HEAD']]) {
+    const r = await untrustedGit(dest, args);
+    assert.equal(r.ok, false, args.join(' ')); assert.match(r.stderr, /includes another file/);
+  }
+  const global = path.join(root, 'global.gitconfig');
+  fs.writeFileSync(global, `[include]\n\tpath = ${path.join(root, 'more.gitconfig')}\n`);
+  g(dest, 'config', '--unset', 'include.path');
+  assert.ok((await untrustedGit(dest, ['status'], { env: { GIT_CONFIG_GLOBAL: global } })).ok, "the owner's own includes stay");
   const out = repoProofConfig([]).join(' ');
   for (const pin of ['rebase.backend=merge', 'rerere.enabled=false', 'rerere.autoUpdate=false']) assert.ok(out.includes(pin), pin);
 });
