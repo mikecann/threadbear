@@ -479,7 +479,7 @@ test("a git that times out checking the branch is there stops the cleanup, rathe
 test("tb land counts a git that times out reading what's to land as a failure, not as nothing to land", async () => {
   // The landing's own reads, and the submodule history read before its
   // rebase (safe-git.ts), each of which fails the landing with main unmoved.
-  for (const [match, said] of [['--oneline --first-parent', /^Couldn't read what thread\/abcd1234 has to land/], ['rev-list', /^Couldn't read thread\/abcd1234's history/], ['-m --raw', /nothing landed: Cannot inspect submodule history safely/]] as const) {
+  for (const [match, said] of [['--oneline --first-parent', /^Couldn't read what thread\/abcd1234 has to land/], ['rev-list', /^Couldn't read thread\/abcd1234's history/], [':(top,literal).gitmodules', /nothing landed: Cannot inspect submodule history safely/]] as const) {
     const { main } = makeRepo();
     const t = makeBranch(main);
     commit(t.path, { 'runner/b.ts': '2\n' }, 'Work');
