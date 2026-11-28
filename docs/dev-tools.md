@@ -624,10 +624,15 @@ rollback covers a release that doesn't come up.
   The check only runs here: a failure on a check host is treated as the
   code's, as before. The cloud box sat 13 hours behind main
   on 9 Nov after its watches had come back.
-- Nothing happens while a restart is pending, while `current` names a
-  release that hasn't started yet, from a runner run from a checkout, or
-  from a release built before `release.json` recorded its checkout (deploy
-  once by hand, or reinstall, to get one that does).
+- While `current` names a release that hasn't started, the updater waits
+  for its pending restart. The automatic deploy records `stagedUpdate` in
+  `<home>/runner/state.json` after the smoke test and backend deploy, just
+  before swapping `current`. If the deploy process stops after the swap,
+  the updater can finish recording the activation and request its restart
+  without rebuilding. A manually staged release waits for a restart to be
+  requested separately. The updater is off when run from a checkout or
+  a release built before `release.json` recorded its checkout (deploy once
+  by hand, or reinstall, to get one that does).
 - The updater passes `--follow <checkout>` to deploy.mjs, so each release
   it builds records the checkout it was following, not its own clone. A
   release that names the clone (built before 27 Oct's fix) can't see main

@@ -1414,3 +1414,37 @@ ${out(r)}`);
   assert.equal(fs.readdirSync(path.join(homeFresh, 'runner', 'releases')).filter((n) => ID_RE.test(n)).length, 1, 'the release stays');
   assert.ok(!fs.existsSync(path.join(launchd, 'supervisor.pid')) || (() => { try { process.kill(Number(fs.readFileSync(path.join(launchd, 'supervisor.pid'), 'utf8')), 0); return false; } catch { return true; } })(), 'no keep-alive loop left');
 });
+
+test('automatic deploy records the staged release before switching current', { timeout: 120_000 }, () => {
+  const data = path.join(root, 'home-interrupted');
+  const dir = path.join(data, 'runner');
+  const link = path.join(dir, 'current');
+  const previous = '20261125T010000Z-abcdef1';
+  const stateFile = path.join(dir, 'state.json');
+  fs.mkdirSync(path.join(dir, 'releases', previous), { recursive: true });
+  fs.symlinkSync(path.join('releases', previous), link);
+  fs.writeFileSync(stateFile, JSON.stringify({ current: previous, previous: null, lastGood: previous, boots: [] }));
+
+  // Kill only this deploy, immediately after the rename that swaps the link.
+  const hook = path.join(root, 'stop-after-switch.mjs');
+  fs.writeFileSync(hook, `
+import fs from 'node:fs';
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => {
+  rename(from, to);
+  if (to === ${JSON.stringify(link)}) process.kill(process.pid, 'SIGKILL');
+};
+`);
+  const r = sh('deploy-runner.sh', ['--home', data, '--skip-checks', '--skip-backend', '--no-restart', '--follow', repo], {
+    THREADBEAR_DEPLOY_UPDATER: '1',
+    NODE_OPTIONS: `--import ${pathToFileURL(hook).href}`,
+  });
+  assert.equal(r.status, null, out(r));
+  const id = path.basename(fs.readlinkSync(link));
+  assert.notEqual(id, previous);
+  const state = readJson(stateFile);
+  assert.equal(state.current, previous, 'the deploy stopped before recording the switch');
+  assert.equal(state.stagedUpdate?.release, id);
+  assert.equal(state.stagedUpdate?.from, previous);
+  assert.ok(fs.existsSync(path.join(dir, 'releases', id, 'src', 'main.ts')));
+});

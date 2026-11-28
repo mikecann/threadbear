@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tmpDir } from '../helpers/fakes.ts';
+import { makeHarness, tmpDir } from '../helpers/fakes.ts';
 import { FakeClock } from '../../src/clock.ts';
 import type { UpdateFailure } from '../../src/fix-update.ts';
 import { nullLogger } from '../../src/log.ts';
-import { CHECK_INTERVAL_MS, FIRST_CHECK_MS, MACHINE_WAIT_MS, MAX_MACHINE_TRIES, MAX_SLEPT_TRIES, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, buildTreeAt, landChecked, passedLandCheck, LAND_CHECK_COMMANDS, LAND_CHECK_STEPS, type UpdateDeps } from '../../src/update.ts';
+import { BACKGROUND_WAIT_MS, CHECK_INTERVAL_MS, FIRST_CHECK_MS, MACHINE_WAIT_MS, MAX_MACHINE_TRIES, MAX_SLEPT_TRIES, SOON_MS, RunnerUpdater, runDeploy, launcherDiffers, launchAgentBehind, launcherSourcesHash, appOfExecutable, updateDir, watchMainRef, decideUpdate, failedAlready, releaseTreeAt, syncClone, updateFilePath, buildTreeAt, landChecked, passedLandCheck, LAND_CHECK_COMMANDS, LAND_CHECK_STEPS, type UpdateDeps } from '../../src/update.ts';
 import { APP_STAGED_REASON } from '../../src/reinstall.ts';
 import { LAND_TIMES_FILE } from '../../src/land-queue.ts';
-import type { ReleaseJson } from '../../src/release.ts';
+import { currentLink, readState, statePath, type ReleaseJson } from '../../src/release.ts';
+import { Restarter, restartPath } from '../../src/restart.ts';
 import { noFileWatches, patiently } from '../helpers/patience.ts';
 
 const running = { id: 'r1', tree: 'a+b+c+d' };
@@ -136,7 +137,7 @@ type Harness = {
   deployResult: { ok: true; id: string } | { ok: false; error: string; transient?: boolean; slept?: boolean; unavailable?: boolean };
   backendDeploys: string[];
   backendResult: { ok: boolean; error?: string };
-  pending: boolean;
+  pending?: { release: string };
 };
 
 function harness(releaseExtra: Partial<ReleaseJson> = {}, depsExtra: Partial<UpdateDeps> = {}): Harness {
@@ -158,7 +159,6 @@ function harness(releaseExtra: Partial<ReleaseJson> = {}, depsExtra: Partial<Upd
     deployResult: { ok: true, id: 'r2' },
     backendDeploys: [] as string[],
     backendResult: { ok: true } as { ok: boolean; error?: string },
-    pending: false,
   };
   const u = new RunnerUpdater({
     home,
@@ -169,7 +169,7 @@ function harness(releaseExtra: Partial<ReleaseJson> = {}, depsExtra: Partial<Upd
     notice: (_l, m) => h.notices.push(m),
     restart: (p) => {
       h.restarts.push({ release: p.release, reason: p.reason });
-      h.pending = true;
+      h.pending = { release: p.release };
       return { scheduled: true, waitingFor: ['t1'] };
     },
     pendingRestart: () => h.pending,
@@ -220,6 +220,189 @@ test('a change to main is built and a restart asked for; the next check sees the
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
   assert.equal(h.deploys, 1);
+  assert.equal(h.restarts.length, 1);
+});
+
+// State left by an automatic deploy that finished the checks and changed
+// current, but died before it could finish recording the activation.
+function interruptedActivation(h: Harness, automatic = true): void {
+  const dir = path.join(h.home, 'runner');
+  const next = path.join(dir, 'releases', 'r2');
+  const at = '2026-11-25T12:00:00.000Z';
+  fs.mkdirSync(path.join(next, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(next, 'src', 'main.ts'), '');
+  fs.writeFileSync(path.join(next, 'release.json'), JSON.stringify({ id: 'r2', commit: h.main.commit, builtAt: at, dirty: false, node: '24' }));
+  if (automatic) {
+    fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ ...readState(h.home), stagedUpdate: { release: 'r2', from: 'r1', at } }));
+  }
+  const current = path.join(dir, 'current');
+  fs.unlinkSync(current);
+  fs.symlinkSync(path.join('releases', 'r2'), current);
+}
+
+test('a deploy child that dies just after switching current leaves a restart to recover once', async () => {
+  let h: Harness;
+  h = harness({}, {
+    deploy: async () => {
+      h.deploys++;
+      interruptedActivation(h);
+      return { ok: false, error: 'stopped by SIGKILL' };
+    },
+  });
+
+  await h.u.check();
+  await h.u.check();
+
+  assert.equal(h.u.status().state, 'waiting');
+  assert.equal(h.u.status().release, 'r2');
+  assert.deepEqual(h.restarts.map((p) => p.release), ['r2']);
+  assert.equal(h.deploys, 1, 'the release already passed its checks');
+  assert.deepEqual(h.notices, []);
+  assert.ok(!fs.existsSync(updateFilePath(h.home)), 'the verified release is not a failed build');
+  const state = readState(h.home);
+  assert.equal(state?.current, 'r2');
+  assert.equal(state?.previous, 'r1', 'manual rollback still goes to the running release');
+  assert.equal(state?.activated?.release, 'r2');
+});
+
+for (const interrupted of [false, true]) {
+  test(`a restart requested during a build picks up the ${interrupted ? 'interrupted' : 'successful'} update and can be cancelled`, async () => {
+    let restarter: Restarter;
+    const h = harness({}, {
+      deploy: async () => {
+        restarter.request({ when: 'idle' });
+        interruptedActivation(h);
+        if (interrupted) return { ok: false, error: 'stopped by SIGKILL' };
+        const state = readState(h.home);
+        fs.writeFileSync(statePath(h.home), JSON.stringify({ ...state, current: 'r2', previous: 'r1' }));
+        return { ok: true, id: 'r2' };
+      },
+      restart: (p) => restarter.request({ when: 'idle', ...p }),
+      pendingRestart: () => restarter.status().pendingRestart,
+    });
+    const { runner, adapter } = makeHarness(h.home);
+    const { thread } = runner.create({ text: 'Keep working', accountId: 'claude-3' });
+    adapter.last.init();
+    const source = path.join(h.home, 'runner', 'releases', 'r1', 'src');
+    fs.mkdirSync(source);
+    fs.writeFileSync(path.join(source, 'main.ts'), '');
+    restarter = new Restarter({ runner, home: h.home, clock: h.clock, log: nullLogger, release: 'r1', restart: () => assert.fail('the turn is still running') });
+
+    await h.u.check();
+
+    const pending = restarter.status().pendingRestart;
+    assert.equal(pending?.release, 'r2');
+    assert.deepEqual(pending.waitingFor, [thread.id]);
+    const deadline = new Date(h.clock.now() + BACKGROUND_WAIT_MS).toISOString();
+    assert.equal(pending.backgroundUntil, deadline);
+    assert.equal(h.u.status().release, 'r2');
+    const saved = JSON.parse(fs.readFileSync(restartPath(h.home), 'utf8'));
+    assert.equal(saved.release, 'r2');
+    assert.equal(saved.backgroundUntil, deadline);
+
+    assert.equal(restarter.request({ cancel: true }).scheduled, false);
+    assert.equal(currentLink(h.home), 'r1');
+    assert.ok(!fs.existsSync(restartPath(h.home)));
+  });
+}
+
+test('a restart already pending is kept for the staged release', async () => {
+  const h = harness();
+  interruptedActivation(h);
+  h.pending = { release: 'r2' };
+
+  await h.u.check();
+
+  assert.equal(h.deploys, 0);
+  assert.deepEqual(h.restarts, []);
+  assert.equal(h.u.status().state, 'waiting');
+  // A cancellation that could not reset current still withdraws the restart.
+  h.pending = undefined;
+  await h.u.check();
+  assert.deepEqual(h.restarts, []);
+});
+
+test('the next check recovers a staged update once the deploy has stopped', async () => {
+  const h = harness();
+  interruptedActivation(h);
+  const lock = path.join(h.home, 'runner', 'deploy.lock');
+  fs.mkdirSync(lock);
+  fs.writeFileSync(path.join(lock, 'pid'), String(process.pid));
+
+  await h.u.check();
+  assert.deepEqual(h.restarts, []);
+  assert.equal(readState(h.home)?.current, 'r1', 'the deploy still owns the activation');
+
+  fs.rmSync(lock, { recursive: true });
+  await h.u.check();
+  assert.equal(h.restarts.length, 1);
+  assert.equal(h.deploys, 0);
+
+  // An explicit cancellation, even if putting current back failed.
+  h.pending = undefined;
+  await h.u.check();
+  assert.equal(h.restarts.length, 1);
+});
+
+test('checks keep following main while a staged update waits and after cancellation', async () => {
+  let fetches = 0;
+  let h: Harness;
+  h = harness({}, {
+    followsOrigin: () => true,
+    fetchOrigin: async () => {
+      fetches++;
+      return { ref: 'refs/remotes/origin/main', problem: { kind: 'fetch', message: 'could not resolve host' } };
+    },
+    oldestMissing: async () => h.clock.now() - 7 * 60 * 60_000,
+    deploy: async () => {
+      h.deploys++;
+      interruptedActivation(h);
+      return { ok: false, error: 'stopped by SIGKILL' };
+    },
+  });
+  await h.u.check();
+  assert.equal(h.restarts.length, 1);
+
+  h.clock.advance(CHECK_INTERVAL_MS);
+  h.main = { commit: 'c3', short: 'c3', subject: 'Schema', tree: 'y+b+c+d' };
+  await h.u.check();
+  assert.equal(fetches, 2);
+  assert.deepEqual(h.backendDeploys, ['c2', 'c3']);
+  assert.equal(h.u.status().checkedAt, new Date(h.clock.now()).toISOString());
+  assert.equal(h.u.status().commit, 'c3');
+  assert.match(h.u.status().followProblem ?? '', /7 hours behind GitHub/);
+
+  // Cancelling could not restore current, so the staged update stays there.
+  h.pending = undefined;
+  h.clock.advance(60 * 60_000);
+  await h.u.check();
+  assert.equal(fetches, 3);
+  assert.equal(h.u.status().checkedAt, new Date(h.clock.now()).toISOString());
+  assert.match(h.u.status().followProblem ?? '', /could not resolve host/);
+  assert.equal(h.deploys, 1);
+  assert.equal(h.restarts.length, 1);
+});
+
+test('a release manually left on current is not started by the updater', async () => {
+  const h = harness();
+  interruptedActivation(h, false);
+
+  await h.u.check();
+
+  assert.equal(h.deploys, 0);
+  assert.deepEqual(h.restarts, []);
+});
+
+test('a release that crash-looped is not recovered if the launcher could not switch current back', async () => {
+  const h = harness();
+  interruptedActivation(h);
+  const file = path.join(h.home, 'runner', 'state.json');
+  fs.writeFileSync(file, JSON.stringify({ ...readState(h.home), rolledBack: { from: 'r2', to: 'r1', at: '2026-11-25T12:03:00.000Z' } }));
+
+  await h.u.check();
+
+  assert.equal(h.deploys, 0);
+  assert.deepEqual(h.restarts, []);
 });
 
 test('a failed build or backend deploy goes to a fix thread instead of the notice, and to the notice when that fails', async () => {
@@ -350,7 +533,7 @@ test('a release with no tree recorded works it out from its commit', async () =>
 });
 
 test('off: from a checkout, when switched off, when the release has no checkout, when the checkout is gone, or when it is the updater\'s own clone', () => {
-  const base = { home: tmpDir('tb-update-off-'), enabled: true, clock: new FakeClock(), log: nullLogger, notice: () => {}, restart: () => ({ scheduled: true, waitingFor: [] }), pendingRestart: () => false };
+  const base = { home: tmpDir('tb-update-off-'), enabled: true, clock: new FakeClock(), log: nullLogger, notice: () => {}, restart: () => ({ scheduled: true, waitingFor: [] }), pendingRestart: () => undefined };
   const release: ReleaseJson = { id: 'r1', commit: 'c1', dirty: false, builtAt: '', node: '24', checkout: '/nonexistent/checkout', prefix: 'runner/', tree: 't' };
   const cases: [Partial<UpdateDeps>, RegExp][] = [
     [{}, /checkout, not a release/],
@@ -788,7 +971,7 @@ test('followOrigin: main is fetched from GitHub before the clone syncs, and the 
     log: nullLogger,
     notice: () => {},
     restart: () => ({ scheduled: true, waitingFor: [] }),
-    pendingRestart: () => false,
+    pendingRestart: () => undefined,
     env: {},
     followsOrigin: () => follow,
     fetchOrigin: async () => result,
@@ -836,7 +1019,7 @@ test('followOrigin: GitHub out of reach is said only once it has lasted an hour'
     log: nullLogger,
     notice: () => {},
     restart: () => ({ scheduled: true, waitingFor: [] }),
-    pendingRestart: () => false,
+    pendingRestart: () => undefined,
     env: {},
     followsOrigin: () => true,
     fetchOrigin: async () => (reachable ? { ref: 'refs/remotes/origin/main' } : { ref: 'refs/remotes/origin/main', problem: { kind: 'fetch', message: 'could not resolve host' } }),
@@ -871,7 +1054,7 @@ function originRig(over: Partial<UpdateDeps>, releaseOver: Partial<ReleaseJson> 
     log: nullLogger,
     notice: () => {},
     restart: () => ({ scheduled: true, waitingFor: [] }),
-    pendingRestart: () => false,
+    pendingRestart: () => undefined,
     env: {},
     followsOrigin: () => true,
     sync: async () => ({ commit: 'c1', short: 'c1', subject: 's', tree: 'same' }),
@@ -1141,7 +1324,7 @@ test('runDeploy leaves the checks out only when asked to', async () => {
   fs.mkdirSync(path.join(root, 'runner', 'releases', 'r9'), { recursive: true });
   fs.symlinkSync(path.join('releases', 'r9'), path.join(root, 'runner', 'current'));
   const args = path.join(root, 'args.json');
-  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(args)}, JSON.stringify(process.argv.slice(2)));\n`);
+  fs.writeFileSync(path.join(root, 'scripts', 'deploy.mjs'), `import fs from 'node:fs';\nif (process.env.THREADBEAR_DEPLOY_UPDATER !== '1') process.exit(1);\nfs.writeFileSync(${JSON.stringify(args)}, JSON.stringify(process.argv.slice(2)));\n`);
   const read = () => JSON.parse(fs.readFileSync(args, 'utf8')) as string[];
   assert.deepEqual(await runDeploy(root, root, path.join(root, 'build.log'), root), { ok: true, id: 'r9' });
   assert.deepEqual(read(), ['--no-restart', '--home', root, '--follow', root]);

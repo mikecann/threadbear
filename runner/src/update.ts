@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Clock, TimerHandle } from './clock.ts';
 import type { Logger } from './log.ts';
-import { currentLink, readRelease, readState, type ReleaseJson } from './release.ts';
+import { currentLink, readRelease, readState, releaseExists, statePath, type ReleaseJson } from './release.ts';
 import type { RestartResult } from './restart.ts';
 import { atomicWriteFileSync, readJsonSync } from './fsutil.ts';
 import { APP_STAGED_REASON, launcherKey, RUNS_NODE_REASON, stagedAppPath } from './reinstall.ts';
@@ -28,6 +28,7 @@ import { cleanGitError, followOrigin as fetchAndFollowOrigin, oldestMissingAt, t
 import { LAND_TIMES_FILE } from './land-queue.ts';
 import { FETCH_TIMEOUT_MS, fetchableUrl, gitAsync as gitWithin, repoKey, UPLOAD_PACK } from './upstream.ts';
 import { NEUTRAL_ATTRIBUTES, untrustedGit, untrustedGitRunSync, verifyGitObjects, verifyGitCheckout } from './safe-git.ts';
+import { pidExists } from './proc.ts';
 
 export const CHECK_INTERVAL_MS = 5 * 60_000;
 // After main's ref changes in the checkout (a commit or merge landing), the
@@ -137,7 +138,7 @@ export type UpdateDeps = {
   onThrough?: (commit: string) => void;
   // Restarter.request with when: 'idle'.
   restart: (p: { release: string; reason: string; backgroundWaitMs: number }) => RestartResult;
-  pendingRestart: () => boolean;
+  pendingRestart: () => { release?: string } | undefined;
   // followOrigin in runner.json (read every check, so setting it on a
   // machine needs no restart).
   followsOrigin?: () => boolean;
@@ -610,6 +611,7 @@ export function runDeploy(runnerDir: string, home: string, logFile: string, foll
   return new Promise((resolve) => {
     const env: Record<string, string | undefined> = {};
     for (const [k, v] of Object.entries(process.env)) if (!/^THREADB(EAR|ARE)_/.test(k)) env[k] = v;
+    env.THREADBEAR_DEPLOY_UPDATER = '1';
     let fd: number;
     try {
       fd = fs.openSync(logFile, 'w');
@@ -796,6 +798,9 @@ export class RunnerUpdater {
     const wasFailed = this.state === 'failed';
     this.state = 'checking';
     try {
+      // The staged release has already passed its checks. Asking for its
+      // restart needn't wait for Git or a newer backend deploy to succeed.
+      if (this.recoverActivation(release.id) === 'requested') return { action: 'nothing', why: 'restart requested for an already staged release' };
       const dir = path.join(updateDir(home), 'src');
       this.followsOrigin = this.deps.followsOrigin?.() ?? false;
       const origin = this.followsOrigin ? await (this.deps.fetchOrigin ?? fetchAndFollowOrigin)(release.checkout) : undefined;
@@ -855,12 +860,14 @@ export class RunnerUpdater {
       // The machine's fault, and the machine has recovered: not a failure of
       // this tree any more. The same tree only, as a new one is built anyway.
       const recovered = Boolean(file?.failed?.machine && failedAlready(file.failed, main) && !this.troubleNow());
+      const current = currentLink(home);
+      const pending = this.deps.pendingRestart();
       const decision = decideUpdate({
         mainTree: main.tree,
         mainBuildTree: main.buildTree,
         running,
-        current: currentLink(home),
-        pendingRestart: this.deps.pendingRestart(),
+        current,
+        pendingRestart: Boolean(pending),
         failed: recovered ? undefined : file?.failed,
         crashedTrees: this.crashedTrees(dir, release.prefix, treeOf),
       });
@@ -869,6 +876,10 @@ export class RunnerUpdater {
         if (decision.why === 'up to date with main') this.through(main.commit);
         // A failure stays on show until main moves on from it.
         this.state = wasFailed && failedAlready(file?.failed, main) ? 'failed' : 'idle';
+        if (this.releaseBuilt && current === this.releaseBuilt && pending?.release === current) {
+          this.state = 'waiting';
+          this.reason = undefined;
+        }
         if (!recovered && file?.failed?.machine && failedAlready(file.failed, main) && this.deps.clock.now() - Date.parse(file.failed.at) >= MACHINE_WAIT_MS) this.machineWaitOver(file.failed, main);
         return decision;
       }
@@ -892,6 +903,11 @@ export class RunnerUpdater {
       const tries = !result.ok && (result.slept || result.unavailable) ? (this.slept?.tree === builds ? this.slept.tries : 0) + 1 : 0;
       this.slept = tries ? { tree: builds, tries } : undefined;
       if (!result.ok) {
+        const activation = this.recoverActivation(release.id);
+        if (activation) {
+          if (activation === 'staged') this.state = this.deps.pendingRestart() ? 'waiting' : 'idle';
+          return decision;
+        }
         if (result.transient && tries < MAX_SLEPT_TRIES) {
           log.info('could not build main now; trying again later', { error: result.error, ...(tries ? { sleptTries: tries } : {}) });
           this.state = 'idle';
@@ -933,11 +949,7 @@ export class RunnerUpdater {
         );
         return decision;
       }
-      this.releaseBuilt = result.id;
-      this.state = 'waiting';
-      this.through(main.commit);
-      const res = this.deps.restart({ release: result.id, reason: `Updating to main at ${main.short}: ${main.subject}`, backgroundWaitMs: BACKGROUND_WAIT_MS });
-      log.info('release of main built; restart asked for', { release: result.id, commit: main.short, waitingFor: res.waitingFor });
+      this.restartOnto(result.id, main.commit, `Updating to main at ${main.short}: ${main.subject}`);
       return decision;
     } catch (e) {
       // Git trouble in the clone, say: logged, and tried again next time.
@@ -955,6 +967,50 @@ export class RunnerUpdater {
       this.busy = false;
       this.deps.onChange?.();
     }
+  }
+
+  // A switched link alone can be a manual deploy with --no-restart. The
+  // deploy script records the automatic activation before changing the
+  // link, so even a kill between the link and state writes is recoverable.
+  private recoverActivation(running: string): 'staged' | 'requested' | undefined {
+    const { home } = this.deps;
+    const current = currentLink(home);
+    if (!current || current === running) return undefined;
+    const state = readState(home);
+    const staged = state?.stagedUpdate;
+    if (!state || staged?.release !== current || staged.from !== running || state.rolledBack?.from === current) return undefined;
+    const release = readRelease(path.join(home, 'runner', 'releases', current));
+    if (release?.id !== current || typeof release.commit !== 'string' || !releaseExists(home, current)) return undefined;
+
+    // A pending restart may have been explicitly cancelled. If the link
+    // could not be reverted, still honour the cancellation.
+    if (this.releaseBuilt === current) return 'staged';
+    const deployPid = readJsonSync<number>(path.join(home, 'runner', 'deploy.lock', 'pid'));
+    if (deployPid && Number.isInteger(deployPid) && deployPid > 0 && pidExists(deployPid)) return 'staged';
+    if (state.current !== current) {
+      // The deploy reached the link swap but not the state write. Keep the
+      // running release as the one to go back to, as activate would have.
+      const next = { ...state, current, previous: running, activated: { release: current, at: staged.at } };
+      atomicWriteFileSync(statePath(home), JSON.stringify(next, null, 2) + '\n');
+    }
+    const pending = this.deps.pendingRestart();
+    if (pending?.release) {
+      if (pending.release === current) this.releaseBuilt = current;
+      return 'staged';
+    }
+    this.restartOnto(current, release.commit, `Finishing an interrupted update to ${current}`);
+    return 'requested';
+  }
+
+  private restartOnto(release: string, commit: string, reason: string): void {
+    this.state = 'waiting';
+    this.reason = undefined;
+    this.through(commit);
+    // The restarter merges a request made while the build was running.
+    // It needs the release to restore current if that restart is cancelled.
+    const res = this.deps.restart({ release, reason, backgroundWaitMs: BACKGROUND_WAIT_MS });
+    if (res.scheduled) this.releaseBuilt = release;
+    this.deps.log.info('release of main built; restart asked for', { release, commit, waitingFor: res.waitingFor });
   }
 
   // Still sick after MACHINE_WAIT_MS: a failure like any other from here on.

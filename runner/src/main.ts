@@ -1173,7 +1173,7 @@ async function main(): Promise<void> {
     onFailed: (f) => Boolean(updateRelease?.checkout) && (updateFixer.failed(f), true),
     onThrough: (commit) => updateFixer.through(commit),
     restart: (p) => restarter.request({ when: 'idle', ...p }),
-    pendingRestart: () => Boolean(restarter.status().pendingRestart),
+    pendingRestart: () => restarter.status().pendingRestart,
     followsOrigin: () => followOriginOn(cfg.home),
     beforeBuild: () => buildCacheCleaner.ifLow('before a build'),
     onChange: () => {

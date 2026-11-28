@@ -61,6 +61,15 @@ type RunnerUpdates = {
 }
 ```
 
+If an automatic build stops after selecting a verified release as `current`,
+the updater finishes recording that activation and asks for the usual idle
+restart. An existing request for the release stays in place. A restart
+requested without a release can pick up the update's target and its limit
+on waiting for background work, so cancelling it can restore the running
+release as `current`.
+The updater keeps checking main while a restart is pending. A manually
+staged release still starts on the next restart requested for that runner.
+
 ### Mike's releases
 
 A copy of Threadbear that's someone's fork follows Mike's releases

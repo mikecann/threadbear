@@ -26,6 +26,10 @@ export type RunnerState = {
   // deploy-runner.sh's: when current was last activated. launch.mjs only
   // counts that release's boots since then.
   activated?: { release: string; at: string };
+  // Written before an automatic deploy switches current, once the checks,
+  // smoke test and backend deploy passed. The updater can finish the
+  // activation if the deploy process stopped after switching the link.
+  stagedUpdate?: { release: string; from: string; at: string };
   // reportedAt is the runner's own: set once the notice has gone out, so a
   // rollback is announced by the first runner after it and no other.
   rolledBack?: { from: string; to: string; at: string; reportedAt?: string };
